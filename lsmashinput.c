@@ -387,12 +387,17 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
         return 0;
     }
     int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture.data, picture.linesize, 0, hp->ctx->height, dst_data, dst_linesize );
-    int desired_linesize = hp->ctx->width * 2;
-    int output_size = desired_linesize * ouptut_height;
+    int buf_linesize  = hp->ctx->width * 2;
+    int output_size   = buf_linesize * ouptut_height;
     DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
                                dst_linesize[0], ouptut_height, output_size );
-    for( int i = 0; i < ouptut_height; i++ )
-        memcpy( buf + i * desired_linesize, dst_data[0] + i * dst_linesize[0], desired_linesize );
+    uint8_t *dst = dst_data[0];
+    while( ouptut_height-- )
+    {
+        memcpy( buf, dst, buf_linesize );
+        buf += buf_linesize;
+        dst += dst_linesize[0];
+    }
     av_free( dst_data[0] );
     hp->last_sample_number = sample_number;
     return output_size;
