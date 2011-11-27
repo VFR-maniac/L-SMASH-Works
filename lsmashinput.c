@@ -91,10 +91,11 @@ typedef struct
     lsmash_root_t     *root;
     uint32_t           track_ID;
     /* Libav's stuff */
-    AVFormatContext   *format_ctx;
     AVCodecContext    *ctx;
+    AVFormatContext   *format_ctx;
     struct SwsContext *sws_ctx;
     /* Others */
+    uint8_t           *input_buffer;
     BITMAPINFOHEADER   video_format;
     int                framerate_num;
     int                framerate_den;
@@ -122,6 +123,8 @@ static inline void cleanup_handler( lsmash_handler_t *hp )
         av_close_input_file( hp->format_ctx );
     if( hp->sws_ctx )
         sws_freeContext( hp->sws_ctx );
+    if( hp->input_buffer )
+        av_free( hp->input_buffer );
     free( hp );
 }
 
@@ -133,20 +136,15 @@ static INPUT_HANDLE error_out( lsmash_handler_t *hp )
 
 static int decode_video_sample( lsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
-    AVPacket pkt;
-    av_init_packet( &pkt );
     lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->track_ID, sample_number );
     if( !sample )
         return 1;
+    AVPacket pkt;
+    av_init_packet( &pkt );
     pkt.flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
     /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     pkt.size  = sample->length;
-    pkt.data  = av_mallocz( sample->length + FF_INPUT_BUFFER_PADDING_SIZE );
-    if( !pkt.data )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return -1;
-    }
+    pkt.data  = hp->input_buffer;
     memcpy( pkt.data, sample->data, sample->length );
     lsmash_delete_sample( sample );
     if( avcodec_decode_video2( hp->ctx, picture, got_picture, &pkt ) < 0 )
@@ -154,7 +152,6 @@ static int decode_video_sample( lsmash_handler_t *hp, AVFrame *picture, int *got
         MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
         return -1;
     }
-    av_free( pkt.data );
     return 0;
 }
 
@@ -286,7 +283,19 @@ INPUT_HANDLE func_open( LPSTR file )
     DWORD ProcessAffinityMask, SystemAffinityMask;
     GetProcessAffinityMask( GetCurrentProcess(), &ProcessAffinityMask, &SystemAffinityMask );
     hp->ctx->thread_count = ProcessAffinityMask > SystemAffinityMask ? SystemAffinityMask : ProcessAffinityMask;
-    /* */
+    /* Preparation for decoding samples */
+    uint32_t max_sample_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->track_ID );
+    if( max_sample_size == 0 )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid sample found." );
+        return error_out( hp );
+    }
+    hp->input_buffer = av_mallocz( max_sample_size + FF_INPUT_BUFFER_PADDING_SIZE );
+    if( !hp->input_buffer )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer." );
+        return error_out( hp );
+    }
     AVFrame picture;
     if( get_picture( hp, &picture, 1, 1 ) )
     {
