@@ -139,14 +139,22 @@ static int decode_video_sample( lsmash_handler_t *hp, AVFrame *picture, int *got
     if( !sample )
         return 1;
     pkt.flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
+    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     pkt.size  = sample->length;
-    pkt.data  = sample->data;
+    pkt.data  = av_mallocz( sample->length + FF_INPUT_BUFFER_PADDING_SIZE );
+    if( !pkt.data )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return -1;
+    }
+    memcpy( pkt.data, sample->data, sample->length );
+    lsmash_delete_sample( sample );
     if( avcodec_decode_video2( hp->ctx, picture, got_picture, &pkt ) < 0 )
     {
         MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
         return -1;
     }
-    lsmash_delete_sample( sample );
+    av_free( pkt.data );
     return 0;
 }
 
@@ -375,7 +383,7 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
     dst_data[0] = av_mallocz( dst_linesize[0] * hp->ctx->height );
     if( !dst_data[0] )
     {
-        MessageBox( HWND_DESKTOP, "Failed to malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
     int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture.data, picture.linesize, 0, hp->ctx->height, dst_data, dst_linesize );
