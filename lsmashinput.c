@@ -309,7 +309,7 @@ INPUT_HANDLE func_open( LPSTR file )
     hp->video_format.biHeight      = hp->ctx->height;
     hp->video_format.biPlanes      = 1;
     hp->video_format.biBitCount    = 16;   /* packed YUV 4:2:2 */
-    hp->video_format.biCompression = LSMASH_4CC( '2', 'Y', 'U', 'Y' );
+    hp->video_format.biCompression = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
     hp->video_format.biSizeImage   = picture.linesize[0] * hp->ctx->height;
     /* swscale */
     hp->sws_ctx = sws_getCachedContext( NULL,
