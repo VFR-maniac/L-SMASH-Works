@@ -166,7 +166,7 @@ static int get_picture( lsmash_handler_t *hp, AVFrame *picture, uint32_t current
     }
     avcodec_get_frame_defaults( picture );
     int got_picture = 0;
-    while( 1 )
+    do
     {
         int ret = decode_video_sample( hp, picture, &got_picture, current );
         if( ret == -1 )
@@ -176,13 +176,13 @@ static int get_picture( lsmash_handler_t *hp, AVFrame *picture, uint32_t current
         ++current;
         if( !got_picture )
             ++ hp->delay_count;
-        if( hp->delay_count > hp->ctx->has_b_frames && hp->decode_status == DECODE_INITIALIZED )
-            break;
         DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, delay_count = %d",
                                    goal, current - 1, hp->delay_count );
+        if( hp->delay_count > hp->ctx->has_b_frames && hp->decode_status == DECODE_INITIALIZED )
+            break;
         if( got_picture && current > goal )
             break;
-    }
+    } while( 1 );
     /* Flush the last frames. */
     if( current > hp->sample_count && !got_picture && hp->ctx->has_b_frames )
     {
@@ -346,11 +346,29 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
     return TRUE;
 }
 
-static inline void prepare_decoder_init( lsmash_handler_t *hp )
+static uint32_t seek_media( lsmash_handler_t *hp, AVFrame *picture, uint32_t sample_number, uint32_t *rap_number )
 {
+    /* Prepare to decode from random accessible sample. */
     avcodec_flush_buffers( hp->ctx );
-    hp->delay_count = 0;
+    hp->delay_count   = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
+    uint32_t distance;
+    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->track_ID, sample_number, rap_number, NULL, NULL, &distance ) )
+        *rap_number = 1;
+    uint32_t start_number = *rap_number;
+    if( distance && *rap_number > distance )
+        *rap_number -= distance;
+    hp->ctx->skip_frame = AVDISCARD_NONREF;
+    int dummy;
+    for( uint32_t i = *rap_number; i < sample_number + hp->ctx->has_b_frames; i++ )
+    {
+        avcodec_get_frame_defaults( picture );
+        decode_video_sample( hp, picture, &dummy, i );
+    }
+    hp->ctx->skip_frame = AVDISCARD_DEFAULT;
+    hp->delay_count = hp->ctx->has_b_frames;
+    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d", *rap_number, distance );
+    return start_number;
 }
 
 int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
@@ -358,32 +376,28 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     ++sample_number;        /* For L-SMASH, sample_number is 1-origin. */
     AVFrame picture;        /* Decoded video data will be stored here. */
-    uint32_t start_number;  /* sample_number where decoding starts */
+    uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
     if( sample_number == hp->last_sample_number + 1 )
         start_number = sample_number;
     else
-    {
         /* Require starting to decode from random accessible sample. */
-        prepare_decoder_init( hp );
-        uint32_t rap_number;
-        if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->track_ID, sample_number, &rap_number ) )
-            return 0;
-        start_number = rap_number;
-    }
-    while( 1 )
+        start_number = seek_media( hp, &picture, sample_number, &rap_number );
+    do
     {
         int error = get_picture( hp, &picture, start_number + hp->delay_count, sample_number + hp->delay_count );
         if( error == 0 )
             break;
         else if( error == -1 )
         {
-            /* Try to decode the previous random accessible sample. */
-            prepare_decoder_init( hp );
-            if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->track_ID, start_number - 1, &start_number ) )
-                return 0;
+            /* No error of decoding, but couldn't get a picture.
+             * Retry to decode from more past random accessible sample. */
+            start_number = seek_media( hp, &picture, rap_number - 1, &rap_number );
+            if( start_number == 1 )
+                return 0;   /* Not found an appropriate random accessible sample */
         }
-        return 0;
-    }
+        return 0;   /* error of decoding */
+    } while( 1 );
     /* Colorspace conversion */
     DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
@@ -395,13 +409,13 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
         MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture.data, picture.linesize, 0, hp->ctx->height, dst_data, dst_linesize );
+    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture.data, picture.linesize, 0, hp->ctx->height, dst_data, dst_linesize );
     int buf_linesize  = hp->ctx->width * 2;
-    int output_size   = buf_linesize * ouptut_height;
-    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
-                               dst_linesize[0], ouptut_height, output_size );
+    int output_size   = buf_linesize * output_height;
+    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                               dst_linesize[0], output_height, output_size );
     uint8_t *dst = dst_data[0];
-    while( ouptut_height-- )
+    while( output_height-- )
     {
         memcpy( buf, dst, buf_linesize );
         buf += buf_linesize;
