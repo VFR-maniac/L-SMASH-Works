@@ -85,7 +85,7 @@ typedef enum
     DECODE_INITIALIZED     = 2
 } decode_status_t;
 
-typedef struct
+typedef struct lsmash_handler_tag
 {
     /* L-SMASH's stuff */
     lsmash_root_t     *root;
@@ -97,12 +97,15 @@ typedef struct
     /* Others */
     uint8_t           *input_buffer;
     BITMAPINFOHEADER   video_format;
+    int                full_range;
+    int                pixel_size;
     int                framerate_num;
     int                framerate_den;
     uint32_t           sample_count;
     uint32_t           last_sample_number;
     uint32_t           delay_count;
     decode_status_t    decode_status;
+    int (*convert_colorspace)( struct lsmash_handler_tag *, AVFrame *, uint8_t * );
 } lsmash_handler_t;
 
 BOOL func_init( void )
@@ -199,6 +202,90 @@ static int get_picture( lsmash_handler_t *hp, AVFrame *picture, uint32_t current
     if( hp->decode_status == DECODE_REQUIRE_INITIAL )
         hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
+}
+
+static int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+{
+    const int dst_linesize[4] =
+        {
+            picture->linesize[0] << (hp->ctx->pix_fmt == PIX_FMT_YUV444P || hp->ctx->pix_fmt == PIX_FMT_YUVJ444P),
+            picture->linesize[0] << (hp->ctx->pix_fmt == PIX_FMT_YUV444P || hp->ctx->pix_fmt == PIX_FMT_YUVJ444P),
+            picture->linesize[0] << (hp->ctx->pix_fmt == PIX_FMT_YUV444P || hp->ctx->pix_fmt == PIX_FMT_YUVJ444P),
+            0
+        };
+    uint8_t *dst_data[4];
+    for( int i = 0; i < 3; i++ )
+    {
+        dst_data[i] = av_mallocz( dst_linesize[0] * hp->ctx->height );
+        if( !dst_data[i] )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+            return 0;
+        }
+    }
+    dst_data[3] = NULL;
+    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = hp->ctx->width * hp->pixel_size;
+    int output_size   = buf_linesize * output_height;
+    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                               dst_linesize[0], output_height, output_size );
+    /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
+    uint32_t offset = 0;
+    while( output_height-- )
+    {
+        uint8_t *p_dst[3] = { dst_data[0] + offset, dst_data[1] + offset, dst_data[2] + offset };
+        for( int i = 0; i < buf_linesize; i += hp->pixel_size )
+        {
+            static const uint32_t y_coef   [2] = {  1197,   4770 };
+            static const uint32_t y_shift  [2] = {    14,     16 };
+            static const uint32_t uv_coef  [2] = {  4682,   4662 };
+            static const uint32_t uv_offset[2] = { 32768, 589824 };
+            uint16_t y  = (((int32_t)((p_dst[0][0] | (p_dst[0][1] << 8)) * y_coef[hp->full_range])) >> y_shift[hp->full_range]) - 299;
+            uint16_t cb = ((int32_t)(((p_dst[1][0] | (p_dst[1][1] << 8)) - 32768) * uv_coef[hp->full_range] + uv_offset[hp->full_range])) >> 16;
+            uint16_t cr = ((int32_t)(((p_dst[2][0] | (p_dst[2][1] << 8)) - 32768) * uv_coef[hp->full_range] + uv_offset[hp->full_range])) >> 16;
+            p_dst[0] += 2;
+            p_dst[1] += 2;
+            p_dst[2] += 2;
+            buf[0] = y;
+            buf[1] = y >> 8;
+            buf[2] = cb;
+            buf[3] = cb >> 8;
+            buf[4] = cr;
+            buf[5] = cr >> 8;
+            buf += hp->pixel_size;
+        }
+        offset += dst_linesize[0];
+    }
+    av_free( dst_data[0] );
+    av_free( dst_data[1] );
+    av_free( dst_data[2] );
+    return output_size;
+}
+
+static int to_yuy2( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+{
+    const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
+    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+    dst_data[0] = av_mallocz( dst_linesize[0] * hp->ctx->height );
+    if( !dst_data[0] )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return 0;
+    }
+    int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = hp->ctx->width * hp->pixel_size;
+    int output_size   = buf_linesize * ouptut_height;
+    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
+                               dst_linesize[0], ouptut_height, output_size );
+    uint8_t *dst = dst_data[0];
+    while( ouptut_height-- )
+    {
+        memcpy( buf, dst, buf_linesize );
+        buf += buf_linesize;
+        dst += dst_linesize[0];
+    }
+    av_free( dst_data[0] );
+    return output_size;
 }
 
 INPUT_HANDLE func_open( LPSTR file )
@@ -303,18 +390,57 @@ INPUT_HANDLE func_open( LPSTR file )
         return error_out( hp );
     }
     hp->last_sample_number = 1;
-    /* BITMAPINFOHEADER */
-    hp->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    hp->video_format.biWidth       = hp->ctx->width;
-    hp->video_format.biHeight      = hp->ctx->height;
-    hp->video_format.biPlanes      = 1;
-    hp->video_format.biBitCount    = 16;   /* packed YUV 4:2:2 */
-    hp->video_format.biCompression = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
-    hp->video_format.biSizeImage   = picture.linesize[0] * hp->ctx->height;
     /* swscale */
+    enum PixelFormat out_pix_fmt;
+    DWORD compression;
+    switch( hp->ctx->pix_fmt )
+    {
+        case PIX_FMT_YUV444P :
+        case PIX_FMT_YUVJ444P :
+        case PIX_FMT_YUV420P9LE :
+        case PIX_FMT_YUV420P9BE :
+        case PIX_FMT_YUV422P9LE :
+        case PIX_FMT_YUV422P9BE :
+        case PIX_FMT_YUV444P9LE :
+        case PIX_FMT_YUV444P9BE :
+        case PIX_FMT_YUV420P10LE :
+        case PIX_FMT_YUV420P10BE :
+        case PIX_FMT_YUV422P10LE :
+        case PIX_FMT_YUV422P10BE :
+        case PIX_FMT_YUV444P10LE :
+        case PIX_FMT_YUV444P10BE :
+        case PIX_FMT_YUV420P16LE :
+        case PIX_FMT_YUV420P16BE :
+        case PIX_FMT_YUV422P16LE :
+        case PIX_FMT_YUV422P16BE :
+        case PIX_FMT_YUV444P16LE :
+        case PIX_FMT_YUV444P16BE :
+        case PIX_FMT_RGB48LE :
+        case PIX_FMT_RGB48BE :
+        case PIX_FMT_BGR48LE :
+        case PIX_FMT_BGR48BE :
+        case PIX_FMT_GBRP9LE :
+        case PIX_FMT_GBRP9BE :
+        case PIX_FMT_GBRP10LE :
+        case PIX_FMT_GBRP10BE :
+        case PIX_FMT_GBRP16LE :
+        case PIX_FMT_GBRP16BE :
+            hp->convert_colorspace = to_yuv16le_to_yc48;
+            hp->pixel_size         = 6;                     /* YC48 */
+            out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4 48bpp little-endian -> YC48 */
+            compression            = MAKEFOURCC( 'Y', 'C', '4', '8' );
+            hp->full_range         = hp->ctx->color_range == AVCOL_RANGE_JPEG;
+            break;
+        default :
+            hp->convert_colorspace = to_yuy2;
+            hp->pixel_size         = 2;                     /* YUY2 */
+            out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2 */
+            compression            = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
+            break;
+    }
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->ctx->width, hp->ctx->height, hp->ctx->pix_fmt,
-                                        hp->ctx->width, hp->ctx->height, PIX_FMT_YUYV422,   /* packed YUV 4:2:2 */
+                                        hp->ctx->width, hp->ctx->height, out_pix_fmt,
                                         SWS_POINT, NULL, NULL, NULL );
     if( !hp->sws_ctx )
     {
@@ -322,7 +448,15 @@ INPUT_HANDLE func_open( LPSTR file )
         return error_out( hp );
     }
     DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "src_pix_fmt = %s, dst_pix_fmt = %s",
-                               av_pix_fmt_descriptors[hp->ctx->pix_fmt].name, av_pix_fmt_descriptors[PIX_FMT_YUYV422].name );
+                               av_pix_fmt_descriptors[hp->ctx->pix_fmt].name, av_pix_fmt_descriptors[out_pix_fmt].name );
+    /* BITMAPINFOHEADER */
+    hp->video_format.biSize        = sizeof( BITMAPINFOHEADER );
+    hp->video_format.biWidth       = hp->ctx->width;
+    hp->video_format.biHeight      = hp->ctx->height;
+    hp->video_format.biPlanes      = 1;
+    hp->video_format.biBitCount    = hp->pixel_size * 8;
+    hp->video_format.biCompression = compression;
+    hp->video_format.biSizeImage   = picture.linesize[0] * hp->pixel_size * hp->ctx->height;
     return hp;
 }
 
@@ -398,32 +532,10 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
         }
         return 0;   /* error of decoding */
     } while( 1 );
-    /* Colorspace conversion */
+    hp->last_sample_number = sample_number;
     DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
-    const int dst_linesize[4] = { picture.linesize[0] + picture.linesize[1] + picture.linesize[2] + picture.linesize[3], 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * hp->ctx->height );
-    if( !dst_data[0] )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
-    }
-    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture.data, picture.linesize, 0, hp->ctx->height, dst_data, dst_linesize );
-    int buf_linesize  = hp->ctx->width * 2;
-    int output_size   = buf_linesize * output_height;
-    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
-                               dst_linesize[0], output_height, output_size );
-    uint8_t *dst = dst_data[0];
-    while( output_height-- )
-    {
-        memcpy( buf, dst, buf_linesize );
-        buf += buf_linesize;
-        dst += dst_linesize[0];
-    }
-    av_free( dst_data[0] );
-    hp->last_sample_number = sample_number;
-    return output_size;
+    return hp->convert_colorspace( hp, &picture, buf );
 }
 
 int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
