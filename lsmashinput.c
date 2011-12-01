@@ -262,6 +262,32 @@ static int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *
     return output_size;
 }
 
+static int to_rgb24( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+{
+    const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
+    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+    dst_data[0] = av_mallocz( dst_linesize[0] * hp->ctx->height );
+    if( !dst_data[0] )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return 0;
+    }
+    int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = hp->ctx->width * hp->pixel_size;
+    int output_size   = buf_linesize * ouptut_height;
+    DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
+                               dst_linesize[0], ouptut_height, output_size );
+    uint8_t *dst = dst_data[0] + dst_linesize[0] * ouptut_height;
+    while( ouptut_height-- )
+    {
+        dst -= dst_linesize[0];
+        memcpy( buf, dst, buf_linesize );
+        buf += buf_linesize;
+    }
+    av_free( dst_data[0] );
+    return output_size;
+}
+
 static int to_yuy2( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
 {
     const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
@@ -427,14 +453,39 @@ INPUT_HANDLE func_open( LPSTR file )
         case PIX_FMT_GBRP16BE :
             hp->convert_colorspace = to_yuv16le_to_yc48;
             hp->pixel_size         = 6;                     /* YC48 */
-            out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4 48bpp little-endian -> YC48 */
+            out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             compression            = MAKEFOURCC( 'Y', 'C', '4', '8' );
             hp->full_range         = hp->ctx->color_range == AVCOL_RANGE_JPEG;
+            break;
+        case PIX_FMT_RGB24 :
+        case PIX_FMT_BGR24 :
+        case PIX_FMT_BGR8 :
+        case PIX_FMT_BGR4 :
+        case PIX_FMT_BGR4_BYTE :
+        case PIX_FMT_RGB8 :
+        case PIX_FMT_RGB4 :
+        case PIX_FMT_RGB4_BYTE :
+        case PIX_FMT_RGB565LE :
+        case PIX_FMT_RGB565BE :
+        case PIX_FMT_RGB555LE :
+        case PIX_FMT_RGB555BE :
+        case PIX_FMT_BGR565LE :
+        case PIX_FMT_BGR565BE :
+        case PIX_FMT_BGR555LE :
+        case PIX_FMT_BGR555BE :
+        case PIX_FMT_RGB444LE :
+        case PIX_FMT_RGB444BE :
+        case PIX_FMT_BGR444LE :
+        case PIX_FMT_BGR444BE :
+            hp->convert_colorspace = to_rgb24;
+            hp->pixel_size         = 3;                     /* BGR 8:8:8 */
+            out_pix_fmt            = PIX_FMT_BGR24;         /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+            compression            = 0;
             break;
         default :
             hp->convert_colorspace = to_yuy2;
             hp->pixel_size         = 2;                     /* YUY2 */
-            out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2 */
+            out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2, 16bpp */
             compression            = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;
     }
