@@ -1,7 +1,7 @@
 /*****************************************************************************
- * lsmashinput.c:
+ * lsmashinput.c
  *****************************************************************************
- * Copyright (C) 2011 L-SMASH project
+ * Copyright (C) 2011 Libav-SMASH project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *
