@@ -657,20 +657,21 @@ static uint32_t seek_video( lsmash_handler_t *hp, AVFrame *picture, uint32_t sam
     uint32_t distance;
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, sample_number, rap_number, NULL, NULL, &distance ) )
         *rap_number = 1;
-    uint32_t start_number = *rap_number;
     if( distance && *rap_number > distance )
         *rap_number -= distance;
     hp->video_ctx->skip_frame = AVDISCARD_NONREF;
     int dummy;
-    for( uint32_t i = *rap_number; i < sample_number + hp->video_ctx->has_b_frames; i++ )
+    uint32_t i;
+    for( i = *rap_number; i < sample_number + hp->video_ctx->has_b_frames; i++ )
     {
         avcodec_get_frame_defaults( picture );
-        decode_video_sample( hp, picture, &dummy, i );
+        if( decode_video_sample( hp, picture, &dummy, i ) == 1 )
+            break;  /* Sample doesn't exist. */
     }
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
     hp->delay_count = hp->video_ctx->has_b_frames;
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d", *rap_number, distance );
-    return start_number;
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", *rap_number, distance, i );
+    return i - hp->delay_count;
 }
 
 int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
