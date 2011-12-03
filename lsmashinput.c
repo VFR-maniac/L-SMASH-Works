@@ -184,6 +184,12 @@ static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tra
         if( media_param.handler_type == type )
             break;
     }
+    if( i > number_of_tracks )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s track.",
+                                   type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ? "video" : "audio" );
+        return -1;
+    }
     if( lsmash_construct_timeline( hp->root, track_ID ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get construct timeline." );
@@ -419,7 +425,7 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
     hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
     if( hp->video_input_buffer_size == 0 )
     {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid sample found." );
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid video sample found." );
         return -1;
     }
     hp->video_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
@@ -474,7 +480,7 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
             hp->convert_colorspace = to_yuv16le_to_yc48;
             hp->pixel_size         = 6;                     /* YC48 */
             out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
-            compression           = MAKEFOURCC( 'Y', 'C', '4', '8' );
+            compression            = MAKEFOURCC( 'Y', 'C', '4', '8' );
             hp->full_range         = hp->video_ctx->color_range == AVCOL_RANGE_JPEG;
             break;
         case PIX_FMT_RGB24 :
@@ -500,13 +506,13 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
             hp->convert_colorspace = to_rgb24;
             hp->pixel_size         = 3;                     /* BGR 8:8:8 */
             out_pix_fmt            = PIX_FMT_BGR24;         /* packed RGB 8:8:8, 24bpp, BGRBGR... */
-            compression           = 0;
+            compression            = 0;
             break;
         default :
             hp->convert_colorspace = to_yuy2;
             hp->pixel_size         = 2;                     /* YUY2 */
             out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2, 16bpp */
-            compression           = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
+            compression            = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;
     }
     hp->sws_ctx = sws_getCachedContext( NULL,
@@ -539,7 +545,7 @@ static int prepare_audio_decoding( lsmash_handler_t *hp, int threads )
     hp->audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
     if( hp->audio_input_buffer_size == 0 )
     {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid sample found." );
+        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio sample found." );
         return -1;
     }
     hp->audio_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
@@ -586,6 +592,8 @@ static inline void cleanup_handler( lsmash_handler_t *hp )
         av_free( hp->video_input_buffer );
     if( hp->audio_input_buffer )
         av_free( hp->audio_input_buffer );
+    if( hp->audio_output_buffer )
+        av_free( hp->audio_output_buffer );
     free( hp );
 }
 
@@ -601,14 +609,29 @@ INPUT_HANDLE func_open( LPSTR file )
     if( !hp )
         return NULL;
     memset( hp, 0, sizeof(lsmash_handler_t) );
+    /* Open file. */
     uint32_t number_of_tracks = open_file( hp, file );
     if( number_of_tracks == 0 )
         return error_out( hp );
+    /* Get video track. */
     if( get_first_track_of_type( hp, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
         return error_out( hp );
+    /* Get audio track. If absent, ignore audio track. */
     if( get_first_track_of_type( hp, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK ) )
-        return error_out( hp );
+    {
+        lsmash_destruct_timeline( hp->root, hp->audio_track_ID );
+        if( hp->audio_ctx )
+        {
+            avcodec_close( hp->audio_ctx );
+            hp->audio_ctx = NULL;
+        }
+        if( hp->audio_input_buffer )
+            av_freep( &hp->audio_input_buffer );
+        if( hp->audio_output_buffer )
+            av_freep( &hp->audio_output_buffer );
+    }
     lsmash_discard_boxes( hp->root );
+    /* Prepare decoding, */
     DWORD ProcessAffinityMask, SystemAffinityMask;
     GetProcessAffinityMask( GetCurrentProcess(), &ProcessAffinityMask, &SystemAffinityMask );
     int threads = ProcessAffinityMask > SystemAffinityMask ? SystemAffinityMask : ProcessAffinityMask;
@@ -775,10 +798,10 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             {
                 memcpy( buf, hp->audio_output_buffer + data_offset, copy_size );
                 output_length += copy_size / hp->audio_format.nBlockAlign;
+                wanted_length -= copy_size / hp->audio_format.nBlockAlign;
                 buf           += copy_size;
+                data_offset    = 0;
             }
-            data_offset = 0;
-            wanted_length -= copy_size / hp->audio_format.nBlockAlign;
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / hp->audio_format.nBlockAlign );
             if( wanted_length <= 0 )
             {
