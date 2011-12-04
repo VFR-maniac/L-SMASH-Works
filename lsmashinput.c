@@ -438,7 +438,7 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
     AVFrame picture;
     if( get_picture( hp, &picture, 1, 1 ) )
     {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the first sample." );
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the first video sample." );
         return -1;
     }
     hp->last_video_sample_number = 1;
@@ -631,7 +631,7 @@ INPUT_HANDLE func_open( LPSTR file )
             av_freep( &hp->audio_output_buffer );
     }
     lsmash_discard_boxes( hp->root );
-    /* Prepare decoding, */
+    /* Prepare decoding. */
     DWORD ProcessAffinityMask, SystemAffinityMask;
     GetProcessAffinityMask( GetCurrentProcess(), &ProcessAffinityMask, &SystemAffinityMask );
     int threads = ProcessAffinityMask > SystemAffinityMask ? SystemAffinityMask : ProcessAffinityMask;
@@ -780,9 +780,9 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
         memset( pkt.data, 0, hp->audio_input_buffer_size );
         memcpy( pkt.data, sample->data, sample->length );
         lsmash_delete_sample( sample );
-        int output_buffer_size = AVCODEC_MAX_AUDIO_FRAME_SIZE;
         while( pkt.size > 0 )
         {
+            int output_buffer_size = AVCODEC_MAX_AUDIO_FRAME_SIZE;
             int wasted_data_length = avcodec_decode_audio3( hp->audio_ctx, (int16_t *)hp->audio_output_buffer, &output_buffer_size, &pkt );
             if( wasted_data_length < 0 )
             {
@@ -791,16 +791,20 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             }
             pkt.size -= wasted_data_length;
             pkt.data += wasted_data_length;
-            int copy_size = output_buffer_size > data_offset
-                          ? min( output_buffer_size - data_offset, wanted_length * hp->audio_format.nBlockAlign )
-                          : 0;
-            if( copy_size )
+            int copy_size;
+            if( output_buffer_size > data_offset )
             {
+                copy_size = min( output_buffer_size - data_offset, wanted_length * hp->audio_format.nBlockAlign );
                 memcpy( buf, hp->audio_output_buffer + data_offset, copy_size );
                 output_length += copy_size / hp->audio_format.nBlockAlign;
                 wanted_length -= copy_size / hp->audio_format.nBlockAlign;
                 buf           += copy_size;
-                data_offset    = 0;
+                data_offset = 0;
+            }
+            else
+            {
+                copy_size = 0;
+                data_offset -= output_buffer_size;
             }
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / hp->audio_format.nBlockAlign );
             if( wanted_length <= 0 )
