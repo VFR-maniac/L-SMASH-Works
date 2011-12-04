@@ -739,16 +739,25 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
     int      output_length = 0;
     if( start == hp->next_audio_pcm_sample_number )
     {
-        uint32_t remainder_length = hp->last_remainder_size / hp->audio_format.nBlockAlign;
-        sample_number = hp->last_audio_sample_number + 1;
         if( hp->last_remainder_size )
         {
-            memcpy( buf, hp->audio_output_buffer, hp->last_remainder_size );
-            buf += hp->last_remainder_size;
-            hp->last_remainder_size = 0;
-            output_length += remainder_length;
-            wanted_length -= remainder_length;
+            int copy_size = min( hp->last_remainder_size, wanted_length * hp->audio_format.nBlockAlign );
+            memcpy( buf, hp->audio_output_buffer, copy_size );
+            buf                     += copy_size;
+            hp->last_remainder_size -= copy_size;
+            int copied_length = copy_size / hp->audio_format.nBlockAlign;
+            output_length += copied_length;
+            wanted_length -= copied_length;
+            if( wanted_length <= 0 )
+            {
+                /* Move unused decoded data to the head of output buffer for the next access. */
+                if( hp->last_remainder_size )
+                    memmove( hp->audio_output_buffer, hp->audio_output_buffer + copy_size, hp->last_remainder_size );
+                sample_number = hp->last_audio_sample_number;   /* We don't get a new audio sample at this time. */
+                goto audio_out;
+            }
         }
+        sample_number = hp->last_audio_sample_number + 1;
         data_offset = 0;
     }
     else
@@ -796,8 +805,9 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             {
                 copy_size = min( output_buffer_size - data_offset, wanted_length * hp->audio_format.nBlockAlign );
                 memcpy( buf, hp->audio_output_buffer + data_offset, copy_size );
-                output_length += copy_size / hp->audio_format.nBlockAlign;
-                wanted_length -= copy_size / hp->audio_format.nBlockAlign;
+                int copied_length = copy_size / hp->audio_format.nBlockAlign;
+                output_length += copied_length;
+                wanted_length -= copied_length;
                 buf           += copy_size;
                 data_offset = 0;
             }
