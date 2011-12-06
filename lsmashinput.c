@@ -67,6 +67,7 @@ do \
 #endif
 
 #define MPEG4_FILE_EXT  "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v"
+#define MAX_NUM_THREADS 4
 
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
@@ -632,9 +633,9 @@ INPUT_HANDLE func_open( LPSTR file )
     }
     lsmash_discard_boxes( hp->root );
     /* Prepare decoding. */
-    DWORD ProcessAffinityMask, SystemAffinityMask;
-    GetProcessAffinityMask( GetCurrentProcess(), &ProcessAffinityMask, &SystemAffinityMask );
-    int threads = ProcessAffinityMask > SystemAffinityMask ? SystemAffinityMask : ProcessAffinityMask;
+    int threads = atoi(getenv("NUMBER_OF_PROCESSORS"));
+    if( threads > MAX_NUM_THREADS )
+        threads = MAX_NUM_THREADS;
     if( prepare_video_decoding( hp, threads )
      || prepare_audio_decoding( hp, threads ) )
         return error_out( hp );
