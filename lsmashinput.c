@@ -734,14 +734,15 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
-    uint32_t sample_number;
+    uint32_t sample_number = hp->last_audio_sample_number;
     uint32_t data_offset;
+    int      copy_size;
     int      output_length = 0;
     if( start == hp->next_audio_pcm_sample_number )
     {
         if( hp->last_remainder_size )
         {
-            int copy_size = min( hp->last_remainder_size, wanted_length * hp->audio_format.nBlockAlign );
+            copy_size = min( hp->last_remainder_size, wanted_length * hp->audio_format.nBlockAlign );
             memcpy( buf, hp->audio_output_buffer, copy_size );
             buf                     += copy_size;
             hp->last_remainder_size -= copy_size;
@@ -749,15 +750,8 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             output_length += copied_length;
             wanted_length -= copied_length;
             if( wanted_length <= 0 )
-            {
-                /* Move unused decoded data to the head of output buffer for the next access. */
-                if( hp->last_remainder_size )
-                    memmove( hp->audio_output_buffer, hp->audio_output_buffer + copy_size, hp->last_remainder_size );
-                sample_number = hp->last_audio_sample_number;   /* We don't get a new audio sample at this time. */
                 goto audio_out;
-            }
         }
-        sample_number = hp->last_audio_sample_number + 1;
         data_offset = 0;
     }
     else
@@ -769,17 +763,17 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
         uint64_t dts;
         do
         {
-            if( lsmash_get_dts_from_media_timeline( hp->root, hp->audio_track_ID, sample_number, &dts ) )
+            if( lsmash_get_dts_from_media_timeline( hp->root, hp->audio_track_ID, sample_number--, &dts ) )
                 return 0;
             if( start >= dts )
                 break;
-            sample_number--;
         } while( 1 );
         data_offset = (start - dts) * hp->audio_format.nBlockAlign;
     }
     do
     {
-        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->audio_track_ID, sample_number );
+        copy_size = 0;
+        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->audio_track_ID, ++sample_number );
         if( !sample )
             goto audio_out;
         AVPacket pkt;
@@ -800,7 +794,6 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             }
             pkt.size -= wasted_data_length;
             pkt.data += wasted_data_length;
-            int copy_size;
             if( output_buffer_size > data_offset )
             {
                 copy_size = min( output_buffer_size - data_offset, wanted_length * hp->audio_format.nBlockAlign );
@@ -819,19 +812,16 @@ int func_read_audio( INPUT_HANDLE ih, int start, int wanted_length, void *buf )
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / hp->audio_format.nBlockAlign );
             if( wanted_length <= 0 )
             {
-                /* Move unused decoded data to the head of output buffer for the next access. */
-                if( output_buffer_size > copy_size )
-                {
-                    hp->last_remainder_size = output_buffer_size - copy_size;
-                    memmove( hp->audio_output_buffer, hp->audio_output_buffer + copy_size, hp->last_remainder_size );
-                }
+                hp->last_remainder_size = output_buffer_size - copy_size;
                 goto audio_out;
             }
         }
-        ++sample_number;
     } while( 1 );
 audio_out:
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "output_length = %d, remainder = %d", output_length, hp->last_remainder_size );
+    if( hp->last_remainder_size && copy_size != 0 )
+        /* Move unused decoded data to the head of output buffer for the next access. */
+        memmove( hp->audio_output_buffer, hp->audio_output_buffer + copy_size, hp->last_remainder_size );
     hp->next_audio_pcm_sample_number = start + output_length;
     hp->last_audio_sample_number = sample_number;
     return output_length;
