@@ -312,9 +312,9 @@ static int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *
 {
     const int dst_linesize[4] =
         {
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUVJ444P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUVJ444P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUVJ444P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
             0
         };
     uint8_t *dst_data[4];
@@ -443,13 +443,28 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
         return -1;
     }
     hp->last_video_sample_number = 1;
+    /* Hack for avoiding YUV-scale conversion */
+    static const struct
+    {
+        enum PixelFormat full;
+        enum PixelFormat limited;
+    } range_hack_table[]
+        = {
+            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
+            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
+            { PIX_FMT_YUVJ444P, PIX_FMT_YUV444P },
+            { PIX_FMT_YUVJ440P, PIX_FMT_YUV440P },
+            { PIX_FMT_NONE,     PIX_FMT_NONE    }
+          };
+    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
+        if( hp->video_ctx->pix_fmt == range_hack_table[i].full )
+            hp->video_ctx->pix_fmt = range_hack_table[i].limited;
     /* swscale */
     enum PixelFormat out_pix_fmt;
     uint32_t compression;
     switch( hp->video_ctx->pix_fmt )
     {
         case PIX_FMT_YUV444P :
-        case PIX_FMT_YUVJ444P :
         case PIX_FMT_YUV420P9LE :
         case PIX_FMT_YUV420P9BE :
         case PIX_FMT_YUV422P9LE :
