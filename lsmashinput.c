@@ -376,13 +376,13 @@ static int to_rgb24( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
         MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
+    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
     int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
-    int output_size   = buf_linesize * ouptut_height;
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
-                                     dst_linesize[0], ouptut_height, output_size );
-    uint8_t *dst = dst_data[0] + dst_linesize[0] * ouptut_height;
-    while( ouptut_height-- )
+    int output_size   = buf_linesize * output_height;
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                                     dst_linesize[0], output_height, output_size );
+    uint8_t *dst = dst_data[0] + dst_linesize[0] * output_height;
+    while( output_height-- )
     {
         dst -= dst_linesize[0];
         memcpy( buf, dst, buf_linesize );
@@ -402,13 +402,13 @@ static int to_yuy2( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
         MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int ouptut_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
+    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
     int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
-    int output_size   = buf_linesize * ouptut_height;
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, ouptut_height = %d, output_size = %d",
-                                     dst_linesize[0], ouptut_height, output_size );
+    int output_size   = buf_linesize * output_height;
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                                     dst_linesize[0], output_height, output_size );
     uint8_t *dst = dst_data[0];
-    while( ouptut_height-- )
+    while( output_height-- )
     {
         memcpy( buf, dst, buf_linesize );
         buf += buf_linesize;
