@@ -486,6 +486,10 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
             break;
         case PIX_FMT_RGB24 :
         case PIX_FMT_BGR24 :
+        case PIX_FMT_ARGB :
+        case PIX_FMT_RGBA :
+        case PIX_FMT_ABGR :
+        case PIX_FMT_BGRA :
         case PIX_FMT_BGR8 :
         case PIX_FMT_BGR4 :
         case PIX_FMT_BGR4_BYTE :
@@ -633,7 +637,7 @@ INPUT_HANDLE func_open( LPSTR file )
     }
     lsmash_discard_boxes( hp->root );
     /* Prepare decoding. */
-    int threads = atoi(getenv("NUMBER_OF_PROCESSORS"));
+    int threads = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
     if( threads > MAX_NUM_THREADS )
         threads = MAX_NUM_THREADS;
     if( prepare_video_decoding( hp, threads )
