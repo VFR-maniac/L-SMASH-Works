@@ -261,7 +261,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
     return 0;
 }
 
-static int get_composition_delay( input_movie_t *input, input_track_t *in_track, uint32_t start_sample )
+static int set_starting_point( input_movie_t *input, input_track_t *in_track, uint32_t start_sample )
 {
     uint32_t rap_number;
     if( lsmash_get_closest_random_accessible_point_from_media_timeline( input->root, in_track->track_ID, start_sample, &rap_number ) )
@@ -290,6 +290,9 @@ static int get_composition_delay( input_movie_t *input, input_track_t *in_track,
         if( rap_cts < seek_cts )
             in_track->skip_duration = seek_cts - rap_cts;
     }
+    /* Media starts from random accessible point.
+     * Presentation does NOT always start from random accessible point. */
+    in_track->current_sample_number = rap_number;   
     return 0;
 }
 
@@ -298,12 +301,11 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
     input_movie_t  *in_movie  = hp->input;
     output_movie_t *out_movie = hp->output;
     input_track_t *in_video_track = &in_movie->track[VIDEO_TRACK];
-    in_video_track->current_sample_number = start_sample;
     in_video_track->end_sample_number     = end_sample;
     if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID,
                                             start_sample, &out_movie->track[VIDEO_TRACK].skip_dt_interval ) )
         return -1;
-    if( get_composition_delay( in_movie, in_video_track, start_sample ) )
+    if( set_starting_point( in_movie, in_video_track, start_sample ) )
         return -1;
     uint64_t video_end_time;
     if( end_sample < lsmash_get_sample_count_in_media_timeline( in_movie->root, in_video_track->track_ID ) )
