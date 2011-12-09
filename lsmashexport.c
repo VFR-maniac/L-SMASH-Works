@@ -309,6 +309,9 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
     if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID,
                                             in_video_track->current_sample_number, &out_movie->track[VIDEO_TRACK].skip_dt_interval ) )
         return -1;
+    input_track_t *in_audio_track = &in_movie->track[AUDIO_TRACK];
+    if( !in_audio_track->active )
+        return 0;   /* Audio track is not present. */
     uint64_t video_start_time;
     if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID, start_sample, &video_start_time ) )
         return -1;
@@ -324,7 +327,6 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
             return -1;
         video_end_time += in_video_track->last_sample_delta;
     }
-    input_track_t *in_audio_track = &in_movie->track[AUDIO_TRACK];
     if( in_video_track->media_param.timescale == 0 )
         return -1;
     double timescale_convert_multiplier = (double)in_audio_track->media_param.timescale / in_video_track->media_param.timescale;
@@ -463,12 +465,12 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
     for( uint32_t i = 0; i < output->number_of_tracks; i++ )
     {
         output_track_t *out_track = &output->track[i];
-        input_track_t  *in_track  = &input->track[i];
-        uint32_t movie_timescale = lsmash_get_movie_timescale( output->root );
         uint32_t media_timescale = lsmash_get_media_timescale( output->root, out_track->track_ID );
-        if( !media_timescale )
-            return -1;
+        if( media_timescale == 0 )
+            continue;
+        uint32_t movie_timescale = lsmash_get_movie_timescale( output->root );
         double timescale_convert_multiplier = (double)movie_timescale / media_timescale;
+        input_track_t *in_track = &input->track[i];
         uint64_t start_time = in_track->composition_delay + in_track->skip_duration;
         uint64_t duration = (out_track->last_sample_dts + out_track->last_sample_delta - in_track->skip_duration) * timescale_convert_multiplier;
         if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, duration, start_time, ISOM_EDIT_MODE_NORMAL ) )
