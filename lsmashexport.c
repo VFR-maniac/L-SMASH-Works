@@ -265,7 +265,10 @@ static int set_starting_point( input_movie_t *input, input_track_t *in_track, ui
 {
     uint32_t rap_number;
     if( lsmash_get_closest_random_accessible_point_from_media_timeline( input->root, in_track->track_ID, start_sample, &rap_number ) )
+    {
+        in_track->current_sample_number = start_sample;
         return 0;
+    }
     uint64_t rap_dts;
     uint64_t rap_cts;
     uint32_t ctd_shift;
