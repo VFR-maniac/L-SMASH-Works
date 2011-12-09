@@ -305,10 +305,13 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
     output_movie_t *out_movie = hp->output;
     input_track_t *in_video_track = &in_movie->track[VIDEO_TRACK];
     in_video_track->end_sample_number = end_sample;
-    if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID,
-                                            start_sample, &out_movie->track[VIDEO_TRACK].skip_dt_interval ) )
-        return -1;
     if( set_starting_point( in_movie, in_video_track, start_sample ) )
+        return -1;
+    if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID,
+                                            in_video_track->current_sample_number, &out_movie->track[VIDEO_TRACK].skip_dt_interval ) )
+        return -1;
+    uint64_t video_start_time;
+    if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID, start_sample, &video_start_time ) )
         return -1;
     uint64_t video_end_time;
     if( end_sample < lsmash_get_sample_count_in_media_timeline( in_movie->root, in_video_track->track_ID ) )
@@ -326,8 +329,8 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
     if( in_video_track->media_param.timescale == 0 )
         return -1;
     double timescale_convert_multiplier = (double)in_audio_track->media_param.timescale / in_video_track->media_param.timescale;
-    uint64_t audio_end_time = video_end_time * timescale_convert_multiplier + 0.5;
-    uint64_t audio_start_time = out_movie->track[VIDEO_TRACK].skip_dt_interval * timescale_convert_multiplier;
+    uint64_t audio_start_time = video_start_time * timescale_convert_multiplier;
+    uint64_t audio_end_time   = video_end_time   * timescale_convert_multiplier + 0.5;
     uint32_t sample_number = lsmash_get_sample_count_in_media_timeline( in_movie->root, in_audio_track->track_ID );
     uint64_t dts;
     do
