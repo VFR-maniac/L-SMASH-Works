@@ -210,7 +210,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
 {
     char file_name[MAX_PATH];
     if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
-        return FALSE;
+        return -1;
     output_movie_t *output = hp->output;
     output->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_WRITE );
     if( !output->root )
@@ -304,7 +304,7 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
     input_movie_t  *in_movie  = hp->input;
     output_movie_t *out_movie = hp->output;
     input_track_t *in_video_track = &in_movie->track[VIDEO_TRACK];
-    in_video_track->end_sample_number     = end_sample;
+    in_video_track->end_sample_number = end_sample;
     if( lsmash_get_dts_from_media_timeline( in_movie->root, in_video_track->track_ID,
                                             start_sample, &out_movie->track[VIDEO_TRACK].skip_dt_interval ) )
         return -1;
@@ -370,11 +370,17 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 {
                     FRAME_STATUS fs;
                     if( !fp->exfunc->get_frame_status( editp, in_track->current_sample_number - 1, &fs ) )
+                    {
+                        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get status of a video frame." );
                         return -1;
+                    }
                     int source_file_id;
                     int source_video_number;
                     if( !fp->exfunc->get_source_video_number( editp, fs.video, &source_file_id, &source_video_number ) )
+                    {
+                        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get source video number." );
                         return -1;
+                    }
                     if( source_file_id != hp->source_file_id )
                     {
                         MessageBox( HWND_DESKTOP, "Multiple input files is not supported yet.", "lsmashexport", MB_ICONERROR | MB_OK );
@@ -419,6 +425,7 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                     if( lsmash_append_sample( out_movie->root, out_track->track_ID, sample ) )
                     {
                         lsmash_delete_sample( sample );
+                        MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
                         return -1;
                     }
                     largest_dts                       = max( largest_dts, in_track->dts );
@@ -504,7 +511,7 @@ static BOOL exporter_error( lsmash_handler_t *hp )
 
 BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *editp, FILTER *fp )
 {
-    if( fp->exfunc->is_editing( editp ) != TRUE )
+    if( !fp->exfunc->is_editing( editp ) )
         return FALSE;
     if( message != WM_FILTER_EXPORT )
         return FALSE;
