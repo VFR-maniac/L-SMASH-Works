@@ -94,7 +94,6 @@ typedef struct
     uint32_t                  end_sample_number;
     uint64_t                  composition_delay;
     uint64_t                  skip_duration;
-    uint64_t                  sync_delay;
     double                    dts;
     lsmash_sample_t          *sample;
     lsmash_track_parameters_t track_param;
@@ -344,7 +343,7 @@ static int setup_export_range( lsmash_handler_t *hp, uint32_t start_sample, uint
         --sample_number;
     } while( 1 );
     in_audio_track->current_sample_number = sample_number;
-    in_audio_track->skip_duration = in_video_track->sync_delay = audio_start_time - dts;
+    in_audio_track->skip_duration = audio_start_time - dts;
     return lsmash_get_dts_from_media_timeline( in_movie->root, in_audio_track->track_ID,
                                                sample_number, &out_movie->track[AUDIO_TRACK].skip_dt_interval );
 }
@@ -431,11 +430,11 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                         MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
                         return -1;
                     }
-                    largest_dts                       = max( largest_dts, in_track->dts );
-                    in_track->sample                  = NULL;
-                    out_track->last_sample_dts        = last_sample_dts;
-                    num_consecutive_sample_skip       = 0;
-                    total_media_size                 += sample_size;
+                    largest_dts                 = max( largest_dts, in_track->dts );
+                    in_track->sample            = NULL;
+                    out_track->last_sample_dts  = last_sample_dts;
+                    num_consecutive_sample_skip = 0;
+                    total_media_size           += sample_size;
                     if( in_track->current_sample_number == in_track->end_sample_number )
                     {
                         in_track->active = 0;
@@ -470,13 +469,6 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
         if( !media_timescale )
             return -1;
         double timescale_convert_multiplier = (double)movie_timescale / media_timescale;
-        if( in_track->skip_duration || in_track->sync_delay )
-        {
-            uint64_t empty_duration = in_track->sync_delay + in_track->skip_duration + lsmash_get_composition_to_decode_shift( output->root, out_track->track_ID );
-            empty_duration = empty_duration * timescale_convert_multiplier + 0.5;
-            if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, empty_duration, ISOM_EDIT_MODE_EMPTY, ISOM_EDIT_MODE_NORMAL ) )
-                return -1;
-        }
         uint64_t start_time = in_track->composition_delay + in_track->skip_duration;
         uint64_t duration = (out_track->last_sample_dts + out_track->last_sample_delta - in_track->skip_duration) * timescale_convert_multiplier;
         if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, duration, start_time, ISOM_EDIT_MODE_NORMAL ) )
