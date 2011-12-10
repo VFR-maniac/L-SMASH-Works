@@ -313,9 +313,9 @@ static int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *
 {
     const int dst_linesize[4] =
         {
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV440P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
+            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
             0
         };
     uint8_t *dst_data[4];
@@ -466,6 +466,7 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
     switch( hp->video_ctx->pix_fmt )
     {
         case PIX_FMT_YUV444P :
+        case PIX_FMT_YUV440P :
         case PIX_FMT_YUV420P9LE :
         case PIX_FMT_YUV420P9BE :
         case PIX_FMT_YUV422P9LE :
@@ -524,6 +525,7 @@ static int prepare_video_decoding( lsmash_handler_t *hp, int threads )
         case PIX_FMT_RGB444BE :
         case PIX_FMT_BGR444LE :
         case PIX_FMT_BGR444BE :
+        case PIX_FMT_GBRP :
             hp->convert_colorspace = to_rgb24;
             hp->pixel_size         = 3;                     /* BGR 8:8:8 */
             out_pix_fmt            = PIX_FMT_BGR24;         /* packed RGB 8:8:8, 24bpp, BGRBGR... */
