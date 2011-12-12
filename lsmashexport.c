@@ -427,9 +427,9 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
      * Also count number of audio samples for exporting if audio stream is present. */
     for( int i = 0; i < number_of_samples; )
     {
-        input_movie_t *input = hp->sent[VIDEO_TRACK][i].input;
-        uint32_t sequence_number = hp->sent[VIDEO_TRACK][i].sequence_number;
-        uint32_t start_sample_number = hp->sent[VIDEO_TRACK][i].sample_number;
+        input_movie_t *input               = hp->sent[VIDEO_TRACK][i].input;
+        uint32_t       sequence_number     = hp->sent[VIDEO_TRACK][i].sequence_number;
+        uint32_t       start_sample_number = hp->sent[VIDEO_TRACK][i].sample_number;
         for( i += 1; i < number_of_samples && sequence_number == hp->sent[VIDEO_TRACK][i].sequence_number; i++ );
         uint32_t end_sample_number = hp->sent[VIDEO_TRACK][i - 1].sample_number;
         if( setup_exported_range_of_sequence( hp, input, sequence_number, start_sample_number, end_sample_number ) )
@@ -585,66 +585,72 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 sample[type]->cts += out_track->edit_offset - sequence[type]->skip_dt_interval;
                 dts[type] = (double)sample[type]->dts / in_track->media_param.timescale;
             }
-            else if( lsmash_check_sample_existence_in_media_timeline( input->root, in_track->track_ID, sent->sample_number ) )
+            else
             {
-                MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
+                if( lsmash_check_sample_existence_in_media_timeline( input->root, in_track->track_ID, sent->sample_number ) )
+                {
+                    MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
+                    break;
+                }
+                /* no more samples in this track */
+                active[type] = 0;
+                if( --num_active_input_tracks == 0 )
+                    break;      /* end of muxing */
+                type ^= 0x01;
+                continue;
+            }
+        }
+        /* Append a sample if meeting a condition. */
+        if( dts[type] <= largest_dts || num_consecutive_sample_skip == num_active_input_tracks )
+        {
+            uint32_t sample_delta;
+            if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sent->sample_number, &sample_delta ) )
+            {
+                lsmash_delete_sample( sample[type] );
+                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashexport", MB_ICONERROR | MB_OK );
                 break;
             }
-        }
-        if( sample[type] )
-        {
-            /* Append a sample if meeting a condition. */
-            if( dts[type] <= largest_dts || num_consecutive_sample_skip == num_active_input_tracks )
-            {
-                uint32_t sample_delta;
-                if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sent->sample_number, &sample_delta ) )
-                {
-                    lsmash_delete_sample( sample[type] );
-                    MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashexport", MB_ICONERROR | MB_OK );
-                    break;
-                }
-                uint64_t sample_size     = sample[type]->length;        /* sample might be deleted internally after appending. */
-                uint64_t last_sample_dts = sample[type]->dts;           /* same as above */
-                uint64_t last_sample_cts = sample[type]->cts;           /* same as above */
-                output_track_t *out_track = &out_movie->track[type];
+            uint64_t sample_size     = sample[type]->length;        /* sample might be deleted internally after appending. */
+            uint64_t last_sample_dts = sample[type]->dts;           /* same as above */
+            uint64_t last_sample_cts = sample[type]->cts;           /* same as above */
+            output_track_t *out_track = &out_movie->track[type];
 #ifdef DEBUG
-                char log_data[1024];
-                sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, sample_number=%"PRIu32", source_sample_number=%"PRIu32", "
-                         "edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
-                         sequence_number[type], input->file_id, type ? "audio" : "video", output_sample_count[type] + 1, sent->sample_number,
-                         out_track->edit_offset, sequence[type]->skip_dt_interval, sample[type]->dts, sample[type]->cts, sample_delta );
-                fwrite( log_data, 1, strlen( log_data ), hp->log_file );
+            char log_data[1024];
+            sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, sample_number=%"PRIu32", source_sample_number=%"PRIu32", "
+                     "edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
+                     sequence_number[type], input->file_id, type ? "audio" : "video", output_sample_count[type] + 1, sent->sample_number,
+                     out_track->edit_offset, sequence[type]->skip_dt_interval, sample[type]->dts, sample[type]->cts, sample_delta );
+            fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
-                /* Append a sample into output movie. */
-                if( lsmash_append_sample( out_movie->root, out_track->track_ID, sample[type] ) )
-                {
-                    lsmash_delete_sample( sample[type] );
-                    MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
-                    break;
-                }
-                largest_dts                       = max( largest_dts, dts[type] );
-                sample[type]                      = NULL;
-                sequence[type]->last_sample_dts   = last_sample_dts;
-                sequence[type]->last_sample_delta = sample_delta;
-                num_consecutive_sample_skip       = 0;
-                total_media_size                 += sample_size;
-                if( sent->sample_number == sequence[type]->start_sample_number )
-                    sequence[type]->first_sample_dts = last_sample_dts;
-                /* Check if this sample is the first sample in the presentation of this sequence.
-                 * If so, set its CTS into start time of the presentation of this sequence. */
-                if( sent->sample_number == sequence[type]->start_sample_number + sequence[type]->skip_samples )
-                    sequence[type]->presentation_start_time = last_sample_cts;
-                /* Check if this track has no more samples to be appended. */
-                if( ++output_sample_count[type] == hp->number_of_samples[type] )
-                {
-                    active[type] = 0;
-                    if( --num_active_input_tracks == 0 )
-                        break;      /* end of muxing */
-                }
+            /* Append a sample into output movie. */
+            if( lsmash_append_sample( out_movie->root, out_track->track_ID, sample[type] ) )
+            {
+                lsmash_delete_sample( sample[type] );
+                MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashexport", MB_ICONERROR | MB_OK );
+                break;
             }
-            else
-                ++num_consecutive_sample_skip;      /* Skip appendig sample. */
+            largest_dts                       = max( largest_dts, dts[type] );
+            sample[type]                      = NULL;
+            sequence[type]->last_sample_dts   = last_sample_dts;
+            sequence[type]->last_sample_delta = sample_delta;
+            num_consecutive_sample_skip       = 0;
+            total_media_size                 += sample_size;
+            if( sent->sample_number == sequence[type]->start_sample_number )
+                sequence[type]->first_sample_dts = last_sample_dts;
+            /* Check if this sample is the first sample in the presentation of this sequence.
+             * If so, set its CTS into start time of the presentation of this sequence. */
+            if( sent->sample_number == sequence[type]->start_sample_number + sequence[type]->skip_samples )
+                sequence[type]->presentation_start_time = last_sample_cts;
+            /* Check if this track has no more samples to be appended. */
+            if( ++output_sample_count[type] == hp->number_of_samples[type] )
+            {
+                active[type] = 0;
+                if( --num_active_input_tracks == 0 )
+                    break;      /* end of muxing */
+            }
         }
+        else
+            ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
 abort:
@@ -708,7 +714,8 @@ static void cleanup_handler( lsmash_handler_t *hp )
         lsmash_destroy_root( output->root );
     if( hp->input )
         for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
-            lsmash_destroy_root( hp->input[i]->root );
+            if( hp->input[i] )
+                lsmash_destroy_root( hp->input[i]->root );
     if( hp->sequence[VIDEO_TRACK] )
         free( hp->sequence[VIDEO_TRACK] );
     if( hp->sequence[AUDIO_TRACK] )
