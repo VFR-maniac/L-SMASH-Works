@@ -112,9 +112,9 @@ typedef struct
 
 typedef struct
 {
-    int            file_id;
-    lsmash_root_t *root;
-    input_track_t  track[2];
+    int                       file_id;
+    lsmash_root_t            *root;
+    input_track_t             track[2];
     lsmash_movie_parameters_t movie_param;
 } input_movie_t;
 
@@ -245,6 +245,7 @@ static int open_input_movie( lsmash_handler_t *hp, char *file_name, int file_id 
     get_first_track_of_type( input, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK );
     lsmash_discard_boxes( input->root );
     input->file_id = file_id;
+    hp->with_audio |= input->track[VIDEO_TRACK].active;
     ++ hp->number_of_inputs;
     return 0;
 }
@@ -304,8 +305,8 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
                                             video_sequence->start_sample_number, &video_sequence->skip_dt_interval ) )
         return -1;
     input_track_t *in_audio_track = &input->track[AUDIO_TRACK];
-    if( !hp->sequence[AUDIO_TRACK] )
-        return 0;   /* Audio track is not present. */
+    if( !hp->with_audio )
+        return 0;
     uint64_t video_start_time;  /* start time of video for presentation */
     if( lsmash_get_dts_from_media_timeline( input->root, in_video_track->track_ID, start_sample, &video_start_time ) )
         return -1;
@@ -407,7 +408,6 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
                 return -1;  /* unknown error */
             ++ hp->number_of_sequences;
             prev_source_file_id = source_file_id;
-            hp->with_audio |= hp->input[current_input_number]->track[VIDEO_TRACK].active;
         }
         prev_source_video_number = source_video_number;
         hp->sent[VIDEO_TRACK][i].input           = hp->input[current_input_number];
@@ -690,13 +690,13 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
     return 0;
 }
 
-static void finish_movie( output_movie_t *output )
+static int finish_movie( output_movie_t *output )
 {
     lsmash_adhoc_remux_t moov_to_front;
     moov_to_front.func        = NULL;
     moov_to_front.buffer_size = 4*1024*1024;    /* 4MiB */
     moov_to_front.param       = NULL;
-    lsmash_finish_movie( output->root, &moov_to_front );
+    return lsmash_finish_movie( output->root, &moov_to_front );
 }
 
 static void cleanup_handler( lsmash_handler_t *hp )
@@ -761,7 +761,11 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashexport", MB_ICONERROR | MB_OK );
         return exporter_error( &h );
     }
-    finish_movie( h.output );
+    if( finish_movie( h.output ) )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashexport", MB_ICONERROR | MB_OK );
+        return exporter_error( &h );
+    }
     cleanup_handler( &h );
     MessageBox( HWND_DESKTOP, "Muxing completed!", "lsmashexport", MB_OK );
     return FALSE;
