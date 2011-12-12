@@ -1,0 +1,253 @@
+#!/bin/bash
+
+#----------------------------------------------------------------------------------------------
+#  configure script for Libav-SMASH File Reader using mingw + gcc.
+#----------------------------------------------------------------------------------------------
+
+# -- help -------------------------------------------------------------------------------------
+if test x"$1" = x"-h" -o x"$1" = x"--help" ; then
+cat << EOF
+Usage: ./configure [options]
+options:
+  -h, --help               print help (this)
+  
+  --prefix=PREFIX          set dir for headers and lids
+                           [/usr/local]
+  --libdir=DIR             set dir for libs    [PREFIX/lib]
+  --includedir=DIR         set dir for headers [PREFIX/include]
+  
+  --debug-video            debug video (-DDEBUG_VIDEO)
+  --debug-audio            debug audio (-DDEBUG_AUDIO)
+
+  --extra-cflags=XCFLAGS   add XCFLAGS to CFLAGS
+  --extra-ldflags=XLDFLAGS add XLDFLAGS to LDFLAGS
+  --extra-libs=XLIBS       add XLIBS to LIBS
+  
+EOF
+exit 1
+fi
+
+#-- func --------------------------------------------------------------------------------------
+error_exit()
+{
+    echo error: $1
+    exit 1
+}
+
+cc_check()
+{
+    rm -f conftest.c
+    if [ -n "$3" ]; then
+        echo "#include <$3>" > conftest.c
+    fi
+    echo "int main(void){$4 return 0;}" >> conftest.c
+    $CC conftest.c $1 $2 -o conftest 2> /dev/null
+    ret=$?
+    rm -f conftest.*
+    return $ret
+}
+#----------------------------------------------------------------------------------------------
+
+
+SRCDIR="$(cd $(dirname $0); pwd)"
+test "$SRCDIR" = "$(pwd)" && SRCDIR=.
+test -n "$(echo $SRCDIR | grep ' ')" && \
+    error_exit "out-of-tree builds are impossible with whitespace in source path"
+
+# -- init -------------------------------------------------------------------------------------
+    
+prefix="/usr/local"
+bindir=""
+libdir="$prefix/lib"
+includedir="$prefix/include"
+
+CC="gcc"
+LD="gcc"
+
+STRIP="strip"
+
+debug="disabled"
+debug_audio="disabled"
+debug_video="disabled"
+
+CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
+LDFLAGS="-L."
+AUI_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
+
+LIBS=" -lm"
+
+# -- options ----------------------------------------------------------------------------------
+
+for opt; do
+    optarg="${opt#*=}"
+    case "$opt" in
+        --prefix=*)
+            prefix="$optarg"
+            ;;
+        --libdir=*)
+            libdir="$optarg"
+            ;;
+        --includedir=*)
+            includedir="$optarg"
+            ;;
+        --extra-cflags=*)
+            XCFLAGS="$optarg"
+            ;;
+        --debug-video)
+            debug="enabled"
+            debug_video="enabled"
+            ;;
+        --debug-audio)
+            debug="enabled"
+            debug_audio="enabled"
+            ;;
+        --extra-ldflags=*)
+            XLDFLAGS="$optarg"
+            ;;
+        --extra-libs=*)
+            XLIBS="$optarg"
+            ;;
+        *)
+            error_exit "unknown option $opt"
+            ;;
+    esac
+done
+
+test -n "$prefix" || prefix="/usr/local"
+test -n "$libdir" || libdir='${prefix}/lib'
+test -n "$includedir" || includedir='${prefix}/include'
+
+# -- add extra --------------------------------------------------------------------------------
+
+CFLAGS="$CFLAGS $XCFLAGS -I$includedir"
+LDFLAGS="$LDFLAGS $XLDFLAGS -L$libdir"
+LIBS="$LIBS $XLIBS"
+
+# -- check_exe --------------------------------------------------------------------------------
+for f in "$CC" "$LD" "$STRIP"; do
+    test -n "$(which $f 2> /dev/null)" || error_exit "$f is not executable"
+done
+
+# -- check & set cflags and ldflags  ----------------------------------------------------------
+if ! cc_check "$CFLAGS" "$LDFLAGS"; then
+    error_exit "invalid CFLAGS/LDFLAGS"
+fi
+if test x"$debug" = x"enabled"; then
+    CFLAGS="$CFLAGS -g3 -O0"
+    STRIP=""
+    if test x"$debug_audio" = x"enabled"; then
+        CFLAGS="$CFLAGS -DDEBUG_AUDIO"
+    fi
+    if test x"$debug_video" = x"enabled"; then
+        CFLAGS="$CFLAGS -DDEBUG_VIDEO"
+    fi
+elif cc_check "-Os -ffast-math $CFLAGS" "$LDFLAGS"; then
+    CFLAGS="-Os -ffast-math $CFLAGS"
+fi
+
+if cc_check "$CFLAGS -fexcess-precision=fast" "$LDFLAGS"; then
+    CFLAGS="$CFLAGS -fexcess-precision=fast"
+fi
+
+# -- set file names ---------------------------------------------------------------------------
+# -- add src files to SRCS --
+SRCS="lsmashinput.c"
+AUINAME="lsmashinput.aui"
+DEF="lsmashinput.def"
+
+# -- check lsmash -----------------------------------------------------------------------------
+echo checking for lsmash libs...
+if pkg-config --exists liblsmash 2>/dev/null; then
+    lsmash_lib="$lsmash_lib $(pkg-config --libs liblsmash)"
+    lsmash_cflag="$lsmash_cflag $(pkg-config --cflags liblsmash)"
+fi
+if [ -z "$lsmash_lib" -a -z "$lsmash_cflag" ]; then
+    echo warning: pkg-config or pc files not found, lib detection may be inaccurate.
+    for lib in -llsmash; do
+        if cc_check "" "$LDFLAGS $lib" ; then
+            lsmash_lib="$lsmash_lib $lib"
+        fi
+    done
+fi
+echo checking for lsmash.h...
+if cc_check "$CFLAGS $lsmash_cflag" "$LDFLAGS $lsmash_lib" "lsmash.h" "lsmash_open_movie(0,0);" ; then
+    LIBS="$LIBS $lsmash_lib"
+    CFLAGS="$CFLAGS $lsmash_cflag"
+else
+    echo error: l-smash might not be installed.
+    error_exit "libs options... $lsmash_lib"
+fi
+
+# -- check libav ------------------------------------------------------------------------------
+echo checking for libav libs...
+if pkg-config --exists libavformat libavcodec libswscale 2>/dev/null; then
+    lav_lib="$lav_lib $(pkg-config --libs libavformat libavcodec libavutil libswscale)"
+    lav_cflag="$lav_cflag $(pkg-config --cflags libavformat libavcodec libavutil libswscale)"
+fi
+if [ -z "$lav_lib" -a -z "$lav_cflag" ]; then
+    echo warning: pkg-config or pc  files not found, lib detection may be inaccurate.
+    for lib in -lavformat -lavcodec -lswscale -lavutil -lm -lbz2 -lz; do
+        if cc_check "" "$LDFLAGS $lav_lib"; then
+            lav_lib="$lav_lib $lib"
+        fi
+    done
+fi
+
+echo checking for libavformat/avformat.h...
+if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libavformat/avformat.h" "avformat_find_stream_info(0,0);" ; then
+    echo error: libavformat/avformat.h might not be installed or some libs missing.
+    error_exit "libs options suggested... $lav_lib"
+fi
+
+echo checking for libavcodec/avcodec.h...
+if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libavcodec/avcodec.h" "avcodec_find_decoder(0);" ; then
+    echo error: libavcodec/avcodec.h might not be installed or some libs missing.
+    error_exit "libs options suggested... $lav_lib"
+fi
+
+echo checking for libswscale/swscale.h...
+if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libswscale/swscale.h" "sws_getCachedContext(0,0,0,0,0,0,0,0,0,0,0);" ; then
+    echo error: libswscale/swscale.h might not be installed or some libs missing.
+    error_exit "libs options suggested... $lav_lib"
+fi
+
+LIBS="$LIBS $lav_lib"
+CFLAGS="$CFLAGS $lav_cflag"
+
+# -- output config.mak ------------------------------------------------------------------------
+rm -f config.mak
+cat >> config.mak << EOF
+CC = $CC
+LD = $LD
+STRIP = $STRIP
+CFLAGS = $CFLAGS
+LDFLAGS = $LDFLAGS
+AUI_LDFLAGS = $AUI_LDFLAGS
+LIBS = $LIBS
+SRCS = $SRCS
+AUINAME = $AUINAME
+DEF = $DEF
+EOF
+
+cat << EOF
+
+settings...
+CC          = $CC
+LD          = $LD
+STRIP       = $STRIP
+CFLAGS      = $CFLAGS
+LDFLAGS     = $LDFLAGS
+AUI_LDFLAGS = $AUI_LDFLAGS
+LIBS        = $LIBS
+SRCS        = $SRCS
+AUINAME     = $AUINAME
+DEF         = $DEF
+EOF
+
+# ---------------------------------------------------------------------------------------------
+
+cat << EOF
+
+configure finished.
+type 'make' to continue...
+EOF
