@@ -87,8 +87,8 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTable( void )
 
 typedef struct
 {
-    uint32_t start_sample_number;       /* start time of media, not presentation */
-    uint32_t end_sample_number;         /* end time of media */
+    uint32_t start_sample_number;       /* start sample of media, not presentation */
+    uint32_t end_sample_number;         /* end sample of media */
     uint32_t skip_samples;
     uint32_t last_sample_delta;
     uint64_t last_sample_dts;
@@ -245,7 +245,7 @@ static int open_input_movie( lsmash_handler_t *hp, char *file_name, int file_id 
     get_first_track_of_type( input, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK );
     lsmash_discard_boxes( input->root );
     input->file_id = file_id;
-    hp->with_audio |= input->track[VIDEO_TRACK].active;
+    hp->with_audio |= input->track[AUDIO_TRACK].active;
     ++ hp->number_of_inputs;
     return 0;
 }
