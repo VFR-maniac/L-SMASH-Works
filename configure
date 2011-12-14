@@ -7,22 +7,24 @@
 # -- help -------------------------------------------------------------------------------------
 if test x"$1" = x"-h" -o x"$1" = x"--help" ; then
 cat << EOF
-Usage: ./configure [options]
+Usage: [PKG_CONFIG_PATH=/foo/bar/lib/pkgconfig] ./configure [options]
 options:
   -h, --help               print help (this)
-  
-  --prefix=PREFIX          set dir for headers and lids
-                           [/usr/local]
-  --libdir=DIR             set dir for libs    [PREFIX/lib]
-  --includedir=DIR         set dir for headers [PREFIX/include]
-  
+
+  --prefix=PREFIX          set dir for headers and lids [NONE]
+  --libdir=DIR             set dir for libs    [NONE]
+  --includedir=DIR         set dir for headers [NONE]
+
   --debug-video            debug video (-DDEBUG_VIDEO)
   --debug-audio            debug audio (-DDEBUG_AUDIO)
 
   --extra-cflags=XCFLAGS   add XCFLAGS to CFLAGS
   --extra-ldflags=XLDFLAGS add XLDFLAGS to LDFLAGS
   --extra-libs=XLIBS       add XLIBS to LIBS
-  
+
+  --cross-prefix=PREFIX    use PREFIX for compilation tools
+  --sysroot=SYSROOT        root of cross-build tree
+
 EOF
 exit 1
 fi
@@ -34,20 +36,32 @@ error_exit()
     exit 1
 }
 
+log_echo()
+{
+    echo $1
+    echo >> config.log
+    echo --------------------------------- >> config.log
+    echo $1 >> config.log
+}
+
 cc_check()
 {
     rm -f conftest.c
     if [ -n "$3" ]; then
+        echo "#include <$3>" >> config.log
         echo "#include <$3>" > conftest.c
     fi
+    echo "int main(void){$4 return 0;}" >> config.log
     echo "int main(void){$4 return 0;}" >> conftest.c
-    $CC conftest.c $1 $2 -o conftest 2> /dev/null
+    echo $CC conftest.c -o conftest $1 $2 >> config.log
+    $CC conftest.c -o conftest $1 $2 2>> config.log
     ret=$?
+    echo $ret >> config.log
     rm -f conftest.*
     return $ret
 }
 #----------------------------------------------------------------------------------------------
-
+rm -f config.log
 
 SRCDIR="$(cd $(dirname $0); pwd)"
 test "$SRCDIR" = "$(pwd)" && SRCDIR=.
@@ -55,16 +69,15 @@ test -n "$(echo $SRCDIR | grep ' ')" && \
     error_exit "out-of-tree builds are impossible with whitespace in source path"
 
 # -- init -------------------------------------------------------------------------------------
-    
-prefix="/usr/local"
-bindir=""
-libdir="$prefix/lib"
-includedir="$prefix/include"
 
 CC="gcc"
 LD="gcc"
 
 STRIP="strip"
+
+prefix=""
+includedir=""
+libdir=""
 
 debug="disabled"
 debug_audio="disabled"
@@ -74,9 +87,10 @@ CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
 LDFLAGS="-L."
 AUI_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
 
-LIBS=" -lm"
-
+DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 # -- options ----------------------------------------------------------------------------------
+echo all command lines: > config.log
+echo "$*" >> config.log
 
 for opt; do
     optarg="${opt#*=}"
@@ -107,28 +121,40 @@ for opt; do
         --extra-libs=*)
             XLIBS="$optarg"
             ;;
+        --cross-prefix=*)
+            CROSS="$optarg"
+            ;;
+        --sysroot=*)
+            CFLAGS="$CFLAGS --sysroot=$optarg"
+            LDFLAGS="$LDFLAGS --sysroot=$optarg"
+            ;;
         *)
             error_exit "unknown option $opt"
             ;;
     esac
 done
 
-test -n "$prefix" || prefix="/usr/local"
-test -n "$libdir" || libdir='${prefix}/lib'
-test -n "$includedir" || includedir='${prefix}/include'
-
 # -- add extra --------------------------------------------------------------------------------
+if test -n "$prefix"; then
+    CFLAGS="$CFLAGS -I$prefix/include"
+    LDFLAGS="$LDFLAGS -L$prefix/lib"
+fi
+test -n "$includedir" && CFLAGS="$CFLAGS -I$includedir"
+test -n "$libdir" && LDFLAGS="$LDFLAGS -L$libdir"
 
-CFLAGS="$CFLAGS $XCFLAGS -I$includedir"
-LDFLAGS="$LDFLAGS $XLDFLAGS -L$libdir"
-LIBS="$LIBS $XLIBS"
+CFLAGS="$CFLAGS $XCFLAGS"
+LDFLAGS="$LDFLAGS $XLDFLAGS"
 
 # -- check_exe --------------------------------------------------------------------------------
+CC=${CROSS}${CC}
+LD=${CROSS}${LD}
+STRIP=${CROSS}${STRIP}
 for f in "$CC" "$LD" "$STRIP"; do
     test -n "$(which $f 2> /dev/null)" || error_exit "$f is not executable"
 done
 
 # -- check & set cflags and ldflags  ----------------------------------------------------------
+log_echo "CFLAGS/LDFLAGS checking..."
 if ! cc_check "$CFLAGS" "$LDFLAGS"; then
     error_exit "invalid CFLAGS/LDFLAGS"
 fi
@@ -155,64 +181,47 @@ SRCS="lsmashinput.c"
 AUINAME="lsmashinput.aui"
 DEF="lsmashinput.def"
 
-# -- check lsmash -----------------------------------------------------------------------------
-echo checking for lsmash libs...
-if pkg-config --exists liblsmash 2>/dev/null; then
-    lsmash_lib="$lsmash_lib $(pkg-config --libs liblsmash)"
-    lsmash_cflag="$lsmash_cflag $(pkg-config --cflags liblsmash)"
-fi
-if [ -z "$lsmash_lib" -a -z "$lsmash_cflag" ]; then
-    echo warning: pkg-config or pc files not found, lib detection may be inaccurate.
-    for lib in -llsmash; do
-        if cc_check "" "$LDFLAGS $lib" ; then
-            lsmash_lib="$lsmash_lib $lib"
-        fi
-    done
-fi
-echo checking for lsmash.h...
-if cc_check "$CFLAGS $lsmash_cflag" "$LDFLAGS $lsmash_lib" "lsmash.h" "lsmash_open_movie(0,0);" ; then
-    LIBS="$LIBS $lsmash_lib"
-    CFLAGS="$CFLAGS $lsmash_cflag"
+# -- pkg-config -------------------------------------------------------------------------------
+PKGCONFIGEXE="pkg-config"
+test -n "$(which ${CROSS}${PKGCONFIGEXE} 2> /dev/null)" && \
+    PKGCONFIGEXE=${CROSS}${PKGCONFIGEXE}
+if $PKGCONFIGEXE --exists $DEPLIBS 2>/dev/null; then
+    LIBS="$($PKGCONFIGEXE --libs $DEPLIBS)"
+    CFLAGS="$CFLAGS $($PKGCONFIGEXE --cflags $DEPLIBS)"
 else
-    echo error: l-smash might not be installed.
-    error_exit "libs options... $lsmash_lib"
+    for lib in $DEPLIBS; do
+        LIBS="$LIBS -l${lib#lib}"
+    done
+    log_echo "warning: pkg-config or pc files not found, lib detection may be inaccurate."
+fi
+
+# -- check lsmash -----------------------------------------------------------------------------
+log_echo "checking for liblsmash..."
+if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "lsmash.h" "lsmash_open_movie(0,0);" ; then
+    log_echo "error: liblsmash checking failed"
+    error_exit "lsmash.h might not be installed or some libs missing."
 fi
 
 # -- check libav ------------------------------------------------------------------------------
-echo checking for libav libs...
-if pkg-config --exists libavformat libavcodec libswscale 2>/dev/null; then
-    lav_lib="$lav_lib $(pkg-config --libs libavformat libavcodec libavutil libswscale)"
-    lav_cflag="$lav_cflag $(pkg-config --cflags libavformat libavcodec libavutil libswscale)"
-fi
-if [ -z "$lav_lib" -a -z "$lav_cflag" ]; then
-    echo warning: pkg-config or pc  files not found, lib detection may be inaccurate.
-    for lib in -lavformat -lavcodec -lswscale -lavutil -lm -lbz2 -lz; do
-        if cc_check "" "$LDFLAGS $lav_lib"; then
-            lav_lib="$lav_lib $lib"
-        fi
-    done
+log_echo "checking for libavformat..."
+if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libavformat/avformat.h" "avformat_find_stream_info(0,0);" ; then
+    log_echo "error: libavformat checking failed."
+    error_exit "libavformat/avformat.h might not be installed or some libs missing."
 fi
 
-echo checking for libavformat/avformat.h...
-if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libavformat/avformat.h" "avformat_find_stream_info(0,0);" ; then
-    echo error: libavformat/avformat.h might not be installed or some libs missing.
-    error_exit "libs options suggested... $lav_lib"
+log_echo "checking for libavcodec..."
+if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libavcodec/avcodec.h" "avcodec_find_decoder(0);" ; then
+    log_echo "error: libavcodec checking failed."
+    error_exit "libavcodec/avcodec.h might not be installed or some libs missing."
 fi
 
-echo checking for libavcodec/avcodec.h...
-if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libavcodec/avcodec.h" "avcodec_find_decoder(0);" ; then
-    echo error: libavcodec/avcodec.h might not be installed or some libs missing.
-    error_exit "libs options suggested... $lav_lib"
+log_echo "checking for libswscale..."
+if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getCachedContext(0,0,0,0,0,0,0,0,0,0,0);" ; then
+    log_echo "error: libswscale checking failed."
+    error_exit "libswscale/swscale.h might not be installed or some libs missing."
 fi
 
-echo checking for libswscale/swscale.h...
-if ! cc_check "$CFLAGS $lav_cflag" "$LDFLAGS $lav_lib" "libswscale/swscale.h" "sws_getCachedContext(0,0,0,0,0,0,0,0,0,0,0);" ; then
-    echo error: libswscale/swscale.h might not be installed or some libs missing.
-    error_exit "libs options suggested... $lav_lib"
-fi
-
-LIBS="$LIBS $lav_lib"
-CFLAGS="$CFLAGS $lav_cflag"
+LIBS="$LIBS $XLIBS"
 
 # -- output config.mak ------------------------------------------------------------------------
 rm -f config.mak
@@ -228,6 +237,13 @@ SRCS = $SRCS
 AUINAME = $AUINAME
 DEF = $DEF
 EOF
+
+cat >> config.log << EOF
+---------------------------------
+    setting
+---------------------------------
+EOF
+cat config.mak >> config.log
 
 cat << EOF
 

@@ -10,16 +10,15 @@ all: $(AUINAME)
 
 $(AUINAME): $(OBJS)
 	$(LD) $(LDFLAGS) $(AUI_LDFLAGS) -o $(AUINAME) $(OBJS) $(DEF) $(LIBS)
-	@if [ -n "$(STRIP)" ]; then \
-		echo $(STRIP) $(AUINAME); \
-		$(STRIP) $(AUINAME); \
-	fi
-    
+ifneq ($(STRIP),)
+	$(STRIP) $(AUINAME)
+endif
+
 .c.o:
 	$(CC) $(CFLAGS) -c $<  -o $@
 
 clean:
-	rm *.aui *.o
-    
+	-rm *.aui *.o
+
 distclean: clean
-	rm config.*
+	-rm config.*
