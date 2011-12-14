@@ -194,10 +194,75 @@ static uint32_t open_file( lsmash_handler_t *hp, char *file_name )
     return movie_param.number_of_tracks;
 }
 
+static inline uint64_t get_gcd( uint64_t a, uint64_t b )
+{
+    if( !b )
+        return a;
+    while( 1 )
+    {
+        uint64_t c = a % b;
+        if( !c )
+            return b;
+        a = b;
+        b = c;
+    }
+}
+
+static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
+{
+    uint32_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
+    if( hp->video_sample_count == 1 )
+    {
+        /* Set average framerate. */
+        hp->framerate_num = media_timescale;
+        hp->framerate_den = lsmash_get_media_duration( hp->root, track_ID );
+        return hp->framerate_den == 0 ? -1 : 0;
+    }
+    lsmash_media_ts_list_t ts_list;
+    if( lsmash_get_media_timestamps( hp->root, track_ID, &ts_list ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get timestamps." );
+        return -1;
+    }
+    if( ts_list.sample_count != hp->video_sample_count )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to count number of video samples." );
+        return -1;
+    }
+    uint32_t composition_sample_delay;
+    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
+    {
+        lsmash_delete_media_timestamps( &ts_list );
+        return -1;
+    }
+    if( composition_sample_delay )
+        lsmash_sort_timestamps_composition_order( &ts_list );
+    uint64_t largest_cts          = ts_list.timestamp[1].cts;
+    uint64_t second_largest_cts   = ts_list.timestamp[0].cts;
+    uint32_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
+    for( uint32_t i = 2; i < ts_list.sample_count; i++ )
+    {
+        composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
+        if( ts_list.timestamp[i].cts > largest_cts )
+        {
+            second_largest_cts = largest_cts;
+            largest_cts = ts_list.timestamp[i].cts;
+        }
+        else if( ts_list.timestamp[i].cts > second_largest_cts )
+            second_largest_cts = ts_list.timestamp[i].cts;
+    }
+    uint64_t composition_duration = largest_cts + (largest_cts - second_largest_cts) - ts_list.timestamp[0].cts;
+    lsmash_delete_media_timestamps( &ts_list );
+    /* Set average framerate. */
+    hp->framerate_num = (hp->video_sample_count * ((double)media_timescale / composition_duration)) * composition_timebase;
+    hp->framerate_den = composition_timebase;
+    return 0;
+}
+
 static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tracks, uint32_t type )
 {
     /* L-SMASH */
-    uint32_t track_ID;
+    uint32_t track_ID = 0;
     uint32_t i;
     for( i = 1; i <= number_of_tracks; i++ )
     {
@@ -229,6 +294,11 @@ static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tra
     {
         hp->video_track_ID = track_ID;
         hp->video_sample_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
+        if( get_average_framerate( hp, track_ID ) )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get average framerate." );
+            return -1;
+        }
     }
     else
     {
@@ -248,11 +318,7 @@ static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tra
     AVStream *stream = hp->format_ctx->streams[i];
     AVCodecContext *ctx = stream->codec;
     if( type == AVMEDIA_TYPE_VIDEO )
-    {
         hp->video_ctx = stream->codec;
-        hp->framerate_num = stream->r_frame_rate.num;
-        hp->framerate_den = stream->r_frame_rate.den;
-    }
     else
         hp->audio_ctx = stream->codec;
     AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
