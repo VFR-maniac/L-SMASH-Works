@@ -88,8 +88,8 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTable( void )
 typedef struct
 {
     uint32_t presentation_end_sample_number;    /* stored in ascending order of decoding */
-    uint32_t presentation_start_sample_number;  /* stored in ascending order decoding */
-    uint32_t media_start_sample_number;         /* stored in ascending order decoding */
+    uint32_t presentation_start_sample_number;  /* stored in ascending order of decoding */
+    uint32_t media_start_sample_number;         /* stored in ascending order of decoding */
     uint32_t number_of_start_extra_samples;
     uint32_t number_of_end_extra_samples;
     uint32_t last_sample_delta;
@@ -499,7 +499,7 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
             return -1;
     }
     /* Set up exported range of each sequence.
-     * Also count number of audio samples for exporting if audio stream is present. */
+     * Also count number of audio samples for exporting if audio track is present. */
     for( int i = 0; i < number_of_samples; )
     {
         input_movie_t *input               = sent_video_sample[i].input;
@@ -510,8 +510,11 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
         if( setup_exported_range_of_sequence( hp, input, sequence_number, start_sample_number, end_sample_number ) )
             return -1;
     }
-    free( input->order_converter );
-    input->order_converter = NULL;
+    for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
+    {
+        free( hp->input[i]->order_converter );
+        hp->input[i]->order_converter = NULL;
+    }
     return 0;
 }
 
@@ -556,7 +559,6 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
         /* Copy track and media parameters except for track_ID. */
         out_track->track_param = in_track->track_param;
         out_track->media_param = in_track->media_param;
-        /* Set track and media parameters specified by users */
         out_track->track_param.track_ID = out_track->track_ID;
         if( lsmash_set_track_parameters( output->root, out_track->track_ID, &out_track->track_param ) )
         {
