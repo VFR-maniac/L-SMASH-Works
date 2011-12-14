@@ -61,7 +61,7 @@ cc_check()
     return $ret
 }
 #----------------------------------------------------------------------------------------------
-rm -f config.log
+rm -f config.* .depend
 
 SRCDIR="$(cd $(dirname $0); pwd)"
 test "$SRCDIR" = "$(pwd)" && SRCDIR=.
@@ -233,6 +233,7 @@ CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
 AUI_LDFLAGS = $AUI_LDFLAGS
 LIBS = $LIBS
+SRCDIR = $SRCDIR
 SRCS = $SRCS
 AUINAME = $AUINAME
 DEF = $DEF
@@ -259,6 +260,8 @@ SRCS        = $SRCS
 AUINAME     = $AUINAME
 DEF         = $DEF
 EOF
+
+test "$SRCDIR" = "." || cp -f $SRCDIR/{GNUmakefile,$DEF} .
 
 # ---------------------------------------------------------------------------------------------
 

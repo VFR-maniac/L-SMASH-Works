@@ -4,6 +4,8 @@
 
 include config.mak
 
+vpath %.c $(SRCDIR)
+
 OBJS = $(SRCS:.c=.o)
 
 all: $(AUINAME)
@@ -14,11 +16,22 @@ ifneq ($(STRIP),)
 	$(STRIP) $(AUINAME)
 endif
 
-.c.o:
+%.o: %.c .depend
 	$(CC) $(CFLAGS) -c $<  -o $@
 
 clean:
-	-rm *.aui *.o
+	-rm *.aui *.o .depend
 
 distclean: clean
 	-rm config.*
+
+ifneq ($(wildcard .depend),)
+include .depend
+endif
+
+.depend: config.mak
+	@$(RM) .depend
+	@$(foreach SRC, $(SRCS:%=$(SRCDIR)/%), $(CC) $(SRC) $(CFLAGS) -g0 -MT $(SRC:$(SRCDIR)/%.c=%.o) -MM >> .depend;)
+
+config.mak:
+	configure
