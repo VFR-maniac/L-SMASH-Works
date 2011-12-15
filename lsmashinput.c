@@ -208,15 +208,27 @@ static inline uint64_t get_gcd( uint64_t a, uint64_t b )
     }
 }
 
+static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
+{
+    uint64_t reduce = get_gcd( *a, *b );
+    *a /= reduce;
+    *b /= reduce;
+    return reduce;
+}
+
 static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
 {
-    uint32_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
+    uint64_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
     if( hp->video_sample_count == 1 )
     {
+        uint64_t media_duration = lsmash_get_media_duration( hp->root, track_ID );
+        if( media_duration == 0 )
+            media_duration = INT32_MAX;
+        reduce_fraction( &media_timescale, &media_duration );
         /* Set average framerate. */
         hp->framerate_num = media_timescale;
-        hp->framerate_den = lsmash_get_media_duration( hp->root, track_ID );
-        return hp->framerate_den == 0 ? -1 : 0;
+        hp->framerate_den = media_duration;
+        return 0;
     }
     lsmash_media_ts_list_t ts_list;
     if( lsmash_get_media_timestamps( hp->root, track_ID, &ts_list ) )
@@ -239,7 +251,7 @@ static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
         lsmash_sort_timestamps_composition_order( &ts_list );
     uint64_t largest_cts          = ts_list.timestamp[1].cts;
     uint64_t second_largest_cts   = ts_list.timestamp[0].cts;
-    uint32_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
+    uint64_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
     for( uint32_t i = 2; i < ts_list.sample_count; i++ )
     {
         composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
@@ -251,7 +263,8 @@ static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
         else if( ts_list.timestamp[i].cts > second_largest_cts )
             second_largest_cts = ts_list.timestamp[i].cts;
     }
-    uint64_t composition_duration = largest_cts + (largest_cts - second_largest_cts) - ts_list.timestamp[0].cts;
+    uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
+    uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
     lsmash_delete_media_timestamps( &ts_list );
     /* Set average framerate. */
     hp->framerate_num = (hp->video_sample_count * ((double)media_timescale / composition_duration)) * composition_timebase;
