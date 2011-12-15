@@ -107,6 +107,7 @@ typedef struct
     uint32_t                  track_ID;
     uint32_t                  number_of_samples;
     uint32_t                  last_sample_delta;
+    uint32_t                  timescale_integrator;
     lsmash_sample_t          *sample;
     double                    dts;
     lsmash_track_parameters_t track_param;
@@ -130,6 +131,7 @@ typedef struct
 typedef struct
 {
     uint32_t                  track_ID;
+    uint32_t                  media_timescale;
     uint64_t                  edit_offset;
     lsmash_track_parameters_t track_param;
     lsmash_media_parameters_t media_param;
@@ -161,9 +163,7 @@ typedef struct
     uint32_t          number_of_inputs;
     uint32_t          number_of_samples[2];
     int               with_audio;
-#ifdef DEBUG
     FILE             *log_file;
-#endif
 } lsmash_handler_t;
 
 static void *malloc_zero( size_t size )
@@ -518,6 +518,53 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
     return 0;
 }
 
+static inline uint64_t get_gcd( uint64_t a, uint64_t b )
+{
+    if( !b )
+        return a;
+    while( 1 )
+    {
+        uint64_t c = a % b;
+        if( !c )
+            return b;
+        a = b;
+        b = c;
+    }
+}
+
+static inline uint64_t get_lcm( uint64_t a, uint64_t b )
+{
+    if( !a )
+        return 0;
+    return (a / get_gcd( a, b )) * b;
+}
+
+static int integrate_media_timescale( lsmash_handler_t *hp )
+{
+    if( hp->with_audio )
+    {
+        uint32_t lcm_timescale = hp->input[0]->track[AUDIO_TRACK].media_param.timescale;
+        for( uint32_t i = 1; i < hp->number_of_inputs; i++ )
+            if( hp->input[i]->track[AUDIO_TRACK].active )
+                lcm_timescale = get_lcm( lcm_timescale, hp->input[i]->track[AUDIO_TRACK].media_param.timescale );
+        if( lcm_timescale != hp->input[0]->track[AUDIO_TRACK].media_param.timescale )
+            return -1;      /* Variable samplerate is not supported. */
+        for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
+            if( hp->input[i]->track[AUDIO_TRACK].active )
+                hp->input[i]->track[AUDIO_TRACK].timescale_integrator = 1;
+        hp->output->track[AUDIO_TRACK].media_timescale = lcm_timescale;
+    }
+    uint32_t lcm_timescale = hp->input[0]->track[VIDEO_TRACK].media_param.timescale;
+    for( uint32_t i = 1; i < hp->number_of_inputs; i++ )
+        lcm_timescale = get_lcm( lcm_timescale, hp->input[i]->track[VIDEO_TRACK].media_param.timescale );
+    if( lcm_timescale == 0 )
+        return -1;
+    for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
+        hp->input[i]->track[VIDEO_TRACK].timescale_integrator = lcm_timescale / hp->input[i]->track[VIDEO_TRACK].media_param.timescale;
+    hp->output->track[VIDEO_TRACK].media_timescale = lcm_timescale;
+    return 0;
+}
+
 static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
 {
     char file_name[MAX_PATH];
@@ -534,6 +581,11 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
     if( !hp->log_file )
         return -1;
 #endif
+    if( integrate_media_timescale( hp ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to integrate media timescale." );
+        return -1;
+    }
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
     sent_sample_t *sent  = &hp->sent[VIDEO_TRACK][0];
@@ -556,10 +608,11 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create a track." );
             return -1;
         }
-        /* Copy track and media parameters except for track_ID. */
+        /* Copy track and media parameters except for track_ID and timescale. */
         out_track->track_param = in_track->track_param;
         out_track->media_param = in_track->media_param;
-        out_track->track_param.track_ID = out_track->track_ID;
+        out_track->track_param.track_ID  = out_track->track_ID;
+        out_track->media_param.timescale = out_track->media_timescale;
         if( lsmash_set_track_parameters( output->root, out_track->track_ID, &out_track->track_param ) )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to set track parameters." );
@@ -580,8 +633,8 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
     return 0;
 }
 
-static int append_extra_samples( input_movie_t *input, output_movie_t *output, int type, input_sequence_t *sequence,
-                                 uint32_t start_sample_number, uint32_t number_of_samples  )
+static int append_extra_samples( input_movie_t *input, output_movie_t *output, int type, FILE *log_file,
+                                 input_sequence_t *sequence, uint32_t start_sample_number, uint32_t number_of_samples )
 {
     input_track_t  *in_track  = &input->track[type];
     output_track_t *out_track = &output->track[type];
@@ -592,9 +645,11 @@ static int append_extra_samples( input_movie_t *input, output_movie_t *output, i
         if( sample )
         {
             /* The first DTS must be 0. */
-            sample->dts += out_track->edit_offset - sequence->skip_dt_interval;
-            sample->cts += out_track->edit_offset - sequence->skip_dt_interval;
-            in_track->dts = (double)sample->dts / in_track->media_param.timescale;
+            sample->dts  = (sample->dts - sequence->skip_dt_interval) * in_track->timescale_integrator;
+            sample->cts  = (sample->cts - sequence->skip_dt_interval) * in_track->timescale_integrator;
+            sample->dts += out_track->edit_offset;
+            sample->cts += out_track->edit_offset;
+            in_track->dts = (double)sample->dts / out_track->media_param.timescale;
         }
         else
         {
@@ -608,9 +663,16 @@ static int append_extra_samples( input_movie_t *input, output_movie_t *output, i
             MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashexport", MB_ICONERROR | MB_OK );
             return -1;
         }
+        sample_delta *= in_track->timescale_integrator;
         uint64_t sample_size     = sample->length;      /* sample might be deleted internally after appending. */
         uint64_t last_sample_dts = sample->dts;         /* same as above */
         uint64_t last_sample_cts = sample->cts;         /* same as above */
+#ifdef DEBUG
+        char log_data[1024];
+        sprintf( log_data, "file_id=%d, type=%s, edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
+                 input->file_id, type ? "audio" : "video", out_track->edit_offset, sequence->skip_dt_interval, sample->dts, sample->cts, sample_delta );
+        fwrite( log_data, 1, strlen( log_data ), log_file );
+#endif
         if( lsmash_append_sample( output->root, out_track->track_ID, sample ) )
         {
             lsmash_delete_sample( sample );
@@ -663,17 +725,19 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 if( sequence[type] )
                 {
                     /* Append all buffered sample to be flushed for composition. */
-                    if( append_extra_samples( input, output, type,
+                    if( append_extra_samples( input, output, type, hp->log_file,
                                               sequence[type],
                                               sequence[type]->presentation_end_sample_number + 1,
                                               sequence[type]->number_of_end_extra_samples ) )
                         break;
                     out_track->edit_offset = sequence[type]->last_sample_dts + sequence[type]->last_sample_delta;
                 }
-                sequence[type] = &hp->sequence[type][sent->sequence_number - 1];
                 sequence_number[type] = sent->sequence_number;
+                sequence[type] = &hp->sequence[type][sent->sequence_number - 1];
+                sequence[type]->start_skip_duration *= in_track->timescale_integrator;
+                sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
                 /* Append all sample to be skipped by edit list. */
-                if( append_extra_samples( input, output, type,
+                if( append_extra_samples( input, output, type, hp->log_file,
                                           sequence[type],
                                           sequence[type]->media_start_sample_number,
                                           sequence[type]->number_of_start_extra_samples ) )
@@ -684,7 +748,7 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 if( ++sent_sample_count[type] == hp->number_of_samples[type] )
                 {
                     /* Append all buffered sample to be flushed for composition. */
-                    if( append_extra_samples( input, output, type,
+                    if( append_extra_samples( input, output, type, hp->log_file,
                                               sequence[type],
                                               sequence[type]->presentation_end_sample_number + 1,
                                               sequence[type]->number_of_end_extra_samples ) )
@@ -699,9 +763,11 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
             if( sample[type] )
             {
                 /* The first DTS must be 0. */
-                sample[type]->dts += out_track->edit_offset - sequence[type]->skip_dt_interval;
-                sample[type]->cts += out_track->edit_offset - sequence[type]->skip_dt_interval;
-                in_track->dts = (double)sample[type]->dts / in_track->media_param.timescale;
+                sample[type]->dts  = (sample[type]->dts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator;
+                sample[type]->cts  = (sample[type]->cts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator;
+                sample[type]->dts += out_track->edit_offset;
+                sample[type]->cts += out_track->edit_offset;
+                in_track->dts = (double)sample[type]->dts / out_track->media_param.timescale;
             }
             else
             {
@@ -728,6 +794,7 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashexport", MB_ICONERROR | MB_OK );
                 break;
             }
+            sample_delta *= in_track->timescale_integrator;
             uint64_t sample_size     = sample[type]->length;        /* sample might be deleted internally after appending. */
             uint64_t last_sample_dts = sample[type]->dts;           /* same as above */
             uint64_t last_sample_cts = sample[type]->cts;           /* same as above */
@@ -763,7 +830,7 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
             if( ++sent_sample_count[type] == hp->number_of_samples[type] )
             {
                 /* Append all buffered sample to be flushed for composition. */
-                if( append_extra_samples( input, output, type,
+                if( append_extra_samples( input, output, type, hp->log_file,
                                           sequence[type],
                                           sequence[type]->presentation_end_sample_number + 1,
                                           sequence[type]->number_of_end_extra_samples ) )
