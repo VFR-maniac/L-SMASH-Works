@@ -381,7 +381,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     uint64_t video_presentation_end_time;
     if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, video_sequence->presentation_end_sample_number, &video_presentation_end_time ) )
         return -1;
-    if( video_sequence->presentation_end_sample_number < in_video_track->number_of_samples )
+    if( presentation_end_sample_number < in_video_track->number_of_samples )
     {
         uint32_t next_sample_number = input->order_converter[presentation_end_sample_number + 1].composition_to_decoding;
         uint64_t next_cts;
