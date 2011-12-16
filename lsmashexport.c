@@ -453,7 +453,7 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
     for( int i = 0; i < number_of_samples; i++ )
     {
         FRAME_STATUS fs;
-        if( !fp->exfunc->get_frame_status( editp, i + frame_s, &fs ) )
+        if( !fp->exfunc->get_frame_status( editp, frame_s + i, &fs ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to get the status of the first frame.", "lsmashexport", MB_ICONERROR | MB_OK );
             return -1;
@@ -693,7 +693,7 @@ static int append_extra_samples( input_movie_t *input, output_movie_t *output, i
     return 0;
 }
 
-static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
+static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { 1, hp->with_audio };
@@ -704,6 +704,9 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
     uint32_t          sequence_number[2]          = { 0, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
+#define UPDATE_PROGRESS( track_type ) \
+    if( track_type == VIDEO_TRACK ) \
+        fp->exfunc->set_frame( editp, frame_s + sent_sample_count[VIDEO_TRACK] - 1 )
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -839,15 +842,20 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp )
                 if( --num_active_input_tracks == 0 )
                     break;      /* end of muxing */
             }
+            UPDATE_PROGRESS( type );
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
     for( uint32_t i = 0; i < output->number_of_tracks; i++ )
+    {
         if( lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashexport", MB_ICONERROR | MB_OK );
+        UPDATE_PROGRESS( i );
+    }
     return 0;
+#undef UPDATE_PROGRESS
 }
 
 static int construct_timeline_maps( lsmash_handler_t *hp )
@@ -935,6 +943,7 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         return FALSE;
     if( message != WM_FILTER_EXPORT )
         return FALSE;
+    int current_frame = fp->exfunc->get_frame( editp );
     int frame_s;
     int frame_e;
     if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
@@ -955,22 +964,25 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashexport", MB_ICONERROR | MB_OK );
         return exporter_error( &h );
     }
-    if( do_mux( &h, editp, fp ) )
+    if( do_mux( &h, editp, fp, frame_s ) )
     {
         MessageBox( HWND_DESKTOP, "Failed to do muxing.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return exporter_error( &h );
+        goto mux_fail;
     }
     if( construct_timeline_maps( &h ) )
     {
         MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return exporter_error( &h );
+        goto mux_fail;
     }
     if( finish_movie( h.output ) )
     {
         MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return exporter_error( &h );
+        goto mux_fail;
     }
     cleanup_handler( &h );
-    MessageBox( HWND_DESKTOP, "Muxing completed!", "lsmashexport", MB_OK );
+    fp->exfunc->set_frame( editp, current_frame );
     return FALSE;
+mux_fail:
+    fp->exfunc->set_frame( editp, current_frame );
+    return exporter_error( &h );
 }
