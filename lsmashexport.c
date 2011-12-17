@@ -566,11 +566,8 @@ static int integrate_media_timescale( lsmash_handler_t *hp )
     return 0;
 }
 
-static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
+static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
 {
-    char file_name[MAX_PATH];
-    if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
-        return -1;
     output_movie_t *output = hp->output;
     output->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_WRITE );
     if( !output->root )
@@ -703,7 +700,7 @@ static int append_extra_samples( input_movie_t *input, output_movie_t *output, i
     return 0;
 }
 
-static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
+static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { 1, hp->with_audio };
@@ -864,7 +861,6 @@ static int do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashexport", MB_ICONERROR | MB_OK );
         UPDATE_PROGRESS( i );
     }
-    return 0;
 #undef UPDATE_PROGRESS
 }
 
@@ -907,7 +903,7 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
 static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
 {
     if( hp->ref_chap_available )
-        return lsmash_create_reference_chapter_track( hp->output->root, 1, fp->ex_data_ptr );
+        return lsmash_create_reference_chapter_track( hp->output->root, hp->output->track[VIDEO_TRACK].track_ID, fp->ex_data_ptr );
     return 0;
 }
 
@@ -1006,6 +1002,9 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         }
         case WM_FILTER_EXPORT :
         {
+            char file_name[MAX_PATH];
+            if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
+                return FALSE;
             int current_frame = fp->exfunc->get_frame( editp );
             int frame_s;
             int frame_e;
@@ -1022,36 +1021,27 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashexport", MB_ICONERROR | MB_OK );
                 return exporter_error( &h );
             }
-            if( open_output_file( &h, fp ) )
+            if( open_output_file( &h, fp, file_name ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashexport", MB_ICONERROR  | MB_OK );
                 return exporter_error( &h );
             }
             if( write_reference_chapter( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashexport", MB_ICONWARNING  | MB_OK );
-            if( do_mux( &h, editp, fp, frame_s ) )
-            {
-                MessageBox( HWND_DESKTOP, "Failed to do muxing.", "lsmashexport", MB_ICONERROR | MB_OK );
-                goto mux_fail;
-            }
+            do_mux( &h, editp, fp, frame_s );
             if( construct_timeline_maps( &h ) )
-            {
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashexport", MB_ICONERROR | MB_OK );
-                goto mux_fail;
-            }
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashexport", MB_ICONWARNING | MB_OK );
             if( finish_movie( h.output ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashexport", MB_ICONERROR | MB_OK );
-                goto mux_fail;
+                fp->exfunc->set_frame( editp, current_frame );
+                return exporter_error( &h );
             }
             cleanup_handler( &h );
             fp->exfunc->set_frame( editp, current_frame );
             break;
-mux_fail:
-            fp->exfunc->set_frame( editp, current_frame );
-            return exporter_error( &h );
         }
         case WM_FILTER_FILE_CLOSE :
             if( fp->ex_data_ptr )
