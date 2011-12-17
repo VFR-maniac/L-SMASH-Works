@@ -54,7 +54,7 @@ do \
 
 FILTER_DLL filter =
 {
-    FILTER_FLAG_EXPORT|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
+    FILTER_FLAG_IMPORT|FILTER_FLAG_EXPORT|FILTER_FLAG_EX_DATA|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
     0,0,                        /* Size of configuration window */
     "Libav-SMASH Exporter",     /* Name of filter plugin */
     0,                          /* Number of trackbars */
@@ -67,7 +67,7 @@ FILTER_DLL filter =
     NULL,                       /* Pointer to group of initial values of checkbox */
     NULL,                       /* Pointer to filter process function (If NULL, won't be called.) */
     NULL,                       /* Pointer to function called when beginning (If NULL, won't be called.) */
-    NULL,                       /* Pointer to function called when ending (If NULL, won't be called.) */
+    func_exit,                  /* Pointer to function called when ending (If NULL, won't be called.) */
     NULL,                       /* Pointer to function called when its configuration is updated (If NULL, won't be called.) */
     func_WndProc,               /* Pointer to function called when window message comes on configuration window (If NULL, won't be called.) */
     NULL,                       /* Pointer to group of set points of trackbar */
@@ -163,6 +163,7 @@ typedef struct
     uint32_t          number_of_inputs;
     uint32_t          number_of_samples[2];
     int               with_audio;
+    int               ref_chap_available;
     FILE             *log_file;
 } lsmash_handler_t;
 
@@ -594,6 +595,15 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp )
     movie_param.minor_version    = input->movie_param.minor_version;
     movie_param.number_of_brands = input->movie_param.number_of_brands;
     movie_param.brands           = input->movie_param.brands;
+    if( fp->ex_data_ptr )
+        for( uint32_t i = 0; i < movie_param.number_of_brands; i++ )
+            if( movie_param.brands[i] == ISOM_BRAND_TYPE_QT  || movie_param.brands[i] == ISOM_BRAND_TYPE_M4A
+             || movie_param.brands[i] == ISOM_BRAND_TYPE_M4B || movie_param.brands[i] == ISOM_BRAND_TYPE_M4P
+             || movie_param.brands[i] == ISOM_BRAND_TYPE_M4V )
+            {
+                hp->ref_chap_available = 1;
+                break;
+            }
     lsmash_set_movie_parameters( output->root, &movie_param );
     output->number_of_tracks = 1 + hp->with_audio;
     for( uint32_t i = 0; i < output->number_of_tracks; i++ )
@@ -894,6 +904,20 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
     return 0;
 }
 
+static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
+{
+    if( hp->ref_chap_available )
+        return lsmash_create_reference_chapter_track( hp->output->root, 1, fp->ex_data_ptr );
+    return 0;
+}
+
+static int write_chapter_list( lsmash_handler_t *hp, FILTER *fp )
+{
+    if( fp->ex_data_size )
+        return lsmash_set_tyrant_chapter( hp->output->root, fp->ex_data_ptr, 0 );
+    return 0;
+}
+
 static int finish_movie( output_movie_t *output )
 {
     lsmash_adhoc_remux_t moov_to_front;
@@ -941,48 +965,111 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
 {
     if( !fp->exfunc->is_editing( editp ) )
         return FALSE;
-    if( message != WM_FILTER_EXPORT )
-        return FALSE;
-    int current_frame = fp->exfunc->get_frame( editp );
-    int frame_s;
-    int frame_e;
-    if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
+    switch( message )
     {
-        MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return FALSE;
-    }
-    lsmash_handler_t h       = { 0 };
-    output_movie_t out_movie = { 0 };
-    h.output = &out_movie;
-    if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return exporter_error( &h );
-    }
-    if( open_output_file( &h, fp ) )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashexport", MB_ICONERROR | MB_OK );
-        return exporter_error( &h );
-    }
-    if( do_mux( &h, editp, fp, frame_s ) )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to do muxing.", "lsmashexport", MB_ICONERROR | MB_OK );
-        goto mux_fail;
-    }
-    if( construct_timeline_maps( &h ) )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashexport", MB_ICONERROR | MB_OK );
-        goto mux_fail;
-    }
-    if( finish_movie( h.output ) )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashexport", MB_ICONERROR | MB_OK );
-        goto mux_fail;
-    }
-    cleanup_handler( &h );
-    fp->exfunc->set_frame( editp, current_frame );
-    return FALSE;
+        case WM_FILTER_IMPORT :
+        {
+            char *chapter_file;
+            if( !fp->ex_data_ptr )
+            {
+                chapter_file = malloc_zero( MAX_PATH );
+                if( !chapter_file )
+                {
+                    MessageBox( HWND_DESKTOP, "Failed to allocate memory.", "lsmashexport", MB_ICONERROR | MB_OK );
+                    return FALSE;
+                }
+                fp->ex_data_ptr = chapter_file;
+                fp->ex_data_size = MAX_PATH;
+            }
+            else
+                chapter_file = fp->ex_data_ptr;
+            if( !fp->exfunc->dlg_get_load_name( (LPSTR)chapter_file, "Chapter file\0*.*\0", chapter_file[0] == '\0' ? "chapter.txt" : chapter_file ) )
+            {
+                FILE *existence_check = fopen( chapter_file, "rb" );
+                if( !existence_check )
+                {
+                    free( fp->ex_data_ptr );
+                    fp->ex_data_ptr = NULL;
+                    fp->ex_data_size = 0;
+                    return FALSE;
+                }
+                else if( MessageBox( HWND_DESKTOP, "Do you want to clear which chapter file is currently selected?", "lsmashexport", MB_ICONQUESTION | MB_YESNO ) == IDYES )
+                {
+                    free( fp->ex_data_ptr );
+                    fp->ex_data_ptr = NULL;
+                    fp->ex_data_size = 0;
+                }
+                fclose( existence_check );
+                return FALSE;
+            }
+            break;
+        }
+        case WM_FILTER_EXPORT :
+        {
+            int current_frame = fp->exfunc->get_frame( editp );
+            int frame_s;
+            int frame_e;
+            if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lsmashexport", MB_ICONERROR | MB_OK );
+                return FALSE;
+            }
+            lsmash_handler_t h       = { 0 };
+            output_movie_t out_movie = { 0 };
+            h.output = &out_movie;
+            if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashexport", MB_ICONERROR | MB_OK );
+                return exporter_error( &h );
+            }
+            if( open_output_file( &h, fp ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashexport", MB_ICONERROR  | MB_OK );
+                return exporter_error( &h );
+            }
+            if( write_reference_chapter( &h, fp ) )
+                MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashexport", MB_ICONWARNING  | MB_OK );
+            if( do_mux( &h, editp, fp, frame_s ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to do muxing.", "lsmashexport", MB_ICONERROR | MB_OK );
+                goto mux_fail;
+            }
+            if( construct_timeline_maps( &h ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashexport", MB_ICONERROR | MB_OK );
+                goto mux_fail;
+            }
+            if( write_chapter_list( &h, fp ) )
+                MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashexport", MB_ICONWARNING | MB_OK );
+            if( finish_movie( h.output ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashexport", MB_ICONERROR | MB_OK );
+                goto mux_fail;
+            }
+            cleanup_handler( &h );
+            fp->exfunc->set_frame( editp, current_frame );
+            break;
 mux_fail:
-    fp->exfunc->set_frame( editp, current_frame );
-    return exporter_error( &h );
+            fp->exfunc->set_frame( editp, current_frame );
+            return exporter_error( &h );
+        }
+        case WM_FILTER_FILE_CLOSE :
+            if( fp->ex_data_ptr )
+            {
+                free( fp->ex_data_ptr );
+                fp->ex_data_ptr = NULL;
+                fp->ex_data_size = 0;
+            }
+            break;
+        default :
+            break;
+    }
+    return FALSE;
+}
+
+BOOL func_exit( FILTER *fp )
+{
+    if( fp->ex_data_ptr )
+        free( fp->ex_data_ptr );
+    return FALSE;
 }
