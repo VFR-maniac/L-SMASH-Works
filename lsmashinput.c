@@ -320,7 +320,7 @@ static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tra
         hp->audio_pcm_sample_count = lsmash_get_media_duration( hp->root, track_ID );
     }
     /* libavformat */
-    type = type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
+    type = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK) ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != type; i++ );
     if( i == hp->format_ctx->nb_streams )
     {
@@ -895,12 +895,6 @@ static inline void cleanup_handler( lsmash_handler_t *hp )
     free( hp );
 }
 
-static INPUT_HANDLE error_out( lsmash_handler_t *hp )
-{
-    cleanup_handler( hp );
-    return NULL;
-}
-
 INPUT_HANDLE func_open( LPSTR file )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)malloc( sizeof(lsmash_handler_t) );
@@ -910,10 +904,20 @@ INPUT_HANDLE func_open( LPSTR file )
     /* Open file. */
     uint32_t number_of_tracks = open_file( hp, file );
     if( number_of_tracks == 0 )
-        return error_out( hp );
-    /* Get video track. */
+    {
+        cleanup_handler( hp );
+        return NULL;
+    }
+    /* Get video track. If absent, ignore video track. */
     if( get_first_track_of_type( hp, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
-        return error_out( hp );
+    {
+        lsmash_destruct_timeline( hp->root, hp->video_track_ID );
+        if( hp->video_ctx )
+        {
+            avcodec_close( hp->video_ctx );
+            hp->video_ctx = NULL;
+        }
+    }
     /* Get audio track. If absent, ignore audio track. */
     if( get_first_track_of_type( hp, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK ) )
     {
@@ -923,10 +927,6 @@ INPUT_HANDLE func_open( LPSTR file )
             avcodec_close( hp->audio_ctx );
             hp->audio_ctx = NULL;
         }
-        if( hp->audio_input_buffer )
-            av_freep( &hp->audio_input_buffer );
-        if( hp->audio_output_buffer )
-            av_freep( &hp->audio_output_buffer );
     }
     lsmash_discard_boxes( hp->root );
     /* Prepare decoding. */
@@ -935,7 +935,10 @@ INPUT_HANDLE func_open( LPSTR file )
         threads = MAX_NUM_THREADS;
     if( prepare_video_decoding( hp, threads )
      || prepare_audio_decoding( hp, threads ) )
-        return error_out( hp );
+    {
+        cleanup_handler( hp );
+        return NULL;
+    }
     return hp;
 }
 
