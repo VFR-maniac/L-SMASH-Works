@@ -24,12 +24,18 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <windows.h>
+#include <ctype.h>
 
 /* L-SMASH */
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 
 #include "filter.h"
+
+/* chapter handling */
+#define CHAPTER_BUFSIZE 512
+#define UTF8_BOM "\xEF\xBB\xBF"
+#define UTF8_BOM_LENGTH 3
 
 /* Macros for debug */
 #ifdef DEBUG
@@ -900,6 +906,31 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
     return 0;
 }
 
+static int validate_chapter( char *chapter_file )
+{
+    int ret = -1;
+    char buff[CHAPTER_BUFSIZE];
+    FILE *fp = fopen( chapter_file, "rb" );
+    if( !fp )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to open the chapter file.", "lsmashexport", MB_ICONERROR | MB_OK );
+        return -1;
+    }
+    if( fgets( buff, CHAPTER_BUFSIZE, fp ) )
+    {
+        char *p_buff = !memcmp( buff, UTF8_BOM, UTF8_BOM_LENGTH ) ? &buff[UTF8_BOM_LENGTH] : &buff[0];   /* BOM detection */
+        if( !strncmp( p_buff, "CHAPTER", 7 ) || ( isdigit( p_buff[0] ) && isdigit( p_buff[1] ) && p_buff[2] == ':'
+            && isdigit( p_buff[3] ) && isdigit( p_buff[4] ) && p_buff[5] == ':' ) )
+            ret = 0;
+        else
+            MessageBox( HWND_DESKTOP, "The chapter file is malformed.", "lsmashexport", MB_ICONERROR | MB_OK );
+    }
+    else
+        MessageBox( HWND_DESKTOP, "Failed to read the chapter file.", "lsmashexport", MB_ICONERROR | MB_OK );
+    fclose( fp );
+    return ret;
+}
+
 static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
 {
     if( hp->ref_chap_available )
@@ -997,6 +1028,12 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 }
                 fclose( existence_check );
                 return FALSE;
+            }
+            else if( validate_chapter( chapter_file ) )
+            {
+                free( fp->ex_data_ptr );
+                fp->ex_data_ptr = NULL;
+                fp->ex_data_size = 0;
             }
             break;
         }
