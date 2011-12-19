@@ -88,6 +88,11 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTable( void )
     return &filter;
 }
 
+EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
+{
+    return &filter;
+}
+
 #define VIDEO_TRACK 0
 #define AUDIO_TRACK 1
 

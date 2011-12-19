@@ -26,3 +26,4 @@ LIBRARY lsmashexport
 
 EXPORTS
     GetFilterTable @1
+    GetFilterTableYUY2 @2
