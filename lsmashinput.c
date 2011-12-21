@@ -128,6 +128,11 @@ typedef enum
     DECODE_INITIALIZED     = 2
 } decode_status_t;
 
+typedef struct
+{
+    uint32_t composition_to_decoding;
+} order_converter_t;
+
 typedef struct lsmash_handler_tag
 {
     /* L-SMASH's stuff */
@@ -151,6 +156,7 @@ typedef struct lsmash_handler_tag
     uint32_t           last_video_sample_number;
     uint32_t           delay_count;
     decode_status_t    decode_status;
+    order_converter_t *order_converter;
     int (*convert_colorspace)( struct lsmash_handler_tag *, AVFrame *, uint8_t * );
     /* Audio stuff */
     uint8_t           *audio_input_buffer;
@@ -194,6 +200,15 @@ static uint32_t open_file( lsmash_handler_t *hp, char *file_name )
     return movie_param.number_of_tracks;
 }
 
+static void *malloc_zero( size_t size )
+{
+    void *p = malloc( size );
+    if( !p )
+        return NULL;
+    memset( p, 0, size );
+    return p;
+}
+
 static inline uint64_t get_gcd( uint64_t a, uint64_t b )
 {
     if( !b )
@@ -216,16 +231,16 @@ static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
     return reduce;
 }
 
-static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
+static int setup_timestamp_info( lsmash_handler_t *hp, uint32_t track_ID )
 {
     uint64_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
     if( hp->video_sample_count == 1 )
     {
+        /* Calculate average framerate. */
         uint64_t media_duration = lsmash_get_media_duration( hp->root, track_ID );
         if( media_duration == 0 )
             media_duration = INT32_MAX;
         reduce_fraction( &media_timescale, &media_duration );
-        /* Set average framerate. */
         hp->framerate_num = media_timescale;
         hp->framerate_den = media_duration;
         return 0;
@@ -244,11 +259,28 @@ static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
     uint32_t composition_sample_delay;
     if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
     {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get composition delay." );
         lsmash_delete_media_timestamps( &ts_list );
         return -1;
     }
     if( composition_sample_delay )
+    {
+        /* Consider composition order for keyframe detection.
+         * Note: sample number for L-SMASH is 1-origin. */
+        hp->order_converter = malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        if( !hp->order_converter )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
+            lsmash_delete_media_timestamps( &ts_list );
+            return -1;
+        }
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            ts_list.timestamp[i].dts = i + 1;
         lsmash_sort_timestamps_composition_order( &ts_list );
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            hp->order_converter[i + 1].composition_to_decoding = ts_list.timestamp[i].dts;
+    }
+    /* Calculate average framerate. */
     uint64_t largest_cts          = ts_list.timestamp[1].cts;
     uint64_t second_largest_cts   = ts_list.timestamp[0].cts;
     uint64_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
@@ -266,7 +298,6 @@ static int get_average_framerate( lsmash_handler_t *hp, uint32_t track_ID )
     uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
     uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
     lsmash_delete_media_timestamps( &ts_list );
-    /* Set average framerate. */
     hp->framerate_num = (hp->video_sample_count * ((double)media_timescale / composition_duration)) * composition_timebase;
     hp->framerate_den = composition_timebase;
     return 0;
@@ -307,9 +338,9 @@ static int get_first_track_of_type( lsmash_handler_t *hp, uint32_t number_of_tra
     {
         hp->video_track_ID = track_ID;
         hp->video_sample_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
-        if( get_average_framerate( hp, track_ID ) )
+        if( setup_timestamp_info( hp, track_ID ) )
         {
-            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get average framerate." );
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to set up timestamp info." );
             return -1;
         }
     }
@@ -888,6 +919,8 @@ static inline void cleanup_handler( lsmash_handler_t *hp )
         sws_freeContext( hp->sws_ctx );
     if( hp->video_input_buffer )
         av_free( hp->video_input_buffer );
+    if( hp->order_converter )
+        free( hp->order_converter );
     if( hp->audio_input_buffer )
         av_free( hp->audio_input_buffer );
     if( hp->audio_output_buffer )
@@ -897,10 +930,9 @@ static inline void cleanup_handler( lsmash_handler_t *hp )
 
 INPUT_HANDLE func_open( LPSTR file )
 {
-    lsmash_handler_t *hp = (lsmash_handler_t *)malloc( sizeof(lsmash_handler_t) );
+    lsmash_handler_t *hp = (lsmash_handler_t *)malloc_zero( sizeof(lsmash_handler_t) );
     if( !hp )
         return NULL;
-    memset( hp, 0, sizeof(lsmash_handler_t) );
     /* Open file. */
     uint32_t number_of_tracks = open_file( hp, file );
     if( number_of_tracks == 0 )
@@ -1131,8 +1163,9 @@ audio_out:
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
+    sample_number = hp->order_converter ? hp->order_converter[sample_number + 1].composition_to_decoding : sample_number + 1;
     uint32_t rap_number;
-    if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->video_track_ID, ++sample_number, &rap_number ) )
+    if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->video_track_ID, sample_number, &rap_number ) )
         return FALSE;
     return sample_number == rap_number ? TRUE : FALSE;
 }
