@@ -639,36 +639,33 @@ static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int 
 
 static int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
 {
-    const int dst_linesize[4] =
-        {
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV440P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
-            picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV444P),
-            0
-        };
+    int _dst_linesize = picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV440P);
+    if( _dst_linesize & 15 )
+        _dst_linesize = (_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
     uint8_t *dst_data[4];
-    static int sse2_available = -1;
-    if( sse2_available == -1 )
-        sse2_available = check_sse2();
-    dst_data[0] = av_mallocz( dst_linesize[0] * hp->video_ctx->height * 3 );
+    dst_data[0] = av_mallocz( _dst_linesize * hp->video_ctx->height * 3 );
     if( !dst_data[0] )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_mallocz for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
     for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + dst_linesize[0] * hp->video_ctx->height;
+        dst_data[i] = dst_data[i - 1] + _dst_linesize * hp->video_ctx->height;
     dst_data[3] = NULL;
+    const int dst_linesize[4] = { _dst_linesize, _dst_linesize, _dst_linesize, 0 };
     int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
     int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
     int output_size   = buf_linesize * output_height;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
-                                     dst_linesize[0], output_height, output_size );
+                                     _dst_linesize, output_height, output_size );
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
-    func_convert_yuv16le_to_yc48 func_convert = (sse2_available && ((dst_linesize[0] | buf_linesize | (size_t)buf)&15)==0)
+    static int sse2_available = -1;
+    if( sse2_available == -1 )
+        sse2_available = check_sse2();
+    func_convert_yuv16le_to_yc48 func_convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
                                               ? convert_yuv16le_to_yc48_sse2
                                               : convert_yuv16le_to_yc48;
-    func_convert( dst_data, buf, buf_linesize, dst_linesize[0], output_height, hp->full_range, hp->pixel_size );
+    func_convert( dst_data, buf, buf_linesize, _dst_linesize, output_height, hp->full_range, hp->pixel_size );
     av_free( dst_data[0] );
     return output_size;
 }
