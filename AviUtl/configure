@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #----------------------------------------------------------------------------------------------
-#  configure script for Libav-SMASH File Reader using mingw + gcc.
+#  configure script for AviUtl plugins
 #----------------------------------------------------------------------------------------------
 
 # -- help -------------------------------------------------------------------------------------
@@ -84,8 +84,7 @@ debug_audio="disabled"
 debug_video="disabled"
 
 CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
-LDFLAGS="-L."
-AUI_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
+LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup -L."
 
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 # -- options ----------------------------------------------------------------------------------
@@ -175,12 +174,6 @@ if cc_check "$CFLAGS -fexcess-precision=fast" "$LDFLAGS"; then
     CFLAGS="$CFLAGS -fexcess-precision=fast"
 fi
 
-# -- set file names ---------------------------------------------------------------------------
-# -- add src files to SRCS --
-SRCS="lsmashinput.c"
-AUINAME="lsmashinput.aui"
-DEF="lsmashinput.def"
-
 # -- pkg-config -------------------------------------------------------------------------------
 PKGCONFIGEXE="pkg-config"
 test -n "$(which ${CROSS}${PKGCONFIGEXE} 2> /dev/null)" && \
@@ -231,12 +224,8 @@ LD = $LD
 STRIP = $STRIP
 CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
-AUI_LDFLAGS = $AUI_LDFLAGS
 LIBS = $LIBS
 SRCDIR = $SRCDIR
-SRCS = $SRCS
-AUINAME = $AUINAME
-DEF = $DEF
 EOF
 
 cat >> config.log << EOF
@@ -254,19 +243,17 @@ LD          = $LD
 STRIP       = $STRIP
 CFLAGS      = $CFLAGS
 LDFLAGS     = $LDFLAGS
-AUI_LDFLAGS = $AUI_LDFLAGS
 LIBS        = $LIBS
-SRCS        = $SRCS
-AUINAME     = $AUINAME
-DEF         = $DEF
 EOF
 
-test "$SRCDIR" = "." || cp -f $SRCDIR/{GNUmakefile,$DEF} .
+test "$SRCDIR" = "." || cp -f $SRCDIR/{GNUmakefile,*.def} .
 
 # ---------------------------------------------------------------------------------------------
 
 cat << EOF
 
 configure finished.
-type 'make' to continue...
+type 'make'       : compile all plugins
+type 'make input' : compile lsmashinput.aui
+type 'make muxer' : compile lsmashmuxer.auf
 EOF
