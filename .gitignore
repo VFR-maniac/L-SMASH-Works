@@ -1,5 +1,7 @@
 *~
 *.a
+*.auf
+*.aui
 *.depend
 *.diff
 *.dll*
