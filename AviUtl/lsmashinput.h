@@ -29,6 +29,8 @@
 
 #include "input.h"
 
+#define MAX_NUM_THREADS 4
+
 /* Macros for debug */
 #if defined( DEBUG_VIDEO ) || defined( DEBUG_AUDIO )
 #define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) \

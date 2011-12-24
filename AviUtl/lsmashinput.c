@@ -24,24 +24,26 @@
 
 #include "lsmashinput.h"
 
-#define MPEG4_FILE_EXT  "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v"
+#define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v"
+#define ANY_FILE_EXT        "*.*"
 
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
-    INPUT_PLUGIN_FLAG_VIDEO | INPUT_INFO_FLAG_AUDIO,            /* INPUT_PLUGIN_FLAG_VIDEO : support images
-                                                                 * INPUT_PLUGIN_FLAG_AUDIO : support audio */
-    "Libav-SMASH File Reader",                                  /* Name of plugin */
-    "MPEG-4 File (" MPEG4_FILE_EXT ")\0" MPEG4_FILE_EXT "\0",   /* Filter for Input file */
-    "Libav-SMASH File Reader",                                  /* Information of plugin */
-    NULL,                                                       /* Pointer to function called when opening DLL (If NULL, won't be called.) */
-    NULL,                                                       /* Pointer to function called when closing DLL (If NULL, won't be called.) */
-    func_open,                                                  /* Pointer to function to open input file */
-    func_close,                                                 /* Pointer to function to close input file */
-    func_info_get,                                              /* Pointer to function to get information of input file */
-    func_read_video,                                            /* Pointer to function to read image data */
-    func_read_audio,                                            /* Pointer to function to read audio data */
-    func_is_keyframe,                                           /* Pointer to function to check if it is a keyframe or not (If NULL, all is keyframe.) */
-    NULL,                                                       /* Pointer to function called when configuration dialog is required */
+    INPUT_PLUGIN_FLAG_VIDEO | INPUT_INFO_FLAG_AUDIO,                /* INPUT_PLUGIN_FLAG_VIDEO : support images
+                                                                     * INPUT_PLUGIN_FLAG_AUDIO : support audio */
+    "Libav-SMASH File Reader",                                      /* Name of plugin */
+    "MPEG-4 File (" MPEG4_FILE_EXT ")\0" MPEG4_FILE_EXT "\0"        /* Filter for Input file */
+    "Any File (" ANY_FILE_EXT ")\0" ANY_FILE_EXT "\0",
+    "Libav-SMASH File Reader",                                      /* Information of plugin */
+    NULL,                                                           /* Pointer to function called when opening DLL (If NULL, won't be called.) */
+    NULL,                                                           /* Pointer to function called when closing DLL (If NULL, won't be called.) */
+    func_open,                                                      /* Pointer to function to open input file */
+    func_close,                                                     /* Pointer to function to close input file */
+    func_info_get,                                                  /* Pointer to function to get information of input file */
+    func_read_video,                                                /* Pointer to function to read image data */
+    func_read_audio,                                                /* Pointer to function to read audio data */
+    func_is_keyframe,                                               /* Pointer to function to check if it is a keyframe or not (If NULL, all is keyframe.) */
+    NULL,                                                           /* Pointer to function called when configuration dialog is required */
 };
 
 EXTERN_C INPUT_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetInputPluginTable( void )
@@ -58,24 +60,17 @@ void *malloc_zero( size_t size )
     return p;
 }
 
-static inline void cleanup_handler( lsmash_handler_t *hp )
-{
-    if( !hp )
-        return;
-    if( hp->reader.cleanup )
-        hp->reader.cleanup( hp );
-    free( hp );
-}
-
 INPUT_HANDLE func_open( LPSTR file )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)malloc_zero( sizeof(lsmash_handler_t) );
     if( !hp )
         return NULL;
     extern lsmash_reader_t libavsmash_reader;
+    extern lsmash_reader_t ffms_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
         &libavsmash_reader,
+        &ffms_reader,
         NULL
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )
@@ -83,14 +78,20 @@ INPUT_HANDLE func_open( LPSTR file )
         hp->reader = *lsmash_reader_table[i];
         if( hp->reader.open_file( hp, file ) == TRUE )
             return hp;
+        hp->reader.cleanup( hp );
     }
-    cleanup_handler( hp );
+    free( hp );
     return NULL;
 }
 
 BOOL func_close( INPUT_HANDLE ih )
 {
-    cleanup_handler( (lsmash_handler_t *)ih );
+    lsmash_handler_t *hp = (lsmash_handler_t *)ih;
+    if( !hp )
+        return TRUE;
+    if( hp->reader.cleanup )
+        hp->reader.cleanup( hp );
+    free( hp );
     return TRUE;
 }
 

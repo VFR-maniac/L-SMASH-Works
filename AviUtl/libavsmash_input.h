@@ -36,7 +36,6 @@
 #ifdef DEBUG_VIDEO
 #include <libavutil/pixdesc.h>
 #endif
-#define MAX_NUM_THREADS 4
 
 typedef enum
 {
