@@ -27,19 +27,6 @@
 #include <inttypes.h>
 #include <windows.h>
 
-/* L-SMASH */
-#define LSMASH_DEMUXER_ENABLED
-#include <lsmash.h>                 /* Demuxer */
-
-/* Libav
- * The binary file will be LGPLed or GPLed. */
-#include <libavformat/avformat.h>   /* Codec specific info importer */
-#include <libavcodec/avcodec.h>     /* Decoder */
-#include <libswscale/swscale.h>     /* Colorspace converter */
-#ifdef DEBUG_VIDEO
-#include <libavutil/pixdesc.h>
-#endif
-
 #include "input.h"
 
 /* Macros for debug */
@@ -67,56 +54,29 @@ do \
 #define DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( uType, ... )
 #endif
 
-typedef enum
-{
-    DECODE_REQUIRE_INITIAL = 0,
-    DECODE_INITIALIZING    = 1,
-    DECODE_INITIALIZED     = 2
-} decode_status_t;
+typedef struct lsmash_handler_tag lsmash_handler_t;
 
 typedef struct
 {
-    uint32_t composition_to_decoding;
-} order_converter_t;
+    void *private_stuff;
+    BOOL (*open_file)  ( lsmash_handler_t *, char * );
+    int  (*read_video) ( lsmash_handler_t *, int, void * );
+    int  (*read_audio) ( lsmash_handler_t *, int, int, void * );
+    BOOL (*is_keyframe)( lsmash_handler_t *, int );
+    void (*cleanup)    ( lsmash_handler_t * );
+} lsmash_reader_t;
 
-typedef struct lsmash_handler_tag
+struct lsmash_handler_tag
 {
-    /* L-SMASH's stuff */
-    lsmash_root_t     *root;
-    uint32_t           video_track_ID;
-    uint32_t           audio_track_ID;
-    /* Libav's stuff */
-    AVCodecContext    *video_ctx;
-    AVCodecContext    *audio_ctx;
-    AVFormatContext   *format_ctx;
-    struct SwsContext *sws_ctx;
-    /* Video stuff */
-    uint8_t           *video_input_buffer;
-    uint32_t           video_input_buffer_size;
+    lsmash_reader_t    reader;
+    /* Video info */
     BITMAPINFOHEADER   video_format;
-    int                full_range;
-    int                pixel_size;
     int                framerate_num;
     int                framerate_den;
     uint32_t           video_sample_count;
-    uint32_t           last_video_sample_number;
-    uint32_t           delay_count;
-    decode_status_t    decode_status;
-    order_converter_t *order_converter;
-    int (*convert_colorspace)( struct lsmash_handler_tag *, AVFrame *, uint8_t * );
-    /* Audio stuff */
-    uint8_t           *audio_input_buffer;
-    uint32_t           audio_input_buffer_size;
-    uint8_t           *audio_output_buffer;
+    /* Audio info */
     WAVEFORMATEX       audio_format;
-    uint32_t           audio_frame_count;
     uint32_t           audio_pcm_sample_count;
-    uint32_t           next_audio_pcm_sample_number;
-    uint32_t           last_audio_sample_number;
-    uint32_t           last_remainder_size;
-} lsmash_handler_t;
+};
 
-/* Colorspace converters */
-int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf );
-int to_rgb24( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf );
-int to_yuy2( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf );
+void *malloc_zero( size_t size );

@@ -22,7 +22,7 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "lsmashinput.h"
+#include "libavsmash_input.h"
 
 /* for SSE2 intrinsic func */
 #ifdef __GNUC__
@@ -242,7 +242,7 @@ static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int 
 #pragma GCC pop_options
 #endif /* __GNUC__ */
 
-int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_yuv16le_to_yc48( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
 {
     int _dst_linesize = picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV440P);
     if( _dst_linesize & 15 )
@@ -275,7 +275,7 @@ int to_yuv16le_to_yc48( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
     return output_size;
 }
 
-int to_rgb24( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_rgb24( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
 {
     const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
@@ -301,7 +301,7 @@ int to_rgb24( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
     return output_size;
 }
 
-int to_yuy2( lsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_yuy2( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
 {
     const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
