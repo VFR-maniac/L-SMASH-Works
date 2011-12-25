@@ -22,7 +22,66 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "libavsmash_input.h"
+#include "lsmashinput.h"
+
+/* L-SMASH */
+#define LSMASH_DEMUXER_ENABLED
+#include <lsmash.h>                 /* Demuxer */
+
+/* Libav
+ * The binary file will be LGPLed or GPLed. */
+#include <libavformat/avformat.h>   /* Codec specific info importer */
+#include <libavcodec/avcodec.h>     /* Decoder */
+#include <libswscale/swscale.h>     /* Colorspace converter */
+#ifdef DEBUG_VIDEO
+#include <libavutil/pixdesc.h>
+#endif
+
+typedef enum
+{
+    DECODE_REQUIRE_INITIAL = 0,
+    DECODE_INITIALIZING    = 1,
+    DECODE_INITIALIZED     = 2
+} decode_status_t;
+
+typedef struct
+{
+    uint32_t composition_to_decoding;
+} order_converter_t;
+
+typedef struct libavsmash_handler_tag
+{
+    /* L-SMASH's stuff */
+    lsmash_root_t     *root;
+    uint32_t           video_track_ID;
+    uint32_t           audio_track_ID;
+    /* Libav's stuff */
+    AVCodecContext    *video_ctx;
+    AVCodecContext    *audio_ctx;
+    AVFormatContext   *format_ctx;
+    struct SwsContext *sws_ctx;
+    /* Video stuff */
+    uint8_t           *video_input_buffer;
+    uint32_t           video_input_buffer_size;
+    uint32_t           last_video_sample_number;
+    uint32_t           delay_count;
+    decode_status_t    decode_status;
+    order_converter_t *order_converter;
+    int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
+    /* Audio stuff */
+    uint8_t           *audio_input_buffer;
+    uint32_t           audio_input_buffer_size;
+    uint8_t           *audio_output_buffer;
+    uint32_t           audio_frame_count;
+    uint32_t           next_audio_pcm_sample_number;
+    uint32_t           last_audio_sample_number;
+    uint32_t           last_remainder_size;
+} libavsmash_handler_t;
+
+/* Colorspace converters */
+int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
+int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
+int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 
 static inline uint64_t get_gcd( uint64_t a, uint64_t b )
 {
@@ -308,6 +367,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, int threads )
             hp->video_ctx->pix_fmt = range_hack_table[i].limited;
     /* swscale */
     enum PixelFormat out_pix_fmt;
+    uint32_t pixel_size;
     uint32_t compression;
     switch( hp->video_ctx->pix_fmt )
     {
@@ -342,10 +402,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, int threads )
         case PIX_FMT_GBRP16LE :
         case PIX_FMT_GBRP16BE :
             hp->convert_colorspace = to_yuv16le_to_yc48;
-            hp->pixel_size         = 6;                     /* YC48 */
+            pixel_size             = YC48_SIZE;
             out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             compression            = MAKEFOURCC( 'Y', 'C', '4', '8' );
-            hp->full_range         = hp->video_ctx->color_range == AVCOL_RANGE_JPEG;
             break;
         case PIX_FMT_RGB24 :
         case PIX_FMT_BGR24 :
@@ -373,13 +432,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, int threads )
         case PIX_FMT_BGR444BE :
         case PIX_FMT_GBRP :
             hp->convert_colorspace = to_rgb24;
-            hp->pixel_size         = 3;                     /* BGR 8:8:8 */
+            pixel_size             = RGB24_SIZE;
             out_pix_fmt            = PIX_FMT_BGR24;         /* packed RGB 8:8:8, 24bpp, BGRBGR... */
             compression            = 0;
             break;
         default :
             hp->convert_colorspace = to_yuy2;
-            hp->pixel_size         = 2;                     /* YUY2 */
+            pixel_size             = YUY2_SIZE;
             out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2, 16bpp */
             compression            = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;
@@ -400,9 +459,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, int threads )
     h->video_format.biWidth       = hp->video_ctx->width;
     h->video_format.biHeight      = hp->video_ctx->height;
     h->video_format.biPlanes      = 1;
-    h->video_format.biBitCount    = hp->pixel_size * 8;
+    h->video_format.biBitCount    = pixel_size * 8;
     h->video_format.biCompression = compression;
-    h->video_format.biSizeImage   = picture.linesize[0] * hp->pixel_size * hp->video_ctx->height;
+    h->video_format.biSizeImage   = picture.linesize[0] * pixel_size * hp->video_ctx->height;
     return 0;
 }
 
@@ -586,7 +645,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                      picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
-    return hp->convert_colorspace( hp, &picture, buf );
+    return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, buf );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )

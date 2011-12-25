@@ -31,6 +31,10 @@
 
 #define MAX_NUM_THREADS 4
 
+#define YC48_SIZE  6
+#define RGB24_SIZE 3
+#define YUY2_SIZE  2
+
 /* Macros for debug */
 #if defined( DEBUG_VIDEO ) || defined( DEBUG_AUDIO )
 #define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) \

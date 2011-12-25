@@ -103,12 +103,12 @@ static int prepare_video_decoding( lsmash_handler_t *h )
         case PIX_FMT_BGR444LE :
         case PIX_FMT_BGR444BE :
         case PIX_FMT_GBRP :
-            pixel_size  = 3;                /* BGR 8:8:8 */
+            pixel_size  = RGB24_SIZE;
             out_pix_fmt = PIX_FMT_BGR24;    /* packed RGB 8:8:8, 24bpp, BGRBGR... */
             compression = 0;
             break;
         default :
-            pixel_size  = 2;                /* YUY2 */
+            pixel_size  = YUY2_SIZE;
             out_pix_fmt = PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
             compression = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;

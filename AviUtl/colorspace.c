@@ -22,7 +22,10 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "libavsmash_input.h"
+#include "lsmashinput.h"
+
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
 
 /* for SSE2 intrinsic func */
 #ifdef __GNUC__
@@ -50,15 +53,15 @@ static int check_sse2()
     return (CPUInfo[3] & 0x04000000) != 0;
 }
 
-typedef void (*func_convert_yuv16le_to_yc48) ( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range, int pixel_size );
+typedef void (*func_convert_yuv16le_to_yc48) ( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range );
 
-static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range, int pixel_size )
+static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range )
 {
     uint32_t offset = 0;
     while( output_height-- )
     {
         uint8_t *p_dst[3] = { dst_data[0] + offset, dst_data[1] + offset, dst_data[2] + offset };
-        for( int i = 0; i < buf_linesize; i += pixel_size )
+        for( int i = 0; i < buf_linesize; i += YC48_SIZE )
         {
             static const uint32_t y_coef   [2] = {  1197,   4770 };
             static const uint32_t y_shift  [2] = {    14,     16 };
@@ -76,7 +79,7 @@ static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_l
             buf[3] = cb >> 8;
             buf[4] = cr;
             buf[5] = cr >> 8;
-            buf += pixel_size;
+            buf += YC48_SIZE;
         }
         offset += dst_linesize;
     }
@@ -89,7 +92,7 @@ static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_l
 #endif /* __GNUC__ */
 /* SSE2 version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range, int pixel_size )
+static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range )
 {
     uint8_t *ycp = buf, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -242,24 +245,24 @@ static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int 
 #pragma GCC pop_options
 #endif /* __GNUC__ */
 
-int to_yuv16le_to_yc48( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
-    int _dst_linesize = picture->linesize[0] << (hp->video_ctx->pix_fmt == PIX_FMT_YUV444P || hp->video_ctx->pix_fmt == PIX_FMT_YUV440P);
+    int _dst_linesize = picture->linesize[0] << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
     if( _dst_linesize & 15 )
         _dst_linesize = (_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
     uint8_t *dst_data[4];
-    dst_data[0] = av_mallocz( _dst_linesize * hp->video_ctx->height * 3 );
+    dst_data[0] = av_mallocz( _dst_linesize * video_ctx->height * 3 );
     if( !dst_data[0] )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_mallocz for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
     for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + _dst_linesize * hp->video_ctx->height;
+        dst_data[i] = dst_data[i - 1] + _dst_linesize * video_ctx->height;
     dst_data[3] = NULL;
     const int dst_linesize[4] = { _dst_linesize, _dst_linesize, _dst_linesize, 0 };
-    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
-    int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
+    int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = video_ctx->width * YC48_SIZE;
     int output_size   = buf_linesize * output_height;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
                                      _dst_linesize, output_height, output_size );
@@ -270,23 +273,23 @@ int to_yuv16le_to_yc48( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf
     func_convert_yuv16le_to_yc48 func_convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
                                               ? convert_yuv16le_to_yc48_sse2
                                               : convert_yuv16le_to_yc48;
-    func_convert( dst_data, buf, buf_linesize, _dst_linesize, output_height, hp->full_range, hp->pixel_size );
+    func_convert( dst_data, buf, buf_linesize, _dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return output_size;
 }
 
-int to_rgb24( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
     const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * hp->video_ctx->height );
+    dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
     if( !dst_data[0] )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
-    int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
+    int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = video_ctx->width * RGB24_SIZE;
     int output_size   = buf_linesize * output_height;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
                                      dst_linesize[0], output_height, output_size );
@@ -301,18 +304,18 @@ int to_rgb24( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
     return output_size;
 }
 
-int to_yuy2( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
     const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * hp->video_ctx->height );
+    dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
     if( !dst_data[0] )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int output_height = sws_scale( hp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, hp->video_ctx->height, dst_data, dst_linesize );
-    int buf_linesize  = hp->video_ctx->width * hp->pixel_size;
+    int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = video_ctx->width * YUY2_SIZE;
     int output_size   = buf_linesize * output_height;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
                                      dst_linesize[0], output_height, output_size );
