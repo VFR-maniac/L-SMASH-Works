@@ -67,6 +67,7 @@ typedef struct libavsmash_handler_tag
     uint32_t           delay_count;
     decode_status_t    decode_status;
     order_converter_t *order_converter;
+    uint8_t           *keyframe_list;
     int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
     /* Audio stuff */
     uint8_t           *audio_input_buffer;
@@ -323,6 +324,30 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
     return got_picture ? 0 : -1;
 }
 
+static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample_count )
+{
+    hp->keyframe_list = malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
+    if( !hp->keyframe_list )
+        return -1;
+    for( uint32_t composition_sample_number = 1; composition_sample_number <= video_sample_count; composition_sample_number++ )
+    {
+        uint32_t decoding_sample_number = hp->order_converter
+                                        ? hp->order_converter[composition_sample_number].composition_to_decoding
+                                        : composition_sample_number;
+        uint32_t rap_number;
+        if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number, &rap_number ) )
+            continue;
+        if( decoding_sample_number == rap_number )
+            hp->keyframe_list[composition_sample_number] = 1;
+    }
+    if( hp->order_converter )
+    {
+        free( hp->order_converter );
+        hp->order_converter = NULL;
+    }
+    return 0;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, int threads )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
@@ -340,6 +365,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, int threads )
     if( !hp->video_input_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for video." );
+        return -1;
+    }
+    if( create_keyframe_list( hp, h->video_sample_count ) )
+    {
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create keyframe list." );
         return -1;
     }
     AVFrame picture;
@@ -522,6 +552,8 @@ static void cleanup( lsmash_handler_t *h )
         av_free( hp->video_input_buffer );
     if( hp->order_converter )
         free( hp->order_converter );
+    if( hp->keyframe_list )
+        free( hp->keyframe_list );
     if( hp->audio_input_buffer )
         av_free( hp->audio_input_buffer );
     if( hp->audio_output_buffer )
@@ -749,11 +781,7 @@ audio_out:
 static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
-    sample_number = hp->order_converter ? hp->order_converter[sample_number + 1].composition_to_decoding : sample_number + 1;
-    uint32_t rap_number;
-    if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->video_track_ID, sample_number, &rap_number ) )
-        return FALSE;
-    return sample_number == rap_number ? TRUE : FALSE;
+    return hp->keyframe_list[sample_number + 1] ? TRUE : FALSE;
 }
 
 lsmash_reader_t libavsmash_reader =
