@@ -168,7 +168,7 @@ static void cleanup( lsmash_handler_t *h )
     free( hp );
 }
 
-static BOOL open_file( lsmash_handler_t *h, char *file_name )
+static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
 {
     ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
     if( !hp )
@@ -184,12 +184,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name )
     }
     int video_track_number = FFMS_GetFirstTrackOfType( index, FFMS_TYPE_VIDEO, &e );
     if( video_track_number >= 0 )
-    {
-        int threads = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
-        if( threads > MAX_NUM_THREADS )
-            threads = MAX_NUM_THREADS;
         hp->video_source = FFMS_CreateVideoSource( file_name, video_track_number, index, threads, FFMS_SEEK_NORMAL, &e );
-    }
     int audio_track_number = FFMS_GetFirstTrackOfType( index, FFMS_TYPE_AUDIO, &e );
     if( audio_track_number >= 0 )
         hp->audio_source = FFMS_CreateAudioSource( file_name, audio_track_number, index, FFMS_DELAY_FIRST_VIDEO_TRACK, &e );

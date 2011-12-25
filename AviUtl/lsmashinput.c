@@ -65,6 +65,9 @@ INPUT_HANDLE func_open( LPSTR file )
     lsmash_handler_t *hp = (lsmash_handler_t *)malloc_zero( sizeof(lsmash_handler_t) );
     if( !hp )
         return NULL;
+    int threads = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
+    if( threads > MAX_NUM_THREADS )
+        threads = MAX_NUM_THREADS;
     extern lsmash_reader_t libavsmash_reader;
     extern lsmash_reader_t ffms_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
@@ -76,7 +79,7 @@ INPUT_HANDLE func_open( LPSTR file )
     for( int i = 0; lsmash_reader_table[i]; i++ )
     {
         hp->reader = *lsmash_reader_table[i];
-        if( hp->reader.open_file( hp, file ) == TRUE )
+        if( hp->reader.open_file( hp, file, threads ) == TRUE )
             return hp;
         hp->reader.cleanup( hp );
     }

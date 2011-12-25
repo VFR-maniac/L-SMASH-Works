@@ -65,7 +65,7 @@ typedef struct lsmash_handler_tag lsmash_handler_t;
 typedef struct
 {
     void *private_stuff;
-    BOOL (*open_file)  ( lsmash_handler_t *, char * );
+    BOOL (*open_file)  ( lsmash_handler_t *, char *, int );
     int  (*read_video) ( lsmash_handler_t *, int, void * );
     int  (*read_audio) ( lsmash_handler_t *, int, int, void * );
     BOOL (*is_keyframe)( lsmash_handler_t *, int );
