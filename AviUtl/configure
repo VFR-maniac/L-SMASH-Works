@@ -88,6 +88,7 @@ FFMSLIBS="-lffms2 -lstdc++ -lavformat -lavcodec -lswscale -lavutil"
 
 SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c"
 SRC_MUXER="lsmashmuxer.c"
+SRC_DUMPER="lsmashdumper.c"
 
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log
@@ -243,6 +244,7 @@ LIBS = $LIBS
 SRCDIR = $SRCDIR
 SRC_INPUT = $SRC_INPUT
 SRC_MUXER = $SRC_MUXER
+SRC_DUMPER = $SRC_DUMPER
 EOF
 
 cat >> config.log << EOF
@@ -270,7 +272,8 @@ test "$SRCDIR" = "." || cp -f $SRCDIR/{GNUmakefile,*.def} .
 cat << EOF
 
 configure finished.
-type 'make'       : compile all plugins
-type 'make input' : compile lsmashinput.aui
-type 'make muxer' : compile lsmashmuxer.auf
+type 'make'        : compile all plugins
+type 'make input'  : compile lsmashinput.aui
+type 'make muxer'  : compile lsmashmuxer.auf
+type 'make dumper' : compile lsmashdumper.auf
 EOF

@@ -9,10 +9,11 @@ vpath %.h $(SRCDIR)
 
 OBJ_INPUT = $(SRC_INPUT:%.c=%.o)
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o)
+OBJ_DUMPER = $(SRC_DUMPER:%.c=%.o)
 
-SRC_ALL = $(SRC_INPUT) $(SRC_MUXER)
+SRC_ALL = $(SRC_INPUT) $(SRC_MUXER) $(SRC_DUMPER)
 
-all: input muxer
+all: input muxer dumper
 
 input: lsmashinput.aui
 
@@ -25,6 +26,14 @@ endif
 muxer: lsmashmuxer.auf
 
 lsmashmuxer.auf: $(OBJ_MUXER) lsmashmuxer.def
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+ifneq ($(STRIP),)
+	$(STRIP) $@
+endif
+
+dumper: lsmashdumper.auf
+
+lsmashdumper.auf: $(OBJ_DUMPER) lsmashdumper.def
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 ifneq ($(STRIP),)
 	$(STRIP) $@
