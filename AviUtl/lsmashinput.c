@@ -33,7 +33,10 @@ INPUT_PLUGIN_TABLE input_plugin_table =
                                                                      * INPUT_PLUGIN_FLAG_AUDIO : support audio */
     "Libav-SMASH File Reader",                                      /* Name of plugin */
     "MPEG-4 File (" MPEG4_FILE_EXT ")\0" MPEG4_FILE_EXT "\0"        /* Filter for Input file */
-    "Any File (" ANY_FILE_EXT ")\0" ANY_FILE_EXT "\0",
+#ifdef HAVE_FFMS
+    "Any File (" ANY_FILE_EXT ")\0" ANY_FILE_EXT "\0"
+#endif
+    ,
     "Libav-SMASH File Reader",                                      /* Information of plugin */
     NULL,                                                           /* Pointer to function called when opening DLL (If NULL, won't be called.) */
     NULL,                                                           /* Pointer to function called when closing DLL (If NULL, won't be called.) */
@@ -69,11 +72,15 @@ INPUT_HANDLE func_open( LPSTR file )
     if( threads > MAX_NUM_THREADS )
         threads = MAX_NUM_THREADS;
     extern lsmash_reader_t libavsmash_reader;
+#ifdef HAVE_FFMS
     extern lsmash_reader_t ffms_reader;
+#endif
     static lsmash_reader_t *lsmash_reader_table[] =
     {
         &libavsmash_reader,
+#ifdef HAVE_FFMS
         &ffms_reader,
+#endif
         NULL
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )

@@ -5,9 +5,7 @@
 include config.mak
 
 vpath %.c $(SRCDIR)
-
-SRC_INPUT = lsmashinput.c colorspace.c libavsmash_input.c ffms_input.c
-SRC_MUXER = lsmashmuxer.c
+vpath %.h $(SRCDIR)
 
 OBJ_INPUT = $(SRC_INPUT:%.c=%.o)
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o)

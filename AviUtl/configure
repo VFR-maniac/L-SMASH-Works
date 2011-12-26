@@ -15,6 +15,7 @@ options:
   --libdir=DIR             set dir for libs    [NONE]
   --includedir=DIR         set dir for headers [NONE]
 
+  --disable-ffms           disable ffms feature [auto]
   --debug-video            debug video (-DDEBUG_VIDEO)
   --debug-audio            debug audio (-DDEBUG_AUDIO)
 
@@ -57,7 +58,7 @@ cc_check()
     $CC conftest.c -o conftest $1 $2 2>> config.log
     ret=$?
     echo $ret >> config.log
-    rm -f conftest.*
+    rm -f conftest*
     return $ret
 }
 #----------------------------------------------------------------------------------------------
@@ -79,14 +80,15 @@ prefix=""
 includedir=""
 libdir=""
 
-debug="disabled"
-debug_audio="disabled"
-debug_video="disabled"
-
 CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
-LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup -L."
-
+AU_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
+LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
+FFMSLIBS="-lffms2 -lstdc++ -lavformat -lavcodec -lswscale -lavutil"
+
+SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c"
+SRC_MUXER="lsmashmuxer.c"
+
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log
 echo "$*" >> config.log
@@ -103,16 +105,17 @@ for opt; do
         --includedir=*)
             includedir="$optarg"
             ;;
-        --extra-cflags=*)
-            XCFLAGS="$optarg"
+        --disable-ffms)
+            FFMSLIBS=""
             ;;
         --debug-video)
-            debug="enabled"
-            debug_video="enabled"
+            CFLAGS="$CFLAGS -DDEBUG_VIDEO"
             ;;
         --debug-audio)
-            debug="enabled"
-            debug_audio="enabled"
+            CFLAGS="$CFLAGS -DDEBUG_AUDIO"
+            ;;
+        --extra-cflags=*)
+            XCFLAGS="$optarg"
             ;;
         --extra-ldflags=*)
             XLDFLAGS="$optarg"
@@ -157,31 +160,42 @@ log_echo "CFLAGS/LDFLAGS checking..."
 if ! cc_check "$CFLAGS" "$LDFLAGS"; then
     error_exit "invalid CFLAGS/LDFLAGS"
 fi
-if test x"$debug" = x"enabled"; then
-    CFLAGS="$CFLAGS -g3 -O0"
-    STRIP=""
-    if test x"$debug_audio" = x"enabled"; then
-        CFLAGS="$CFLAGS -DDEBUG_AUDIO"
-    fi
-    if test x"$debug_video" = x"enabled"; then
-        CFLAGS="$CFLAGS -DDEBUG_VIDEO"
-    fi
-elif cc_check "-Os -ffast-math $CFLAGS" "$LDFLAGS"; then
+if cc_check "-Os -ffast-math $CFLAGS" "$LDFLAGS"; then
     CFLAGS="-Os -ffast-math $CFLAGS"
 fi
-
 if cc_check "$CFLAGS -fexcess-precision=fast" "$LDFLAGS"; then
     CFLAGS="$CFLAGS -fexcess-precision=fast"
 fi
 
-# -- pkg-config -------------------------------------------------------------------------------
+# -- check pkg-config and ffms ----------------------------------------------------------------
 PKGCONFIGEXE="pkg-config"
 test -n "$(which ${CROSS}${PKGCONFIGEXE} 2> /dev/null)" && \
     PKGCONFIGEXE=${CROSS}${PKGCONFIGEXE}
-if $PKGCONFIGEXE --exists $DEPLIBS 2>/dev/null; then
+
+if test -n "$FFMSLIBS"; then
+    log_echo "checking for ffms..."
+    if $PKGCONFIGEXE --exists ffms2 2> /dev/null; then
+        FFCFLAGS="$($PKGCONFIGEXE --cflags ffms2)"
+        FFMSLIBS="$($PKGCONFIGEXE --libs ffms2)"
+    else
+        FFCFLAGS=""
+    fi
+    FFMSLIBS="$FFMSLIBS -lstdc++"
+    if cc_check "$CFLAGS $FFCFLAGS" "$LDFLAGS $FFMSLIBS $XLIBS" "ffms.h" "FFMS_DestroyVideoSource(0);"; then
+        CFLAGS="-DHAVE_FFMS $CFLAGS"
+        DEPLIBS="ffms2 $DEPLIBS"
+        XLIBS="-lstdc++ $XLIBS"
+        SRC_INPUT="$SRC_INPUT ffms_input.c"
+    else
+        log_echo "warning: couldn't find valid ffms2 library...disabled"
+    fi
+fi
+
+if $PKGCONFIGEXE --exists $DEPLIBS 2> /dev/null; then
     LIBS="$($PKGCONFIGEXE --libs $DEPLIBS)"
     CFLAGS="$CFLAGS $($PKGCONFIGEXE --cflags $DEPLIBS)"
 else
+    DEPLIBS=$(echo $DEPLIBS | sed -e "s/ffms2/libffms2/g")
     for lib in $DEPLIBS; do
         LIBS="$LIBS -l${lib#lib}"
     done
@@ -214,6 +228,7 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getC
     error_exit "libswscale/swscale.h might not be installed or some libs missing."
 fi
 
+LDFLAGS="$AU_LDFLAGS $LDFLAGS"
 LIBS="$LIBS $XLIBS"
 
 # -- output config.mak ------------------------------------------------------------------------
@@ -226,6 +241,8 @@ CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
 LIBS = $LIBS
 SRCDIR = $SRCDIR
+SRC_INPUT = $SRC_INPUT
+SRC_MUXER = $SRC_MUXER
 EOF
 
 cat >> config.log << EOF
