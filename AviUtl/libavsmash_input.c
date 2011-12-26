@@ -541,7 +541,7 @@ static void cleanup( lsmash_handler_t *h )
     if( hp->audio_ctx )
         avcodec_close( hp->audio_ctx );
     if( hp->format_ctx )
-        av_close_input_file( hp->format_ctx );
+        avformat_close_input( &hp->format_ctx );
     if( hp->sws_ctx )
         sws_freeContext( hp->sws_ctx );
     if( hp->video_input_buffer )
