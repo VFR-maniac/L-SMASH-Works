@@ -189,7 +189,7 @@ static void *malloc_zero( size_t size )
 
 static int get_first_track_of_type( input_movie_t *input, uint32_t number_of_tracks, uint32_t type )
 {
-    uint32_t track_ID;
+    uint32_t track_ID = 0;
     uint32_t i;
     for( i = 1; i <= number_of_tracks; i++ )
     {

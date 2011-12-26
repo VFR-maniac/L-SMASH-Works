@@ -31,8 +31,22 @@
 
 #include "filter.h"
 
+/* Macros for debug */
+#ifdef DEBUG
+#define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) \
+do \
+{ \
+    char temp[512]; \
+    wsprintf( temp, __VA_ARGS__ ); \
+    MessageBox( HWND_DESKTOP, temp, "lsmashmuxer", uType ); \
+} while( 0 )
+#else
+#define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... )
+#endif
+
 /* File filter */
 #define DUMP_FILE_EXT "Dump File (*.txt)\0*.txt\0"
+#define TIMECODE_FILE_EXT "Timecode v2 File (*.tmc)\0*.tmc\0"
 
 FILTER_DLL filter =
 {
@@ -69,13 +83,91 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
     return &filter;
 }
 
+static int check_extension( char *file_name, char *ext )
+{
+    int ext_length = strlen( ext );
+    int file_name_length = strlen( file_name );
+    if( file_name_length < ext_length )
+        return 0;
+    return !memcmp( file_name + file_name_length - ext_length, ext, ext_length );
+}
+
+static uint32_t get_first_video_track_ID( lsmash_root_t *root )
+{
+    lsmash_movie_parameters_t movie_param;
+    lsmash_initialize_movie_parameters( &movie_param );
+    lsmash_get_movie_parameters( root, &movie_param );
+    uint32_t number_of_tracks = movie_param.number_of_tracks;
+    if( number_of_tracks == 0 )
+        return 0;
+    uint32_t track_ID = 0;
+    uint32_t i;
+    for( i = 1; i <= number_of_tracks; i++ )
+    {
+        track_ID = lsmash_get_track_ID( root, i );
+        if( track_ID == 0 )
+            return 0;
+        lsmash_media_parameters_t media_param;
+        lsmash_initialize_media_parameters( &media_param );
+        if( lsmash_get_media_parameters( root, track_ID, &media_param ) )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get media parameters." );
+            return 0;
+        }
+        if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+            break;
+    }
+    if( i > number_of_tracks )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find video track." );
+        return 0;
+    }
+    return track_ID;
+}
+
+static int get_media_timestamps( lsmash_root_t *root, uint32_t track_ID, lsmash_media_ts_list_t *ts_list )
+{
+    if( lsmash_get_media_timestamps( root, track_ID, ts_list ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get media timestamps." );
+        return -1;
+    }
+    lsmash_destruct_timeline( root, track_ID );
+    uint32_t composition_sample_delay;
+    if( lsmash_get_max_sample_delay( ts_list, &composition_sample_delay ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get composition delay." );
+        lsmash_delete_media_timestamps( ts_list );
+        return -1;
+    }
+    if( composition_sample_delay )
+        lsmash_sort_timestamps_composition_order( ts_list );
+    return 0;
+}
+
+static int output_timecodes( char *file_name, lsmash_media_ts_list_t *ts_list, uint32_t media_timescale )
+{
+    FILE *tmc = fopen( file_name, "wb" );
+    if( !tmc )
+        return -1;
+    fprintf( tmc, "# timecode format v2\n" );
+    for( uint32_t i = 0; i < ts_list->sample_count; i++ )
+    {
+        double timecode = ((double)(ts_list->timestamp[i].cts - ts_list->timestamp[0].cts) / media_timescale) * 1e3;
+        fprintf( tmc, "%.6f\n", timecode );
+    }
+    fflush( tmc );
+    fclose( tmc );
+    return 0;
+}
+
 BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *editp, FILTER *fp )
 {
     if( !fp->exfunc->is_editing( editp ) )
         return FALSE;
     if( message != WM_FILTER_EXPORT )
         return FALSE;
-    /* Open the input file. */
+    /* Get the input file info. */
     FRAME_STATUS fs;
     if( !fp->exfunc->get_frame_status( editp, 0, &fs ) )
     {
@@ -95,24 +187,68 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         MessageBox( HWND_DESKTOP, "Failed to get the information of the source file.", "lsmashdumper", MB_ICONERROR | MB_OK );
         return -1;
     }
-    lsmash_root_t *root = lsmash_open_movie( fi.name, LSMASH_FILE_MODE_READ | LSMASH_FILE_MODE_DUMP );
+    /* Get the output file name. */
+    char file_name[MAX_PATH];
+    if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, DUMP_FILE_EXT TIMECODE_FILE_EXT, NULL ) )
+        return FALSE;
+    lsmash_file_mode mode = LSMASH_FILE_MODE_READ;
+    if( check_extension( file_name, ".txt" ) )
+        mode |= LSMASH_FILE_MODE_DUMP;
+    else if( !check_extension( file_name, ".tmc" ) )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to decide the output file format.", "lsmashdumper", MB_ICONERROR | MB_OK );
+        return FALSE;
+    }
+    lsmash_root_t *root = lsmash_open_movie( fi.name, mode );
     if( !root )
     {
         MessageBox( HWND_DESKTOP, "Failed to open the input file.", "lsmashdumper", MB_ICONERROR | MB_OK );
         return FALSE;
     }
-    /* Open the output file to dump the input file. */
-    char file_name[MAX_PATH];
-    if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, DUMP_FILE_EXT, NULL ) )
+    if( mode & LSMASH_FILE_MODE_DUMP )
     {
-        lsmash_destroy_root( root );
-        return FALSE;
+        /* Open the output file to dump the input file. */
+        if( lsmash_print_movie( root, file_name ) )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to dump the box structure.", "lsmashdumper", MB_ICONERROR | MB_OK );
+            lsmash_destroy_root( root );
+            return FALSE;
+        }
     }
-    if( lsmash_print_movie( root, file_name ) )
+    else
     {
-        MessageBox( HWND_DESKTOP, "Failed to dump the box structure.", "lsmashdumper", MB_ICONERROR | MB_OK );
-        lsmash_destroy_root( root );
-        return FALSE;
+        /* Output timecode v2 file. */
+        uint32_t track_ID = get_first_video_track_ID( root );
+        if( track_ID == 0 )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to get video track_ID.", "lsmashdumper", MB_ICONERROR | MB_OK );
+            lsmash_destroy_root( root );
+            return FALSE;
+        }
+        uint32_t media_timescale = lsmash_get_media_timescale( root, track_ID );
+        if( media_timescale == 0 )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to get video timescale.", "lsmashdumper", MB_ICONERROR | MB_OK );
+            lsmash_destroy_root( root );
+            return FALSE;
+        }
+        if( lsmash_construct_timeline( root, track_ID ) )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to construct timeline.", "lsmashdumper", MB_ICONERROR | MB_OK );
+            lsmash_destroy_root( root );
+            return FALSE;
+        }
+        lsmash_discard_boxes( root );
+        lsmash_media_ts_list_t ts_list;
+        if( get_media_timestamps( root, track_ID, &ts_list ) )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to get media timestamps.", "lsmashdumper", MB_ICONERROR | MB_OK );
+            lsmash_destroy_root( root );
+            return FALSE;
+        }
+        if( output_timecodes( file_name, &ts_list, media_timescale ) )
+            MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashdumper", MB_ICONERROR | MB_OK );
+        lsmash_delete_media_timestamps( &ts_list );
     }
     lsmash_destroy_root( root );
     return FALSE;
