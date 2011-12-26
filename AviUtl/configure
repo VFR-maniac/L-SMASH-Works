@@ -70,7 +70,6 @@ test -n "$(echo $SRCDIR | grep ' ')" && \
     error_exit "out-of-tree builds are impossible with whitespace in source path"
 
 # -- init -------------------------------------------------------------------------------------
-
 CC="gcc"
 LD="gcc"
 
@@ -84,7 +83,7 @@ CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
 AU_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
-FFMSLIBS="-lffms2 -lstdc++ -lavformat -lavcodec -lswscale -lavutil"
+FFMSLIBS="-lffms2 -lavformat -lavcodec -lswscale -lavutil"
 
 SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c"
 SRC_MUXER="lsmashmuxer.c"
@@ -196,7 +195,6 @@ if $PKGCONFIGEXE --exists $DEPLIBS 2> /dev/null; then
     LIBS="$($PKGCONFIGEXE --libs $DEPLIBS)"
     CFLAGS="$CFLAGS $($PKGCONFIGEXE --cflags $DEPLIBS)"
 else
-    DEPLIBS=$(echo $DEPLIBS | sed -e "s/ffms2/libffms2/g")
     for lib in $DEPLIBS; do
         LIBS="$LIBS -l${lib#lib}"
     done
