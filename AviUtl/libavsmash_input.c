@@ -761,7 +761,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 copy_size = 0;
                 data_offset -= output_buffer_size;
             }
-            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / hp->audio_format.nBlockAlign );
+            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / h->audio_format.nBlockAlign );
             if( wanted_length <= 0 )
             {
                 hp->last_remainder_size = output_buffer_size - copy_size;

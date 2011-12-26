@@ -137,5 +137,8 @@ int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
+    if( sample_number >= hp->video_sample_count )
+        return FALSE;   /* In reading as double framerate, keyframe detection doesn't work at all
+                         * since sample_number exceeds the number of video samples. */
     return hp->reader.is_keyframe ? hp->reader.is_keyframe( hp, sample_number ) : FALSE;
 }
