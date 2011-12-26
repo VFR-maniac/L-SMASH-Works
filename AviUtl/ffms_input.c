@@ -191,7 +191,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
     FFMS_DestroyIndex( index );
     if( !hp->video_source && !hp->audio_source )
     {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No video and/or audio streams." );
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No readable video and/or audio streams." );
         return FALSE;
     }
     /* Prepare decoding. */

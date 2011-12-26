@@ -607,6 +607,11 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
         }
     }
     lsmash_discard_boxes( hp->root );
+    if( !hp->video_ctx && !hp->audio_ctx )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No readable video and/or audio streams." );
+        return FALSE;
+    }
     /* Prepare decoding. */
     if( prepare_video_decoding( h )
      || prepare_audio_decoding( h ) )
