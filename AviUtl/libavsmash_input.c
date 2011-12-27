@@ -39,8 +39,6 @@
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
 
-static int enabled = 0;
-
 typedef enum
 {
     DECODE_REQUIRE_INITIAL = 0,
@@ -112,7 +110,7 @@ static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
 
 static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     uint64_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
     if( h->video_sample_count == 1 )
     {
@@ -185,7 +183,7 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
 
 static int get_first_track_of_type( lsmash_handler_t *h, uint32_t number_of_tracks, uint32_t type, int threads )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     /* L-SMASH */
     uint32_t track_ID = 0;
     uint32_t i;
@@ -350,7 +348,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
 
 static int prepare_video_decoding( lsmash_handler_t *h )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     if( !hp->video_ctx )
         return 0;
     hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
@@ -496,7 +494,7 @@ static int prepare_video_decoding( lsmash_handler_t *h )
 
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     if( !hp->audio_ctx )
         return 0;
     hp->audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
@@ -534,7 +532,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static void cleanup( lsmash_handler_t *h )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     if( !hp )
         return;
     lsmash_destroy_root( hp->root );
@@ -557,17 +555,14 @@ static void cleanup( lsmash_handler_t *h )
     if( hp->audio_output_buffer )
         av_free( hp->audio_output_buffer );
     free( hp );
-    enabled = 0;
 }
 
 static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
 {
-    if( enabled )
-        return FALSE;
     libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return FALSE;
-    h->reader.private_stuff = hp;
+    h->reader->private_stuff = hp;
     av_register_all();
     avcodec_register_all();
     /* L-SMASH */
@@ -621,7 +616,6 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
     if( prepare_video_decoding( h )
      || prepare_audio_decoding( h ) )
         return FALSE;
-    enabled = 1;
     return TRUE;
 }
 
@@ -661,7 +655,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     AVFrame picture;            /* Decoded video data will be stored here. */
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
@@ -695,7 +689,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     uint32_t sample_number = hp->last_audio_sample_number;
     uint32_t data_offset;
     int      copy_size;
@@ -792,12 +786,13 @@ audio_out:
 
 static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader->private_stuff;
     return hp->keyframe_list[sample_number + 1] ? TRUE : FALSE;
 }
 
 lsmash_reader_t libavsmash_reader =
 {
+    0,
     NULL,
     open_file,
     read_video,

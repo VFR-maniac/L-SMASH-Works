@@ -64,6 +64,7 @@ typedef struct lsmash_handler_tag lsmash_handler_t;
 
 typedef struct
 {
+    int   enabled;
     void *private_stuff;
     BOOL (*open_file)  ( lsmash_handler_t *, char *, int );
     int  (*read_video) ( lsmash_handler_t *, int, void * );
@@ -74,7 +75,7 @@ typedef struct
 
 struct lsmash_handler_tag
 {
-    lsmash_reader_t    reader;
+    lsmash_reader_t   *reader;
     /* Video info */
     BITMAPINFOHEADER   video_format;
     int                framerate_num;
