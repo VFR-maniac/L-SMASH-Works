@@ -636,7 +636,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     uint32_t i;
     for( i = *rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
     {
-        if( i >= composition_sample_number )
+        if( i + DECODER_DELAY( hp->video_ctx ) >= composition_sample_number )
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         avcodec_get_frame_defaults( picture );
         if( decode_video_sample( hp, picture, &dummy, i ) == 1 )
