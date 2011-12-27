@@ -33,6 +33,8 @@
 #include <ffms.h>
 #include <libavutil/pixfmt.h>
 
+static int enabled = 0;
+
 typedef struct
 {
     FFMS_VideoSource *video_source;
@@ -166,10 +168,13 @@ static void cleanup( lsmash_handler_t *h )
     if( hp->audio_source )
         FFMS_DestroyAudioSource( hp->audio_source );
     free( hp );
+    enabled = 0;
 }
 
 static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
 {
+    if( enabled )
+        return FALSE;
     ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
     if( !hp )
         return FALSE;
@@ -201,6 +206,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to prepare decodings." );
         return FALSE;
     }
+    enabled = 1;
     return TRUE;
 }
 

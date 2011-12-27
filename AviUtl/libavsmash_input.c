@@ -39,6 +39,8 @@
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
 
+static int enabled = 0;
+
 typedef enum
 {
     DECODE_REQUIRE_INITIAL = 0,
@@ -555,10 +557,13 @@ static void cleanup( lsmash_handler_t *h )
     if( hp->audio_output_buffer )
         av_free( hp->audio_output_buffer );
     free( hp );
+    enabled = 0;
 }
 
 static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
 {
+    if( enabled )
+        return FALSE;
     libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return FALSE;
@@ -616,6 +621,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
     if( prepare_video_decoding( h )
      || prepare_audio_decoding( h ) )
         return FALSE;
+    enabled = 1;
     return TRUE;
 }
 

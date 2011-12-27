@@ -88,7 +88,8 @@ INPUT_HANDLE func_open( LPSTR file )
         hp->reader = *lsmash_reader_table[i];
         if( hp->reader.open_file( hp, file, threads ) == TRUE )
             return hp;
-        hp->reader.cleanup( hp );
+        if( hp->reader.cleanup )
+            hp->reader.cleanup( hp );
     }
     free( hp );
     return NULL;
