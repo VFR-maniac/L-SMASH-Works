@@ -176,7 +176,7 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
     uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
     lsmash_delete_media_timestamps( &ts_list );
-    h->framerate_num = (h->video_sample_count * ((double)media_timescale / composition_duration)) * composition_timebase;
+    h->framerate_num = (h->video_sample_count * ((double)media_timescale / composition_duration)) * composition_timebase + 0.5;
     h->framerate_den = composition_timebase;
     return 0;
 }
