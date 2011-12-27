@@ -485,10 +485,8 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = hp->video_ctx->width;
     h->video_format.biHeight      = hp->video_ctx->height;
-    h->video_format.biPlanes      = 1;
     h->video_format.biBitCount    = pixel_size * 8;
     h->video_format.biCompression = compression;
-    h->video_format.biSizeImage   = picture.linesize[0] * pixel_size * hp->video_ctx->height;
     return 0;
 }
 

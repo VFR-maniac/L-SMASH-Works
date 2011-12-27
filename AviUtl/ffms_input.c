@@ -149,10 +149,8 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = frame->ScaledWidth;
     h->video_format.biHeight      = frame->ScaledHeight;
-    h->video_format.biPlanes      = 1;
     h->video_format.biBitCount    = pixel_size * 8;
     h->video_format.biCompression = compression;
-    h->video_format.biSizeImage   = frame->Linesize[0] * frame->ScaledHeight;
     return 0;
 }
 
@@ -233,9 +231,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     FFMS_ErrorInfo e = { 0 };
     const FFMS_Frame *frame = FFMS_GetFrame( hp->video_source, sample_number, &e );
     if( frame )
-    {
         return hp->copy_decoded_data( buf, frame->Data[0], frame->Linesize[0], frame->ScaledHeight );
-    }
     return 0;
 }
 
