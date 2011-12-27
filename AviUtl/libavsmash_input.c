@@ -164,6 +164,11 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     uint64_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
     for( uint32_t i = 2; i < ts_list.sample_count; i++ )
     {
+        if( ts_list.timestamp[i].cts == ts_list.timestamp[i - 1].cts )
+        {
+            MESSAGE_BOX_DESKTOP( MB_OK, "Detect CTS duplication at frame %"PRIu32, i );
+            return 0;
+        }
         composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
         second_largest_cts = largest_cts;
         largest_cts = ts_list.timestamp[i].cts;

@@ -35,15 +35,17 @@
 #define RGB24_SIZE 3
 #define YUY2_SIZE  2
 
-/* Macros for debug */
-#if defined( DEBUG_VIDEO ) || defined( DEBUG_AUDIO )
-#define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) \
+#define MESSAGE_BOX_DESKTOP( uType, ... ) \
 do \
 { \
     char temp[256]; \
     wsprintf( temp, __VA_ARGS__ ); \
     MessageBox( HWND_DESKTOP, temp, "lsmashinput", uType ); \
 } while( 0 )
+
+/* Macros for debug */
+#if defined( DEBUG_VIDEO ) || defined( DEBUG_AUDIO )
+#define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) MESSAGE_BOX_DESKTOP( uType, __VA_ARGS__ )
 #else
 #define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... )
 #endif
