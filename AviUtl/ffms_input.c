@@ -37,7 +37,28 @@ typedef struct
 {
     FFMS_VideoSource *video_source;
     FFMS_AudioSource *audio_source;
+    int (*copy_decoded_data)( void *, void *, int, int );
 } ffms_handler_t;
+
+static int flip_vertical( void *dst, void *src, int linesize, int height )
+{
+    int size = linesize * height;
+    src += size;
+    while( height-- )
+    {
+        src -= linesize;
+        memcpy( dst, src, linesize );
+        dst += linesize;
+    }
+    return size;
+}
+
+static int just_copy( void *dst, void *src, int linesize, int height )
+{
+    int size = linesize * height;
+    memcpy( dst, src, size );
+    return size;
+}
 
 static int prepare_video_decoding( lsmash_handler_t *h )
 {
@@ -103,14 +124,16 @@ static int prepare_video_decoding( lsmash_handler_t *h )
         case PIX_FMT_BGR444LE :
         case PIX_FMT_BGR444BE :
         case PIX_FMT_GBRP :
-            pixel_size  = RGB24_SIZE;
-            out_pix_fmt = PIX_FMT_BGR24;    /* packed RGB 8:8:8, 24bpp, BGRBGR... */
-            compression = 0;
+            hp->copy_decoded_data = flip_vertical;
+            pixel_size            = RGB24_SIZE;
+            out_pix_fmt           = PIX_FMT_BGR24;      /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+            compression           = 0;
             break;
         default :
-            pixel_size  = YUY2_SIZE;
-            out_pix_fmt = PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
-            compression = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
+            hp->copy_decoded_data = just_copy;
+            pixel_size            = YUY2_SIZE;
+            out_pix_fmt           = PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
+            compression           = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;
     }
     int pixelformat[2] = { out_pix_fmt, -1 };
@@ -208,14 +231,12 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
     FFMS_ErrorInfo e = { 0 };
-    int output_size = 0;
     const FFMS_Frame *frame = FFMS_GetFrame( hp->video_source, sample_number, &e );
     if( frame )
     {
-        output_size = h->video_format.biSizeImage;
-        memcpy( buf, frame->Data[0], output_size );
+        return hp->copy_decoded_data( buf, frame->Data[0], frame->Linesize[0], frame->ScaledHeight );
     }
-    return output_size;
+    return 0;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
