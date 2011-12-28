@@ -46,16 +46,14 @@ static void __cpuid(int CPUInfo[4], int prm)
 #pragma GCC pop_options
 #endif /* __GNUC__ */
 
-static int check_sse2()
+int check_sse2()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[3] & 0x04000000) != 0;
 }
 
-typedef void (*func_convert_yuv16le_to_yc48) ( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range );
-
-static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range )
+void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
 {
     uint32_t offset = 0;
     while( output_height-- )
@@ -92,7 +90,7 @@ static void convert_yuv16le_to_yc48( uint8_t **dst_data, uint8_t *buf, int buf_l
 #endif /* __GNUC__ */
 /* SSE2 version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-static void convert_yuv16le_to_yc48_sse2( uint8_t **dst_data, uint8_t *buf, int buf_linesize, int dst_linesize, int output_height, int full_range )
+void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
 {
     uint8_t *ycp = buf, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -270,10 +268,10 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     static int sse2_available = -1;
     if( sse2_available == -1 )
         sse2_available = check_sse2();
-    func_convert_yuv16le_to_yc48 func_convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
-                                              ? convert_yuv16le_to_yc48_sse2
-                                              : convert_yuv16le_to_yc48;
-    func_convert( dst_data, buf, buf_linesize, _dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+    func_get_output *convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
+                             ? convert_yuv16le_to_yc48_sse2
+                             : convert_yuv16le_to_yc48;
+    convert( buf, buf_linesize, dst_data, _dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return output_size;
 }

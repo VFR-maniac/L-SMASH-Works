@@ -68,11 +68,11 @@ typedef struct
 {
     int   enabled;
     void *private_stuff;
-    BOOL (*open_file)  ( lsmash_handler_t *, char *, int );
-    int  (*read_video) ( lsmash_handler_t *, int, void * );
-    int  (*read_audio) ( lsmash_handler_t *, int, int, void * );
-    BOOL (*is_keyframe)( lsmash_handler_t *, int );
-    void (*cleanup)    ( lsmash_handler_t * );
+    BOOL (*open_file)  ( lsmash_handler_t *h, char *file_name, int threads );
+    int  (*read_video) ( lsmash_handler_t *h, int sample_number, void *buf );
+    int  (*read_audio) ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
+    BOOL (*is_keyframe)( lsmash_handler_t *h, int sample_number );
+    void (*cleanup)    ( lsmash_handler_t *h );
 } lsmash_reader_t;
 
 struct lsmash_handler_tag
@@ -89,3 +89,9 @@ struct lsmash_handler_tag
 };
 
 void *malloc_zero( size_t size );
+int check_sse2();
+
+typedef void func_get_output( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range );
+
+func_get_output convert_yuv16le_to_yc48;
+func_get_output convert_yuv16le_to_yc48_sse2;

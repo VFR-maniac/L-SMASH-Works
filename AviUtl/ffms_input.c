@@ -37,27 +37,35 @@ typedef struct
 {
     FFMS_VideoSource *video_source;
     FFMS_AudioSource *audio_source;
-    int (*copy_decoded_data)( void *, void *, int, int );
+    func_get_output  *get_output;
+    int               out_linesize;
 } ffms_handler_t;
 
-static int flip_vertical( void *dst, void *src, int linesize, int height )
+static void yuv16le_to_yc48( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range )
 {
-    int size = linesize * height;
-    src += size;
-    while( height-- )
-    {
-        src -= linesize;
-        memcpy( dst, src, linesize );
-        dst += linesize;
-    }
-    return size;
+    static int sse2_available = -1;
+    if( sse2_available == -1 )
+        sse2_available = check_sse2();
+    if( sse2_available && ((out_linesize | (size_t)out_data) & 15) == 0 )
+        convert_yuv16le_to_yc48_sse2( out_data, out_linesize, in_data, in_linesize, height, full_range );
+    else
+        convert_yuv16le_to_yc48( out_data, out_linesize, in_data, in_linesize, height, full_range );
 }
 
-static int just_copy( void *dst, void *src, int linesize, int height )
+static void flip_vertical( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range )
 {
-    int size = linesize * height;
-    memcpy( dst, src, size );
-    return size;
+    in_data[0] += in_linesize * height;
+    while( height-- )
+    {
+        in_data[0] -= in_linesize;
+        memcpy( out_data, in_data[0], out_linesize );
+        out_data += out_linesize;
+    }
+}
+
+static void just_copy( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range )
+{
+    memcpy( out_data, in_data[0], out_linesize * height );
 }
 
 static int prepare_video_decoding( lsmash_handler_t *h )
@@ -99,6 +107,41 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     uint32_t compression;
     switch( frame->EncodedPixelFormat )
     {
+        case PIX_FMT_YUV444P :
+        case PIX_FMT_YUV440P :
+        case PIX_FMT_YUV420P9LE :
+        case PIX_FMT_YUV420P9BE :
+        case PIX_FMT_YUV422P9LE :
+        case PIX_FMT_YUV422P9BE :
+        case PIX_FMT_YUV444P9LE :
+        case PIX_FMT_YUV444P9BE :
+        case PIX_FMT_YUV420P10LE :
+        case PIX_FMT_YUV420P10BE :
+        case PIX_FMT_YUV422P10LE :
+        case PIX_FMT_YUV422P10BE :
+        case PIX_FMT_YUV444P10LE :
+        case PIX_FMT_YUV444P10BE :
+        case PIX_FMT_YUV420P16LE :
+        case PIX_FMT_YUV420P16BE :
+        case PIX_FMT_YUV422P16LE :
+        case PIX_FMT_YUV422P16BE :
+        case PIX_FMT_YUV444P16LE :
+        case PIX_FMT_YUV444P16BE :
+        case PIX_FMT_RGB48LE :
+        case PIX_FMT_RGB48BE :
+        case PIX_FMT_BGR48LE :
+        case PIX_FMT_BGR48BE :
+        case PIX_FMT_GBRP9LE :
+        case PIX_FMT_GBRP9BE :
+        case PIX_FMT_GBRP10LE :
+        case PIX_FMT_GBRP10BE :
+        case PIX_FMT_GBRP16LE :
+        case PIX_FMT_GBRP16BE :
+            hp->get_output = yuv16le_to_yc48;
+            pixel_size     = YC48_SIZE;
+            out_pix_fmt    = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
+            compression    = MAKEFOURCC( 'Y', 'C', '4', '8' );
+            break;
         case PIX_FMT_RGB24 :
         case PIX_FMT_BGR24 :
         case PIX_FMT_ARGB :
@@ -124,16 +167,16 @@ static int prepare_video_decoding( lsmash_handler_t *h )
         case PIX_FMT_BGR444LE :
         case PIX_FMT_BGR444BE :
         case PIX_FMT_GBRP :
-            hp->copy_decoded_data = flip_vertical;
-            pixel_size            = RGB24_SIZE;
-            out_pix_fmt           = PIX_FMT_BGR24;      /* packed RGB 8:8:8, 24bpp, BGRBGR... */
-            compression           = 0;
+            hp->get_output = flip_vertical;
+            pixel_size     = RGB24_SIZE;
+            out_pix_fmt    = PIX_FMT_BGR24;     /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+            compression    = 0;
             break;
         default :
-            hp->copy_decoded_data = just_copy;
-            pixel_size            = YUY2_SIZE;
-            out_pix_fmt           = PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
-            compression           = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
+            hp->get_output = just_copy;
+            pixel_size     = YUY2_SIZE;
+            out_pix_fmt    = PIX_FMT_YUYV422;   /* packed YUV 4:2:2, 16bpp */
+            compression    = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
             break;
     }
     int pixelformat[2] = { out_pix_fmt, -1 };
@@ -144,8 +187,9 @@ static int prepare_video_decoding( lsmash_handler_t *h )
         hp->video_source = NULL;
         return 0;
     }
-    /* BITMAPINFOHEADER */
     frame = FFMS_GetFrame( hp->video_source, 0, &e );
+    hp->out_linesize = frame->ScaledWidth * pixel_size;
+    /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = frame->ScaledWidth;
     h->video_format.biHeight      = frame->ScaledHeight;
@@ -231,7 +275,10 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     FFMS_ErrorInfo e = { 0 };
     const FFMS_Frame *frame = FFMS_GetFrame( hp->video_source, sample_number, &e );
     if( frame )
-        return hp->copy_decoded_data( buf, frame->Data[0], frame->Linesize[0], frame->ScaledHeight );
+    {
+        hp->get_output( buf, hp->out_linesize, (uint8_t **)frame->Data, frame->Linesize[0], frame->ScaledHeight, frame->ColorRange == FFMS_CR_JPEG );
+        return hp->out_linesize * frame->ScaledHeight;
+    }
     return 0;
 }
 
@@ -239,10 +286,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
     FFMS_ErrorInfo e = { 0 };
-    int output_length = 0;
     if( !FFMS_GetAudio( hp->audio_source, buf, start, wanted_length, &e ) )
-        output_length = wanted_length;
-    return output_length;
+        return wanted_length;
+    return 0;
 }
 
 static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
