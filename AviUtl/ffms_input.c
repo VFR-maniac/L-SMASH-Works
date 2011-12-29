@@ -70,7 +70,7 @@ static void just_copy( uint8_t *out_data, int out_linesize, uint8_t **in_data, i
 
 static int prepare_video_decoding( lsmash_handler_t *h )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     if( !hp->video_source )
         return 0;
     const FFMS_VideoProperties *vp = FFMS_GetVideoProperties( hp->video_source );
@@ -200,7 +200,7 @@ static int prepare_video_decoding( lsmash_handler_t *h )
 
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     if( !hp->audio_source )
         return 0;
     const FFMS_AudioProperties *ap = FFMS_GetAudioProperties( hp->audio_source );
@@ -223,7 +223,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static void cleanup( lsmash_handler_t *h )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     if( !hp )
         return;
     if( hp->video_source )
@@ -238,7 +238,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
     ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
     if( !hp )
         return FALSE;
-    h->reader->private_stuff = hp;
+    h->reader.private_stuff = hp;
     FFMS_Init( 0, 0 );
     FFMS_ErrorInfo e = { 0 };
     FFMS_Index *index = FFMS_MakeIndex( file_name, -1, 0, NULL, NULL, FFMS_IEH_ABORT, NULL, NULL, &e );
@@ -271,7 +271,7 @@ static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     FFMS_ErrorInfo e = { 0 };
     const FFMS_Frame *frame = FFMS_GetFrame( hp->video_source, sample_number, &e );
     if( frame )
@@ -284,7 +284,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     FFMS_ErrorInfo e = { 0 };
     if( !FFMS_GetAudio( hp->audio_source, buf, start, wanted_length, &e ) )
         return wanted_length;
@@ -293,7 +293,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 
 static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader->private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
     FFMS_Track *video_track = FFMS_GetTrackFromVideo( hp->video_source );
     if( !video_track )
         return FALSE;
@@ -305,7 +305,6 @@ static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
 
 lsmash_reader_t ffms_reader =
 {
-    0,
     NULL,
     open_file,
     read_video,

@@ -85,16 +85,11 @@ INPUT_HANDLE func_open( LPSTR file )
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )
     {
-        hp->reader = lsmash_reader_table[i];
-        if( hp->reader->enabled )
-            continue;
-        if( hp->reader->open_file( hp, file, threads ) == TRUE )
-        {
-            hp->reader->enabled = 1;
+        hp->reader = *lsmash_reader_table[i];
+        if( hp->reader.open_file( hp, file, threads ) == TRUE )
             return hp;
-        }
-        if( hp->reader->cleanup )
-            hp->reader->cleanup( hp );
+        if( hp->reader.cleanup )
+            hp->reader.cleanup( hp );
     }
     free( hp );
     return NULL;
@@ -105,9 +100,8 @@ BOOL func_close( INPUT_HANDLE ih )
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     if( !hp )
         return TRUE;
-    if( hp->reader->cleanup )
-        hp->reader->cleanup( hp );
-    hp->reader->enabled = 0;
+    if( hp->reader.cleanup )
+        hp->reader.cleanup( hp );
     free( hp );
     return TRUE;
 }
@@ -139,13 +133,13 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
 int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->reader->read_video ? hp->reader->read_video( hp, sample_number, buf ) : 0;
+    return hp->reader.read_video ? hp->reader.read_video( hp, sample_number, buf ) : 0;
 }
 
 int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->reader->read_audio ? hp->reader->read_audio( hp, start, length, buf ) : 0;
+    return hp->reader.read_audio ? hp->reader.read_audio( hp, start, length, buf ) : 0;
 }
 
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
@@ -154,5 +148,5 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
     if( sample_number >= hp->video_sample_count )
         return FALSE;   /* In reading as double framerate, keyframe detection doesn't work at all
                          * since sample_number exceeds the number of video samples. */
-    return hp->reader->is_keyframe ? hp->reader->is_keyframe( hp, sample_number ) : FALSE;
+    return hp->reader.is_keyframe ? hp->reader.is_keyframe( hp, sample_number ) : FALSE;
 }
