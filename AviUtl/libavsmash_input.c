@@ -55,6 +55,7 @@ typedef struct libavsmash_handler_tag
 {
     /* L-SMASH's stuff */
     lsmash_root_t     *root;
+    uint32_t           number_of_tracks;
     uint32_t           video_track_ID;
     uint32_t           audio_track_ID;
     /* Libav's stuff */
@@ -62,6 +63,7 @@ typedef struct libavsmash_handler_tag
     AVCodecContext    *audio_ctx;
     AVFormatContext   *format_ctx;
     struct SwsContext *sws_ctx;
+    int                threads;
     /* Video stuff */
     uint8_t           *video_input_buffer;
     uint32_t           video_input_buffer_size;
@@ -85,6 +87,44 @@ typedef struct libavsmash_handler_tag
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
+
+static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
+{
+    libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
+    if( !hp )
+        return NULL;
+    av_register_all();
+    avcodec_register_all();
+    /* L-SMASH */
+    hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
+    if( !hp->root )
+        return NULL;
+    lsmash_movie_parameters_t movie_param;
+    lsmash_initialize_movie_parameters( &movie_param );
+    lsmash_get_movie_parameters( hp->root, &movie_param );
+    if( movie_param.number_of_tracks == 0 )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "The number of tracks equals 0." );
+        free( hp );
+        return NULL;
+    }
+    hp->number_of_tracks = movie_param.number_of_tracks;
+    /* libavformat */
+    if( avformat_open_input( &hp->format_ctx, file_name, NULL, NULL ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
+        free( hp );
+        return NULL;
+    }
+    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_find_stream_info." );
+        free( hp );
+        return NULL;
+    }
+    hp->threads = threads;
+    return hp;
+}
 
 static inline uint64_t get_gcd( uint64_t a, uint64_t b )
 {
@@ -110,7 +150,7 @@ static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
 
 static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     uint64_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
     if( h->video_sample_count == 1 )
     {
@@ -181,13 +221,15 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     return 0;
 }
 
-static int get_first_track_of_type( lsmash_handler_t *h, uint32_t number_of_tracks, uint32_t type, int threads )
+static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK)
+                             ? (libavsmash_handler_t *)h->video_private
+                             : (libavsmash_handler_t *)h->audio_private;
     /* L-SMASH */
     uint32_t track_ID = 0;
     uint32_t i;
-    for( i = 1; i <= number_of_tracks; i++ )
+    for( i = 1; i <= hp->number_of_tracks; i++ )
     {
         track_ID = lsmash_get_track_ID( hp->root, i );
         if( track_ID == 0 )
@@ -202,7 +244,7 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t number_of_trac
         if( media_param.handler_type == type )
             break;
     }
-    if( i > number_of_tracks )
+    if( i > hp->number_of_tracks )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s track.",
                                    type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ? "video" : "audio" );
@@ -250,13 +292,47 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t number_of_trac
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s decoder.", codec->name );
         return -1;
     }
-    ctx->thread_count = threads;
+    ctx->thread_count = hp->threads;
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avcodec_open2." );
         return -1;
     }
     return 0;
+}
+
+static int get_first_video_track( lsmash_handler_t *h )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
+    if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
+        return 0;
+    lsmash_destruct_timeline( hp->root, hp->video_track_ID );
+    if( hp->video_ctx )
+    {
+        avcodec_close( hp->video_ctx );
+        hp->video_ctx = NULL;
+    }
+    return -1;
+}
+
+static int get_first_audio_track( lsmash_handler_t *h )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
+    if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK ) )
+        return 0;
+    lsmash_destruct_timeline( hp->root, hp->audio_track_ID );
+    if( hp->audio_ctx )
+    {
+        avcodec_close( hp->audio_ctx );
+        hp->audio_ctx = NULL;
+    }
+    return -1;
+}
+
+static void destroy_disposable( void *private_stuff )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)private_stuff;
+    lsmash_discard_boxes( hp->root );
 }
 
 static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
@@ -348,7 +424,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
 
 static int prepare_video_decoding( lsmash_handler_t *h )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !hp->video_ctx )
         return 0;
     hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
@@ -492,7 +568,7 @@ static int prepare_video_decoding( lsmash_handler_t *h )
 
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     if( !hp->audio_ctx )
         return 0;
     hp->audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
@@ -526,95 +602,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
                                      h->audio_format.nChannels, h->audio_format.nSamplesPerSec,
                                      h->audio_format.wBitsPerSample, h->audio_format.nBlockAlign, h->audio_format.nAvgBytesPerSec );
     return 0;
-}
-
-static void cleanup( lsmash_handler_t *h )
-{
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
-    if( !hp )
-        return;
-    lsmash_destroy_root( hp->root );
-    if( hp->video_ctx )
-        avcodec_close( hp->video_ctx );
-    if( hp->audio_ctx )
-        avcodec_close( hp->audio_ctx );
-    if( hp->format_ctx )
-        avformat_close_input( &hp->format_ctx );
-    if( hp->sws_ctx )
-        sws_freeContext( hp->sws_ctx );
-    if( hp->video_input_buffer )
-        av_free( hp->video_input_buffer );
-    if( hp->order_converter )
-        free( hp->order_converter );
-    if( hp->keyframe_list )
-        free( hp->keyframe_list );
-    if( hp->audio_input_buffer )
-        av_free( hp->audio_input_buffer );
-    if( hp->audio_output_buffer )
-        av_free( hp->audio_output_buffer );
-    free( hp );
-}
-
-static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
-{
-    libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
-    if( !hp )
-        return FALSE;
-    h->reader.private_stuff = hp;
-    av_register_all();
-    avcodec_register_all();
-    /* L-SMASH */
-    hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
-    if( !hp->root )
-        return FALSE;
-    lsmash_movie_parameters_t movie_param;
-    lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( hp->root, &movie_param );
-    /* libavformat */
-    if( avformat_open_input( &hp->format_ctx, file_name, NULL, NULL ) )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
-        return FALSE;
-    }
-    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_find_stream_info." );
-        return FALSE;
-    }
-    uint32_t number_of_tracks = movie_param.number_of_tracks;
-    if( number_of_tracks == 0 )
-        return FALSE;
-    /* Get video track. If absent, ignore video track. */
-    if( get_first_track_of_type( h, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK, threads ) )
-    {
-        lsmash_destruct_timeline( hp->root, hp->video_track_ID );
-        if( hp->video_ctx )
-        {
-            avcodec_close( hp->video_ctx );
-            hp->video_ctx = NULL;
-        }
-    }
-    /* Get audio track. If absent, ignore audio track. */
-    if( get_first_track_of_type( h, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK, threads ) )
-    {
-        lsmash_destruct_timeline( hp->root, hp->audio_track_ID );
-        if( hp->audio_ctx )
-        {
-            avcodec_close( hp->audio_ctx );
-            hp->audio_ctx = NULL;
-        }
-    }
-    lsmash_discard_boxes( hp->root );
-    if( !hp->video_ctx && !hp->audio_ctx )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No readable video and/or audio streams." );
-        return FALSE;
-    }
-    /* Prepare decoding. */
-    if( prepare_video_decoding( h )
-     || prepare_audio_decoding( h ) )
-        return FALSE;
-    return TRUE;
 }
 
 static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t *rap_number )
@@ -653,7 +640,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     AVFrame picture;            /* Decoded video data will be stored here. */
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
@@ -687,7 +674,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     uint32_t sample_number = hp->last_audio_sample_number;
     uint32_t data_offset;
     int      copy_size;
@@ -782,18 +769,66 @@ audio_out:
     return output_length;
 }
 
-static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
+static int is_keyframe( lsmash_handler_t *h, int sample_number )
 {
-    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->reader.private_stuff;
-    return hp->keyframe_list[sample_number + 1] ? TRUE : FALSE;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
+    return hp->keyframe_list[sample_number + 1];
+}
+
+static void video_cleanup( lsmash_handler_t *h )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
+    if( !hp )
+        return;
+    if( hp->order_converter )
+        free( hp->order_converter );
+    if( hp->keyframe_list )
+        free( hp->keyframe_list );
+    if( hp->video_input_buffer )
+        av_free( hp->video_input_buffer );
+    if( hp->sws_ctx )
+        sws_freeContext( hp->sws_ctx );
+    if( hp->video_ctx )
+        avcodec_close( hp->video_ctx );
+}
+
+static void audio_cleanup( lsmash_handler_t *h )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
+    if( !hp )
+        return;
+    if( hp->audio_input_buffer )
+        av_free( hp->audio_input_buffer );
+    if( hp->audio_output_buffer )
+        av_free( hp->audio_output_buffer );
+    if( hp->audio_ctx )
+        avcodec_close( hp->audio_ctx );
+}
+
+static void close_file( void *private_stuff )
+{
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)private_stuff;
+    if( !hp )
+        return;
+    if( hp->format_ctx )
+        avformat_close_input( &hp->format_ctx );
+    lsmash_destroy_root( hp->root );
+    free( hp );
 }
 
 lsmash_reader_t libavsmash_reader =
 {
-    NULL,
+    LIBAVSMASH_READER,
     open_file,
+    get_first_video_track,
+    get_first_audio_track,
+    destroy_disposable,
+    prepare_video_decoding,
+    prepare_audio_decoding,
     read_video,
     read_audio,
     is_keyframe,
-    cleanup
+    video_cleanup,
+    audio_cleanup,
+    close_file
 };

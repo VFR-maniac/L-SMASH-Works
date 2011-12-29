@@ -37,9 +37,59 @@ typedef struct
 {
     FFMS_VideoSource *video_source;
     FFMS_AudioSource *audio_source;
+    FFMS_Index       *index;
     func_get_output  *get_output;
+    char             *file_name;
+    int               threads;
     int               out_linesize;
 } ffms_handler_t;
+
+static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
+{
+    ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
+    if( !hp )
+        return NULL;
+    FFMS_Init( 0, 0 );
+    FFMS_ErrorInfo e = { 0 };
+    hp->file_name = file_name;
+    hp->threads   = threads;
+    hp->index     = FFMS_MakeIndex( hp->file_name, -1, 0, NULL, NULL, FFMS_IEH_ABORT, NULL, NULL, &e );
+    if( !hp->index )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create the index." );
+        free( hp );
+        return NULL;
+    }
+    return hp;
+}
+
+static int get_first_video_track( lsmash_handler_t *h )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
+    FFMS_ErrorInfo e = { 0 };
+    int video_track_number = FFMS_GetFirstTrackOfType( hp->index, FFMS_TYPE_VIDEO, &e );
+    if( video_track_number < 0 )
+        return -1;
+    hp->video_source = FFMS_CreateVideoSource( hp->file_name, video_track_number, hp->index, hp->threads, FFMS_SEEK_NORMAL, &e );
+    return 0;
+}
+
+static int get_first_audio_track( lsmash_handler_t *h )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)h->audio_private;
+    FFMS_ErrorInfo e = { 0 };
+    int audio_track_number = FFMS_GetFirstTrackOfType( hp->index, FFMS_TYPE_AUDIO, &e );
+    if( audio_track_number < 0 )
+        return -1;
+    hp->audio_source = FFMS_CreateAudioSource( hp->file_name, audio_track_number, hp->index, FFMS_DELAY_FIRST_VIDEO_TRACK, &e );
+    return 0;
+}
+
+static void destroy_disposable( void *private_stuff )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)private_stuff;
+    FFMS_DestroyIndex( hp->index );
+}
 
 static void yuv16le_to_yc48( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range )
 {
@@ -70,7 +120,7 @@ static void just_copy( uint8_t *out_data, int out_linesize, uint8_t **in_data, i
 
 static int prepare_video_decoding( lsmash_handler_t *h )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     if( !hp->video_source )
         return 0;
     const FFMS_VideoProperties *vp = FFMS_GetVideoProperties( hp->video_source );
@@ -200,7 +250,7 @@ static int prepare_video_decoding( lsmash_handler_t *h )
 
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->audio_private;
     if( !hp->audio_source )
         return 0;
     const FFMS_AudioProperties *ap = FFMS_GetAudioProperties( hp->audio_source );
@@ -221,57 +271,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     return 0;
 }
 
-static void cleanup( lsmash_handler_t *h )
-{
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
-    if( !hp )
-        return;
-    if( hp->video_source )
-        FFMS_DestroyVideoSource( hp->video_source );
-    if( hp->audio_source )
-        FFMS_DestroyAudioSource( hp->audio_source );
-    free( hp );
-}
-
-static BOOL open_file( lsmash_handler_t *h, char *file_name, int threads )
-{
-    ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
-    if( !hp )
-        return FALSE;
-    h->reader.private_stuff = hp;
-    FFMS_Init( 0, 0 );
-    FFMS_ErrorInfo e = { 0 };
-    FFMS_Index *index = FFMS_MakeIndex( file_name, -1, 0, NULL, NULL, FFMS_IEH_ABORT, NULL, NULL, &e );
-    if( !index )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create the index." );
-        return FALSE;
-    }
-    int video_track_number = FFMS_GetFirstTrackOfType( index, FFMS_TYPE_VIDEO, &e );
-    if( video_track_number >= 0 )
-        hp->video_source = FFMS_CreateVideoSource( file_name, video_track_number, index, threads, FFMS_SEEK_NORMAL, &e );
-    int audio_track_number = FFMS_GetFirstTrackOfType( index, FFMS_TYPE_AUDIO, &e );
-    if( audio_track_number >= 0 )
-        hp->audio_source = FFMS_CreateAudioSource( file_name, audio_track_number, index, FFMS_DELAY_FIRST_VIDEO_TRACK, &e );
-    FFMS_DestroyIndex( index );
-    if( !hp->video_source && !hp->audio_source )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No readable video and/or audio streams." );
-        return FALSE;
-    }
-    /* Prepare decoding. */
-    if( prepare_video_decoding( h )
-     || prepare_audio_decoding( h ) )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to prepare decodings." );
-        return FALSE;
-    }
-    return TRUE;
-}
-
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     FFMS_ErrorInfo e = { 0 };
     const FFMS_Frame *frame = FFMS_GetFrame( hp->video_source, sample_number, &e );
     if( frame )
@@ -284,31 +286,63 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->audio_private;
     FFMS_ErrorInfo e = { 0 };
     if( !FFMS_GetAudio( hp->audio_source, buf, start, wanted_length, &e ) )
         return wanted_length;
     return 0;
 }
 
-static BOOL is_keyframe( lsmash_handler_t *h, int sample_number )
+static int is_keyframe( lsmash_handler_t *h, int sample_number )
 {
-    ffms_handler_t *hp = (ffms_handler_t *)h->reader.private_stuff;
+    ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     FFMS_Track *video_track = FFMS_GetTrackFromVideo( hp->video_source );
     if( !video_track )
-        return FALSE;
+        return 0;
     const FFMS_FrameInfo *info = FFMS_GetFrameInfo( video_track, sample_number );
     if( info )
-        return info->KeyFrame == 0 ? FALSE : TRUE;
-    return FALSE;
+        return info->KeyFrame ? 1 : 0;
+    return 1;
+}
+
+static void video_cleanup( lsmash_handler_t *h )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
+    if( !hp )
+        return;
+    if( hp->video_source )
+        FFMS_DestroyVideoSource( hp->video_source );
+}
+
+static void audio_cleanup( lsmash_handler_t *h )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)h->audio_private;
+    if( !hp )
+        return;
+    if( hp->audio_source )
+        FFMS_DestroyAudioSource( hp->audio_source );
+}
+
+static void close_file( void *private_stuff )
+{
+    ffms_handler_t *hp = (ffms_handler_t *)private_stuff;
+    if( hp )
+        free( hp );
 }
 
 lsmash_reader_t ffms_reader =
 {
-    NULL,
+    FFMS_READER,
     open_file,
+    get_first_video_track,
+    get_first_audio_track,
+    destroy_disposable,
+    prepare_video_decoding,
+    prepare_audio_decoding,
     read_video,
     read_audio,
     is_keyframe,
-    cleanup
+    video_cleanup,
+    audio_cleanup,
+    close_file
 };

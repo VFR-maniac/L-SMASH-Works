@@ -71,6 +71,8 @@ INPUT_HANDLE func_open( LPSTR file )
     int threads = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
     if( threads > MAX_NUM_THREADS )
         threads = MAX_NUM_THREADS;
+    hp->video_reader = READER_NONE;
+    hp->audio_reader = READER_NONE;
     extern lsmash_reader_t libavsmash_reader;
 #ifdef HAVE_FFMS
     extern lsmash_reader_t ffms_reader;
@@ -85,14 +87,88 @@ INPUT_HANDLE func_open( LPSTR file )
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )
     {
-        hp->reader = *lsmash_reader_table[i];
-        if( hp->reader.open_file( hp, file, threads ) == TRUE )
-            return hp;
-        if( hp->reader.cleanup )
-            hp->reader.cleanup( hp );
+        int video_none = 1;
+        int audio_none = 1;
+        lsmash_reader_t reader = *lsmash_reader_table[i];
+        void *private_stuff = reader.open_file( hp, file, threads );
+        if( private_stuff )
+        {
+            if( !hp->video_private )
+            {
+                hp->video_private = private_stuff;
+                if( !reader.get_first_video_track( hp ) )
+                {
+                    hp->video_reader     = reader.type;
+                    hp->read_video       = reader.read_video;
+                    hp->is_keyframe      = reader.is_keyframe;
+                    hp->video_cleanup    = reader.video_cleanup;
+                    hp->close_video_file = reader.close_file;
+                    video_none = 0;
+                }
+                else
+                    hp->video_private = NULL;
+            }
+            if( !hp->audio_private )
+            {
+                hp->audio_private = private_stuff;
+                if( !reader.get_first_audio_track( hp ) )
+                {
+                    hp->audio_reader     = reader.type;
+                    hp->read_audio       = reader.read_audio;
+                    hp->audio_cleanup    = reader.audio_cleanup;
+                    hp->close_audio_file = reader.close_file;
+                    audio_none = 0;
+                }
+                else
+                    hp->audio_private = NULL;
+            }
+        }
+        if( video_none && audio_none )
+        {
+            if( reader.close_file )
+                reader.close_file( private_stuff );
+        }
+        else
+        {
+            if( reader.destroy_disposable )
+                reader.destroy_disposable( private_stuff );
+            if( !video_none && reader.prepare_video_decoding( hp ) )
+            {
+                hp->video_cleanup( hp );
+                hp->video_cleanup = NULL;
+                hp->video_private = NULL;
+                hp->video_reader  = READER_NONE;
+                video_none = 1;
+            }
+            if( !audio_none && reader.prepare_audio_decoding( hp ) )
+            {
+                hp->audio_cleanup( hp );
+                hp->audio_cleanup = NULL;
+                hp->audio_private = NULL;
+                hp->audio_reader  = READER_NONE;
+                audio_none = 1;
+            }
+            if( video_none && audio_none && reader.close_file )
+                reader.close_file( private_stuff );
+        }
+        /* Found both video and audio reader. */
+        if( hp->video_reader != READER_NONE && hp->audio_reader != READER_NONE )
+            break;
     }
-    free( hp );
-    return NULL;
+    if( hp->video_reader == hp->audio_reader )
+    {
+        hp->global_private = hp->video_private;
+        hp->close_file     = hp->close_video_file;
+        hp->close_video_file = NULL;
+        hp->close_audio_file = NULL;
+    }
+    if( hp->video_reader == READER_NONE && hp->audio_reader == READER_NONE )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_OK, "No readable video and/or audio stream" );
+        func_close( hp );
+        return NULL;
+    }
+    return hp;
 }
 
 BOOL func_close( INPUT_HANDLE ih )
@@ -100,8 +176,19 @@ BOOL func_close( INPUT_HANDLE ih )
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     if( !hp )
         return TRUE;
-    if( hp->reader.cleanup )
-        hp->reader.cleanup( hp );
+    if( hp->video_cleanup )
+        hp->video_cleanup( hp );
+    if( hp->audio_cleanup )
+        hp->audio_cleanup( hp );
+    if( hp->close_file )
+        hp->close_file( hp->global_private );
+    else
+    {
+        if( hp->close_video_file )
+            hp->close_video_file( hp->video_private );
+        if( hp->close_audio_file )
+            hp->close_audio_file( hp->audio_private );
+    }
     free( hp );
     return TRUE;
 }
@@ -110,7 +197,7 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     memset( iip, 0, sizeof(INPUT_INFO) );
-    if( hp->video_sample_count )
+    if( hp->video_reader != READER_NONE )
     {
         iip->flag             |= INPUT_INFO_FLAG_VIDEO;
         iip->rate              = hp->framerate_num;
@@ -120,7 +207,7 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
         iip->format_size       = hp->video_format.biSize;
         iip->handler           = 0;
     }
-    if( hp->audio_pcm_sample_count )
+    if( hp->audio_reader != READER_NONE )
     {
         iip->flag             |= INPUT_INFO_FLAG_AUDIO;
         iip->audio_n           = hp->audio_pcm_sample_count;
@@ -133,13 +220,13 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
 int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->reader.read_video ? hp->reader.read_video( hp, sample_number, buf ) : 0;
+    return hp->read_video ? hp->read_video( hp, sample_number, buf ) : 0;
 }
 
 int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->reader.read_audio ? hp->reader.read_audio( hp, start, length, buf ) : 0;
+    return hp->read_audio ? hp->read_audio( hp, start, length, buf ) : 0;
 }
 
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
@@ -148,5 +235,5 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
     if( sample_number >= hp->video_sample_count )
         return FALSE;   /* In reading as double framerate, keyframe detection doesn't work at all
                          * since sample_number exceeds the number of video samples. */
-    return hp->reader.is_keyframe ? hp->reader.is_keyframe( hp, sample_number ) : FALSE;
+    return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : FALSE;
 }

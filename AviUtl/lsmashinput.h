@@ -62,29 +62,55 @@ do \
 #define DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( uType, ... )
 #endif
 
+typedef enum
+{
+    READER_NONE       = 0,
+    LIBAVSMASH_READER = 1,
+    FFMS_READER       = 2,
+} reader_type;
+
 typedef struct lsmash_handler_tag lsmash_handler_t;
 
 typedef struct
 {
-    void *private_stuff;
-    BOOL (*open_file)  ( lsmash_handler_t *h, char *file_name, int threads );
-    int  (*read_video) ( lsmash_handler_t *h, int sample_number, void *buf );
-    int  (*read_audio) ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
-    BOOL (*is_keyframe)( lsmash_handler_t *h, int sample_number );
-    void (*cleanup)    ( lsmash_handler_t *h );
+    reader_type type;
+    void *(*open_file)             ( lsmash_handler_t *h, char *file_name, int threads );
+    int   (*get_first_video_track) ( lsmash_handler_t *h );
+    int   (*get_first_audio_track) ( lsmash_handler_t *h );
+    void  (*destroy_disposable)    ( void *private_stuff );
+    int   (*prepare_video_decoding)( lsmash_handler_t *h );
+    int   (*prepare_audio_decoding)( lsmash_handler_t *h );
+    int   (*read_video)            ( lsmash_handler_t *h, int sample_number, void *buf );
+    int   (*read_audio)            ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
+    int   (*is_keyframe)           ( lsmash_handler_t *h, int sample_number );
+    void  (*video_cleanup)         ( lsmash_handler_t *h );
+    void  (*audio_cleanup)         ( lsmash_handler_t *h );
+    void  (*close_file)            ( void *private_stuff );
 } lsmash_reader_t;
 
 struct lsmash_handler_tag
 {
-    lsmash_reader_t    reader;
-    /* Video info */
+    void              *global_private;
+    void (*close_file)( void *private_stuff );
+    /* Video stuff */
+    reader_type        video_reader;
+    void              *video_private;
     BITMAPINFOHEADER   video_format;
     int                framerate_num;
     int                framerate_den;
     uint32_t           video_sample_count;
-    /* Audio info */
+    int  (*read_video)      ( lsmash_handler_t *h, int sample_number, void *buf );
+    int  (*is_keyframe)     ( lsmash_handler_t *h, int sample_number );
+    void (*video_cleanup)   ( lsmash_handler_t *h );
+    void (*close_video_file)( void *private_stuff );
+    /* Audio stuff */
+    reader_type        audio_reader;
+    void              *audio_private;
     WAVEFORMATEX       audio_format;
     uint32_t           audio_pcm_sample_count;
+    int  (*read_audio)      ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
+    void (*audio_cleanup)   ( lsmash_handler_t *h );
+    void (*close_audio_file)( void *private_stuff );
 };
 
 void *malloc_zero( size_t size );
