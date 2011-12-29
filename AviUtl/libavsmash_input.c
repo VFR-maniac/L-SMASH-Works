@@ -78,6 +78,7 @@ typedef struct libavsmash_handler_tag
     uint32_t           next_audio_pcm_sample_number;
     uint32_t           last_audio_sample_number;
     uint32_t           last_remainder_size;
+    uint64_t          *dts_list;
 } libavsmash_handler_t;
 
 /* Colorspace converters */
@@ -482,6 +483,21 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     return 0;
 }
 
+static int create_dts_list( libavsmash_handler_t *hp )
+{
+    hp->dts_list = malloc_zero( (hp->audio_frame_count + 1) * sizeof(uint64_t) );
+    if( !hp->dts_list )
+        return -1;
+    for( uint32_t sample_number = 1; sample_number <= hp->audio_frame_count; sample_number++ )
+    {
+        uint64_t dts;
+        if( lsmash_get_dts_from_media_timeline( hp->root, hp->audio_track_ID, sample_number, &dts ) )
+            return -1;
+        hp->dts_list[sample_number] = dts;
+    }
+    return 0;
+}
+
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
@@ -504,6 +520,11 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     if( !hp->audio_output_buffer )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the output buffer for audio." );
+        return -1;
+    }
+    if( create_dts_list( hp ) )
+    {
+        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create DTS list." );
         return -1;
     }
     /* WAVEFORMATEX */
@@ -623,8 +644,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         uint64_t dts;
         do
         {
-            if( lsmash_get_dts_from_media_timeline( hp->root, hp->audio_track_ID, sample_number--, &dts ) )
-                return 0;
+            dts = hp->dts_list[sample_number--];
             if( start >= dts )
                 break;
         } while( 1 );
