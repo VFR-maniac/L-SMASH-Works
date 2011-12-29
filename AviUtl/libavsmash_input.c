@@ -96,7 +96,10 @@ static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
     /* L-SMASH */
     hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
     if( !hp->root )
+    {
+        free( hp );
         return NULL;
+    }
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
     lsmash_get_movie_parameters( hp->root, &movie_param );
