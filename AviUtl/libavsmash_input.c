@@ -34,7 +34,7 @@
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
 
-#define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
+#define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->active_thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
 
 typedef enum
 {
