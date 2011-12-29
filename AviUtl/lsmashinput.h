@@ -69,6 +69,13 @@ typedef enum
     FFMS_READER       = 2,
 } reader_type;
 
+typedef enum
+{
+    OUTPUT_YC48  = 0,
+    OUTPUT_RGB24 = 1,
+    OUTPUT_YUY2  = 2,
+} output_colorspace;
+
 typedef struct lsmash_handler_tag lsmash_handler_t;
 
 typedef struct
@@ -115,8 +122,6 @@ struct lsmash_handler_tag
 
 void *malloc_zero( size_t size );
 int check_sse2();
+output_colorspace determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format );
 
 typedef void func_get_output( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range );
-
-func_get_output convert_yuv16le_to_yc48;
-func_get_output convert_yuv16le_to_yc48_sse2;

@@ -33,9 +33,6 @@
 #include <libavformat/avformat.h>   /* Codec specific info importer */
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
-#ifdef DEBUG_VIDEO
-#include <libavutil/pixdesc.h>
-#endif
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
 
@@ -452,117 +449,36 @@ static int prepare_video_decoding( lsmash_handler_t *h )
         return -1;
     }
     hp->last_video_sample_number = 1;
-    /* Hack for avoiding YUV-scale conversion */
+    /* swscale */
+    int output_pixel_format;
+    output_colorspace index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );
     static const struct
     {
-        enum PixelFormat full;
-        enum PixelFormat limited;
-    } range_hack_table[]
-        = {
-            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
-            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
-            { PIX_FMT_YUVJ444P, PIX_FMT_YUV444P },
-            { PIX_FMT_YUVJ440P, PIX_FMT_YUV440P },
-            { PIX_FMT_NONE,     PIX_FMT_NONE    }
-          };
-    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
-        if( hp->video_ctx->pix_fmt == range_hack_table[i].full )
-            hp->video_ctx->pix_fmt = range_hack_table[i].limited;
-    /* swscale */
-    enum PixelFormat out_pix_fmt;
-    uint32_t pixel_size;
-    uint32_t compression;
-    switch( hp->video_ctx->pix_fmt )
-    {
-        case PIX_FMT_YUV444P :
-        case PIX_FMT_YUV440P :
-        case PIX_FMT_YUV420P9LE :
-        case PIX_FMT_YUV420P9BE :
-        case PIX_FMT_YUV422P9LE :
-        case PIX_FMT_YUV422P9BE :
-        case PIX_FMT_YUV444P9LE :
-        case PIX_FMT_YUV444P9BE :
-        case PIX_FMT_YUV420P10LE :
-        case PIX_FMT_YUV420P10BE :
-        case PIX_FMT_YUV422P10LE :
-        case PIX_FMT_YUV422P10BE :
-        case PIX_FMT_YUV444P10LE :
-        case PIX_FMT_YUV444P10BE :
-        case PIX_FMT_YUV420P16LE :
-        case PIX_FMT_YUV420P16BE :
-        case PIX_FMT_YUV422P16LE :
-        case PIX_FMT_YUV422P16BE :
-        case PIX_FMT_YUV444P16LE :
-        case PIX_FMT_YUV444P16BE :
-        case PIX_FMT_RGB48LE :
-        case PIX_FMT_RGB48BE :
-        case PIX_FMT_BGR48LE :
-        case PIX_FMT_BGR48BE :
-        case PIX_FMT_GBRP9LE :
-        case PIX_FMT_GBRP9BE :
-        case PIX_FMT_GBRP10LE :
-        case PIX_FMT_GBRP10BE :
-        case PIX_FMT_GBRP16LE :
-        case PIX_FMT_GBRP16BE :
-            hp->convert_colorspace = to_yuv16le_to_yc48;
-            pixel_size             = YC48_SIZE;
-            out_pix_fmt            = PIX_FMT_YUV444P16LE;   /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
-            compression            = MAKEFOURCC( 'Y', 'C', '4', '8' );
-            break;
-        case PIX_FMT_RGB24 :
-        case PIX_FMT_BGR24 :
-        case PIX_FMT_ARGB :
-        case PIX_FMT_RGBA :
-        case PIX_FMT_ABGR :
-        case PIX_FMT_BGRA :
-        case PIX_FMT_BGR8 :
-        case PIX_FMT_BGR4 :
-        case PIX_FMT_BGR4_BYTE :
-        case PIX_FMT_RGB8 :
-        case PIX_FMT_RGB4 :
-        case PIX_FMT_RGB4_BYTE :
-        case PIX_FMT_RGB565LE :
-        case PIX_FMT_RGB565BE :
-        case PIX_FMT_RGB555LE :
-        case PIX_FMT_RGB555BE :
-        case PIX_FMT_BGR565LE :
-        case PIX_FMT_BGR565BE :
-        case PIX_FMT_BGR555LE :
-        case PIX_FMT_BGR555BE :
-        case PIX_FMT_RGB444LE :
-        case PIX_FMT_RGB444BE :
-        case PIX_FMT_BGR444LE :
-        case PIX_FMT_BGR444BE :
-        case PIX_FMT_GBRP :
-            hp->convert_colorspace = to_rgb24;
-            pixel_size             = RGB24_SIZE;
-            out_pix_fmt            = PIX_FMT_BGR24;         /* packed RGB 8:8:8, 24bpp, BGRBGR... */
-            compression            = 0;
-            break;
-        default :
-            hp->convert_colorspace = to_yuy2;
-            pixel_size             = YUY2_SIZE;
-            out_pix_fmt            = PIX_FMT_YUYV422;       /* packed YUV 4:2:2, 16bpp */
-            compression            = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
-            break;
-    }
+        int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
+        int      pixel_size;
+        uint32_t compression;
+    } colorspace_table[3] =
+        {
+            { to_yuv16le_to_yc48, YC48_SIZE,  MAKEFOURCC( 'Y', 'C', '4', '8' ) },
+            { to_rgb24,           RGB24_SIZE, 0                                },
+            { to_yuy2,            YUY2_SIZE,  MAKEFOURCC( 'Y', 'U', 'Y', '2' ) }
+        };
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,
-                                        hp->video_ctx->width, hp->video_ctx->height, out_pix_fmt,
+                                        hp->video_ctx->width, hp->video_ctx->height, output_pixel_format,
                                         SWS_POINT, NULL, NULL, NULL );
     if( !hp->sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
         return -1;
     }
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_pix_fmt = %s, dst_pix_fmt = %s",
-                                     av_pix_fmt_descriptors[hp->video_ctx->pix_fmt].name, av_pix_fmt_descriptors[out_pix_fmt].name );
+    hp->convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = hp->video_ctx->width;
     h->video_format.biHeight      = hp->video_ctx->height;
-    h->video_format.biBitCount    = pixel_size * 8;
-    h->video_format.biCompression = compression;
+    h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
+    h->video_format.biCompression = colorspace_table[index].compression;
     return 0;
 }
 

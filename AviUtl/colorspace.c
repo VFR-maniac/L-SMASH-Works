@@ -26,6 +26,9 @@
 
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#ifdef DEBUG_VIDEO
+#include <libavutil/pixdesc.h>
+#endif
 
 /* for SSE2 intrinsic func */
 #ifdef __GNUC__
@@ -51,6 +54,96 @@ int check_sse2()
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[3] & 0x04000000) != 0;
+}
+
+static void avoid_yuv_scale_conversion( int *input_pixel_format )
+{
+    static const struct
+    {
+        enum PixelFormat full;
+        enum PixelFormat limited;
+    } range_hack_table[]
+        = {
+            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
+            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
+            { PIX_FMT_YUVJ444P, PIX_FMT_YUV444P },
+            { PIX_FMT_YUVJ440P, PIX_FMT_YUV440P },
+            { PIX_FMT_NONE,     PIX_FMT_NONE    }
+          };
+    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
+        if( *input_pixel_format == range_hack_table[i].full )
+            *input_pixel_format = range_hack_table[i].limited;
+}
+
+output_colorspace determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format )
+{
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "input_pixel_format = %s", av_pix_fmt_descriptors[*input_pixel_format].name );
+    avoid_yuv_scale_conversion( input_pixel_format );
+    switch( *input_pixel_format )
+    {
+        case PIX_FMT_YUV444P :
+        case PIX_FMT_YUV440P :
+        case PIX_FMT_YUV420P9LE :
+        case PIX_FMT_YUV420P9BE :
+        case PIX_FMT_YUV422P9LE :
+        case PIX_FMT_YUV422P9BE :
+        case PIX_FMT_YUV444P9LE :
+        case PIX_FMT_YUV444P9BE :
+        case PIX_FMT_YUV420P10LE :
+        case PIX_FMT_YUV420P10BE :
+        case PIX_FMT_YUV422P10LE :
+        case PIX_FMT_YUV422P10BE :
+        case PIX_FMT_YUV444P10LE :
+        case PIX_FMT_YUV444P10BE :
+        case PIX_FMT_YUV420P16LE :
+        case PIX_FMT_YUV420P16BE :
+        case PIX_FMT_YUV422P16LE :
+        case PIX_FMT_YUV422P16BE :
+        case PIX_FMT_YUV444P16LE :
+        case PIX_FMT_YUV444P16BE :
+        case PIX_FMT_RGB48LE :
+        case PIX_FMT_RGB48BE :
+        case PIX_FMT_BGR48LE :
+        case PIX_FMT_BGR48BE :
+        case PIX_FMT_GBRP9LE :
+        case PIX_FMT_GBRP9BE :
+        case PIX_FMT_GBRP10LE :
+        case PIX_FMT_GBRP10BE :
+        case PIX_FMT_GBRP16LE :
+        case PIX_FMT_GBRP16BE :
+            *output_pixel_format = PIX_FMT_YUV444P16LE; /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
+            return OUTPUT_YC48;
+        case PIX_FMT_RGB24 :
+        case PIX_FMT_BGR24 :
+        case PIX_FMT_ARGB :
+        case PIX_FMT_RGBA :
+        case PIX_FMT_ABGR :
+        case PIX_FMT_BGRA :
+        case PIX_FMT_BGR8 :
+        case PIX_FMT_BGR4 :
+        case PIX_FMT_BGR4_BYTE :
+        case PIX_FMT_RGB8 :
+        case PIX_FMT_RGB4 :
+        case PIX_FMT_RGB4_BYTE :
+        case PIX_FMT_RGB565LE :
+        case PIX_FMT_RGB565BE :
+        case PIX_FMT_RGB555LE :
+        case PIX_FMT_RGB555BE :
+        case PIX_FMT_BGR565LE :
+        case PIX_FMT_BGR565BE :
+        case PIX_FMT_BGR555LE :
+        case PIX_FMT_BGR555BE :
+        case PIX_FMT_RGB444LE :
+        case PIX_FMT_RGB444BE :
+        case PIX_FMT_BGR444LE :
+        case PIX_FMT_BGR444BE :
+        case PIX_FMT_GBRP :
+            *output_pixel_format = PIX_FMT_BGR24;       /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+            return OUTPUT_RGB24;
+        default :
+            *output_pixel_format = PIX_FMT_YUYV422;     /* packed YUV 4:2:2, 16bpp */
+            return OUTPUT_YUY2;
+    }
 }
 
 void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
