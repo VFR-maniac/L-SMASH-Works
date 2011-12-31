@@ -72,7 +72,7 @@ test -n "$(echo $SRCDIR | grep ' ')" && \
 # -- init -------------------------------------------------------------------------------------
 CC="gcc"
 LD="gcc"
-
+RC="windres"
 STRIP="strip"
 
 prefix=""
@@ -148,10 +148,11 @@ CFLAGS="$CFLAGS $XCFLAGS"
 LDFLAGS="$LDFLAGS $XLDFLAGS"
 
 # -- check_exe --------------------------------------------------------------------------------
-CC=${CROSS}${CC}
-LD=${CROSS}${LD}
-STRIP=${CROSS}${STRIP}
-for f in "$CC" "$LD" "$STRIP"; do
+CC="${CROSS}${CC}"
+LD="${CROSS}${LD}"
+RC="${CROSS}${RC}"
+STRIP="${CROSS}${STRIP}"
+for f in "$CC" "$LD" "$RC" "$STRIP"; do
     test -n "$(which $f 2> /dev/null)" || error_exit "$f is not executable"
 done
 
@@ -228,13 +229,14 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getC
 fi
 
 LDFLAGS="$AU_LDFLAGS $LDFLAGS"
-LIBS="$LIBS $XLIBS"
+LIBS="-lcomctl32 $LIBS $XLIBS"
 
 # -- output config.mak ------------------------------------------------------------------------
 rm -f config.mak
 cat >> config.mak << EOF
 CC = $CC
 LD = $LD
+RC = $RC
 STRIP = $STRIP
 CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
@@ -257,6 +259,7 @@ cat << EOF
 settings...
 CC          = $CC
 LD          = $LD
+RC          = $RC
 STRIP       = $STRIP
 CFLAGS      = $CFLAGS
 LDFLAGS     = $LDFLAGS

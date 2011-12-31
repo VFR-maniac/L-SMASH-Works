@@ -29,8 +29,6 @@
 
 #include "input.h"
 
-#define MAX_NUM_THREADS 4
-
 #define YC48_SIZE  6
 #define RGB24_SIZE 3
 #define YUY2_SIZE  2

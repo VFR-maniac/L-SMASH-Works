@@ -23,6 +23,11 @@
  * Don't distribute it if its license is GPL. */
 
 #include "lsmashinput.h"
+#include "resource.h"
+
+#include <commctrl.h>
+
+#define MAX_AUTO_NUM_THREADS 4
 
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v"
 #define ANY_FILE_EXT        "*.*"
@@ -46,7 +51,7 @@ INPUT_PLUGIN_TABLE input_plugin_table =
     func_read_video,                                                /* Pointer to function to read image data */
     func_read_audio,                                                /* Pointer to function to read audio data */
     func_is_keyframe,                                               /* Pointer to function to check if it is a keyframe or not (If NULL, all is keyframe.) */
-    NULL,                                                           /* Pointer to function called when configuration dialog is required */
+    func_config,                                                    /* Pointer to function called when configuration dialog is required */
 };
 
 EXTERN_C INPUT_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetInputPluginTable( void )
@@ -63,16 +68,51 @@ void *malloc_zero( size_t size )
     return p;
 }
 
+static int threads = 0;
+static char *settings_path = NULL;
+static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
+
+static FILE *open_settings( void )
+{
+    FILE *ini = NULL;
+    for( int i = 0; i < 2; i++ )
+    {
+        ini = fopen( settings_path_list[i], "rb" );
+        if( ini )
+        {
+            settings_path = (char *)settings_path_list[i];
+            return ini;
+        }
+    }
+    return NULL;
+}
+
+static int get_auto_threads( void )
+{
+    int n = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
+    if( n > MAX_AUTO_NUM_THREADS )
+        n = MAX_AUTO_NUM_THREADS;
+    return n;
+}
+
+void get_settings( void )
+{
+    FILE *ini = open_settings();
+    char buf[128];
+    if( !ini || !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
+        threads = 0;
+    if( ini )
+        fclose( ini );
+}
+
 INPUT_HANDLE func_open( LPSTR file )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)malloc_zero( sizeof(lsmash_handler_t) );
     if( !hp )
         return NULL;
-    int threads = atoi( getenv( "NUMBER_OF_PROCESSORS" ) );
-    if( threads > MAX_NUM_THREADS )
-        threads = MAX_NUM_THREADS;
     hp->video_reader = READER_NONE;
     hp->audio_reader = READER_NONE;
+    get_settings();
     extern lsmash_reader_t libavsmash_reader;
 #ifdef HAVE_FFMS
     extern lsmash_reader_t ffms_reader;
@@ -90,7 +130,7 @@ INPUT_HANDLE func_open( LPSTR file )
         int video_none = 1;
         int audio_none = 1;
         lsmash_reader_t reader = *lsmash_reader_table[i];
-        void *private_stuff = reader.open_file( hp, file, threads );
+        void *private_stuff = reader.open_file( hp, file, threads > 0 ? threads : get_auto_threads() );
         if( private_stuff )
         {
             if( !hp->video_private )
@@ -236,4 +276,75 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
         return FALSE;   /* In reading as double framerate, keyframe detection doesn't work at all
                          * since sample_number exceeds the number of video samples. */
     return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : FALSE;
+}
+
+static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
+{
+    static char edit_buf[128] = { 0 };
+    switch( message )
+    {
+        case WM_INITDIALOG :
+            InitCommonControls();
+            get_settings();
+            sprintf( edit_buf, "%d", threads );
+            SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf ); 
+            SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            return TRUE;
+        case WM_NOTIFY :
+            if( wparam == IDC_SPIN_THREADS )
+            {
+                LPNMUPDOWN lpnmud = (LPNMUPDOWN)lparam;
+                if( lpnmud->hdr.code == UDN_DELTAPOS )
+                {
+                    GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    threads = atoi( edit_buf );
+                    if( lpnmud->iDelta )
+                        threads += lpnmud->iDelta > 0 ? -1 : 1;
+                    if( threads < 0 )
+                        threads = 0;
+                    sprintf( edit_buf, "%d", threads );
+                    SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf ); 
+                }
+            }
+            return TRUE;
+        case WM_COMMAND :
+            switch( wparam )
+            {
+                case IDCANCEL :
+                    EndDialog( hwnd, IDCANCEL );
+                    return TRUE;
+                case IDOK :
+                {
+                    if( !settings_path )
+                        settings_path = (char *)settings_path_list[0];
+                    FILE *ini = fopen( settings_path, "wb" );
+                    if( !ini )
+                    {
+                        MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to update configuration file" );
+                        return FALSE;
+                    }
+                    if( threads > 0 )
+                        fprintf( ini, "threads=%d", threads );
+                    else
+                        fprintf( ini, "threads=0 (auto)" );
+                    fclose( ini );
+                    EndDialog( hwnd, IDOK );
+                    MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
+                    return TRUE;
+                }
+                default :
+                    return FALSE;
+            }
+        case WM_CLOSE :
+            EndDialog( hwnd, IDOK );
+            return TRUE;
+        default :
+            return FALSE;
+    }
+}
+
+BOOL func_config( HWND hwnd, HINSTANCE dll_hinst )
+{
+    DialogBox( dll_hinst, "LSMASHINPUT_CONFIG", hwnd, dialog_proc );
+    return TRUE;
 }

@@ -6,6 +6,7 @@ include config.mak
 
 vpath %.c $(SRCDIR)
 vpath %.h $(SRCDIR)
+vpath %.rc $(SRCDIR)
 
 OBJ_INPUT = $(SRC_INPUT:%.c=%.o)
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o)
@@ -17,7 +18,7 @@ all: input muxer dumper
 
 input: lsmashinput.aui
 
-lsmashinput.aui: $(OBJ_INPUT) lsmashinput.def
+lsmashinput.aui: $(OBJ_INPUT) lsmashinput.res lsmashinput.def
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 ifneq ($(STRIP),)
 	$(STRIP) $@
@@ -42,11 +43,14 @@ endif
 %.o: %.c .depend
 	$(CC) $(CFLAGS) -c $<  -o $@
 
+%.res: %.rc resource.h
+	$(RC) -o $@ $< -J rc -O coff
+
 clean:
-	-rm *.auf *.aui *.o .depend
+	$(RM) *.auf *.aui *.o *.res .depend
 
 distclean: clean
-	-rm config.*
+	$(RM) config.*
 
 ifneq ($(wildcard .depend),)
 include .depend
