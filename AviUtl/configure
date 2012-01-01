@@ -80,7 +80,7 @@ includedir=""
 libdir=""
 
 CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
-AU_LDFLAGS="-shared -Wl,--dll,--enable-stdcall-fixup"
+AU_LDFLAGS="-shared -Wl,--dll,--add-stdcall-alias"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 FFMSLIBS="-lffms2 -lavformat -lavcodec -lswscale -lavutil"
@@ -266,7 +266,7 @@ LDFLAGS     = $LDFLAGS
 LIBS        = $LIBS
 EOF
 
-test "$SRCDIR" = "." || cp -f $SRCDIR/{GNUmakefile,*.def} .
+test "$SRCDIR" = "." || cp -f $SRCDIR/GNUmakefile .
 
 # ---------------------------------------------------------------------------------------------
 

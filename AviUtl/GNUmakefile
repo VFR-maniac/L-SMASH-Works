@@ -8,49 +8,50 @@ vpath %.c $(SRCDIR)
 vpath %.h $(SRCDIR)
 vpath %.rc $(SRCDIR)
 
-OBJ_INPUT = $(SRC_INPUT:%.c=%.o)
+OBJ_INPUT = $(SRC_INPUT:%.c=%.o) lsmashinput.res
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o)
 OBJ_DUMPER = $(SRC_DUMPER:%.c=%.o)
 
 SRC_ALL = $(SRC_INPUT) $(SRC_MUXER) $(SRC_DUMPER)
 
+RCFLAGS = -J rc -O coff
+
+ifneq ($(STRIP),)
+LDFLAGS += -Wl,-s
+endif
+
+.PHONY: all input muxer dumper clean distclean dep
+
 all: input muxer dumper
 
 input: lsmashinput.aui
 
-lsmashinput.aui: $(OBJ_INPUT) lsmashinput.res lsmashinput.def
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
-ifneq ($(STRIP),)
-	$(STRIP) $@
-endif
-
 muxer: lsmashmuxer.auf
-
-lsmashmuxer.auf: $(OBJ_MUXER) lsmashmuxer.def
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
-ifneq ($(STRIP),)
-	$(STRIP) $@
-endif
 
 dumper: lsmashdumper.auf
 
-lsmashdumper.auf: $(OBJ_DUMPER) lsmashdumper.def
+lsmashinput.aui: $(OBJ_INPUT)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
-ifneq ($(STRIP),)
-	$(STRIP) $@
-endif
+
+lsmashmuxer.auf: $(OBJ_MUXER)
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+lsmashdumper.auf: $(OBJ_DUMPER)
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 %.o: %.c .depend
-	$(CC) $(CFLAGS) -c $<  -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 %.res: %.rc resource.h
-	$(RC) -o $@ $< -J rc -O coff
+	$(RC) $(RCFLAGS) $< -o $@
 
 clean:
 	$(RM) *.auf *.aui *.o *.res .depend
 
 distclean: clean
 	$(RM) config.*
+
+dep: .depend
 
 ifneq ($(wildcard .depend),)
 include .depend
