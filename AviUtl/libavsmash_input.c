@@ -1,7 +1,7 @@
 /*****************************************************************************
  * libavsmash_input.c
  *****************************************************************************
- * Copyright (C) 2011 L-SMASH Works project
+ * Copyright (C) 2011-2012 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *

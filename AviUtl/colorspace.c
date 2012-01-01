@@ -1,9 +1,11 @@
 /*****************************************************************************
  * colorspace.c
  *****************************************************************************
- * Copyright (C) 2011 L-SMASH Works project
+ * Copyright (C) 2011-2012 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
+ *          Oka Motofumi <chikuzen.mo@gmail.com>
+ *          rigaya <rigaya34589@live.jp>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
