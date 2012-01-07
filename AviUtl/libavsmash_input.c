@@ -91,8 +91,6 @@ static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
     libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return NULL;
-    av_register_all();
-    avcodec_register_all();
     /* L-SMASH */
     hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
     if( !hp->root )
@@ -110,6 +108,8 @@ static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
     }
     hp->number_of_tracks = movie_param.number_of_tracks;
     /* libavformat */
+    av_register_all();
+    avcodec_register_all();
     if( avformat_open_input( &hp->format_ctx, file_name, NULL, NULL ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
