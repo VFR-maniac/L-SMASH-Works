@@ -91,6 +91,7 @@ static void destroy_disposable( void *private_stuff )
 {
     ffms_handler_t *hp = (ffms_handler_t *)private_stuff;
     FFMS_DestroyIndex( hp->index );
+    hp->index = NULL;
 }
 
 static void yuv16le_to_yc48( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range )
@@ -248,8 +249,11 @@ static void audio_cleanup( lsmash_handler_t *h )
 static void close_file( void *private_stuff )
 {
     ffms_handler_t *hp = (ffms_handler_t *)private_stuff;
-    if( hp )
-        free( hp );
+    if( !hp )
+        return;
+    if( hp->index )
+        FFMS_DestroyIndex( hp->index );
+    free( hp );
 }
 
 lsmash_reader_t ffms_reader =
