@@ -106,25 +106,28 @@ static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
     if( movie_param.number_of_tracks == 0 )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "The number of tracks equals 0." );
-        free( hp );
-        return NULL;
+        goto open_fail;
     }
     hp->number_of_tracks = movie_param.number_of_tracks;
     /* libavformat */
     if( avformat_open_input( &hp->format_ctx, file_name, NULL, NULL ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
-        free( hp );
-        return NULL;
+        goto open_fail;
     }
     if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_find_stream_info." );
-        free( hp );
-        return NULL;
+        goto open_fail;
     }
     hp->threads = threads;
     return hp;
+open_fail:
+    if( hp->format_ctx )
+        avformat_close_input( &hp->format_ctx );
+    lsmash_destroy_root( hp->root );
+    free( hp );
+    return NULL;
 }
 
 static inline uint64_t get_gcd( uint64_t a, uint64_t b )
