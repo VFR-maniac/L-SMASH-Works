@@ -514,6 +514,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         return -1;
     }
     hp->audio_frame_length = hp->audio_ctx->frame_size;
+    if( h->audio_pcm_sample_count * 2 <= hp->audio_frame_count * hp->audio_frame_length )
+        h->audio_pcm_sample_count *= 2;     /* for HE-AAC upsampling */
     /* WAVEFORMATEX */
     h->audio_format.nChannels       = hp->audio_ctx->channels;
     h->audio_format.nSamplesPerSec  = hp->audio_ctx->sample_rate;
