@@ -75,10 +75,10 @@ typedef struct libavsmash_handler_tag
     uint32_t           audio_input_buffer_size;
     uint8_t           *audio_output_buffer;
     uint32_t           audio_frame_count;
+    uint32_t           audio_frame_length;
     uint32_t           next_audio_pcm_sample_number;
-    uint32_t           last_audio_sample_number;
+    uint32_t           last_audio_frame_number;
     uint32_t           last_remainder_size;
-    uint64_t          *dts_list;
 } libavsmash_handler_t;
 
 /* Colorspace converters */
@@ -489,21 +489,6 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     return 0;
 }
 
-static int create_dts_list( libavsmash_handler_t *hp )
-{
-    hp->dts_list = malloc_zero( (hp->audio_frame_count + 1) * sizeof(uint64_t) );
-    if( !hp->dts_list )
-        return -1;
-    for( uint32_t sample_number = 1; sample_number <= hp->audio_frame_count; sample_number++ )
-    {
-        uint64_t dts;
-        if( lsmash_get_dts_from_media_timeline( hp->root, hp->audio_track_ID, sample_number, &dts ) )
-            return -1;
-        hp->dts_list[sample_number] = dts;
-    }
-    return 0;
-}
-
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
@@ -528,11 +513,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the output buffer for audio." );
         return -1;
     }
-    if( create_dts_list( hp ) )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create DTS list." );
-        return -1;
-    }
+    hp->audio_frame_length = hp->audio_ctx->frame_size;
     /* WAVEFORMATEX */
     h->audio_format.nChannels       = hp->audio_ctx->channels;
     h->audio_format.nSamplesPerSec  = hp->audio_ctx->sample_rate;
@@ -620,8 +601,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
-    uint32_t sample_number = hp->last_audio_sample_number;
-    uint32_t data_offset;
+    uint32_t frame_number = hp->last_audio_frame_number;
+    int      data_offset;
     int      copy_size;
     int      output_length = 0;
     int      block_align = h->audio_format.nBlockAlign;
@@ -646,20 +627,20 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         /* Seek audio stream. */
         avcodec_flush_buffers( hp->audio_ctx );
         hp->last_remainder_size = 0;
-        sample_number = hp->audio_frame_count;
-        uint64_t dts;
+        frame_number = hp->audio_frame_count;
+        int frame_pos;
         do
         {
-            dts = hp->dts_list[sample_number--];
-            if( start >= dts )
+            frame_pos = hp->audio_frame_length * (--frame_number);
+            if( start >= frame_pos )
                 break;
         } while( 1 );
-        data_offset = (start - dts) * block_align;
+        data_offset = (start - frame_pos) * block_align;
     }
     do
     {
         copy_size = 0;
-        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->audio_track_ID, ++sample_number );
+        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->audio_track_ID, ++frame_number );
         if( !sample )
             goto audio_out;
         AVPacket pkt;
@@ -695,7 +676,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 copy_size = 0;
                 data_offset -= output_buffer_size;
             }
-            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "sample_number = %d, decoded_length = %d", sample_number, output_buffer_size / h->audio_format.nBlockAlign );
+            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d", frame_number, output_buffer_size / h->audio_format.nBlockAlign );
             if( wanted_length <= 0 )
             {
                 hp->last_remainder_size = output_buffer_size - copy_size;
@@ -709,7 +690,7 @@ audio_out:
         /* Move unused decoded data to the head of output buffer for the next access. */
         memmove( hp->audio_output_buffer, hp->audio_output_buffer + copy_size, hp->last_remainder_size );
     hp->next_audio_pcm_sample_number = start + output_length;
-    hp->last_audio_sample_number = sample_number;
+    hp->last_audio_frame_number = frame_number;
     return output_length;
 }
 
