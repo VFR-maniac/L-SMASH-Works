@@ -338,6 +338,85 @@ void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst
 #pragma GCC pop_options
 #endif /* __GNUC__ */
 
+static void convert_packed_chroma_to_planar(uint8_t *packed_chroma, uint8_t *planar_chroma, int packed_linesize, int chroma_width, int chroma_height)
+{
+    int planar_linesize = packed_linesize / 2;
+    for( int y = 0; y < chroma_height; y++ )
+    {
+        uint8_t *src   = packed_chroma + packed_linesize * y;
+        uint8_t *dst_u = packed_chroma + planar_linesize * y;
+        uint8_t *dst_v = planar_chroma + planar_linesize * y;
+        for( int x = 0; x < chroma_width; x++ )
+        {
+            dst_u[x] = src[2*x];
+            dst_v[x] = src[2*x+1];
+        }
+    }
+}
+
+static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int height )
+{
+    uint8_t *pic_y = pic_data[0];
+    uint8_t *pic_u = pic_data[1];
+    uint8_t *pic_v = pic_data[2];
+    int x_loopcount = buf_linesize / 4;
+#define COPY_Y_PIXEL_TO_YUY2( line, x ) \
+    { \
+        buf[line*buf_linesize + 4*x + 0] = pic_y[line*pic_linesize[0] + 2*x]; \
+        buf[line*buf_linesize + 4*x + 2] = pic_y[line*pic_linesize[0] + 2*x+1]; \
+    }
+#define AVG_UV_PIXEL_TO_YUY2( line, x, y1, y2 ) \
+    { \
+        buf[line*buf_linesize + 4*x + 1] = (pic_u[y1*pic_linesize[1] + x] + pic_u[y2*pic_linesize[1] + x] + 1) >> 1; \
+        buf[line*buf_linesize + 4*x + 3] = (pic_v[y1*pic_linesize[1] + x] + pic_v[y2*pic_linesize[1] + x] + 1) >> 1; \
+    }
+#define COPY_PIXEL_TO_YUY2( line1, line2, x ) \
+    { \
+        COPY_Y_PIXEL_TO_YUY2( line1, x ); \
+        buf[line1*buf_linesize + 4*x + 1] = pic_u[line1*pic_linesize[1] + x]; \
+        buf[line1*buf_linesize + 4*x + 3] = pic_v[line1*pic_linesize[1] + x]; \
+        COPY_Y_PIXEL_TO_YUY2( line2, x ); \
+        buf[line2*buf_linesize + 4*x + 1] = pic_u[line2*pic_linesize[1] + x]; \
+        buf[line2*buf_linesize + 4*x + 3] = pic_v[line2*pic_linesize[1] + x]; \
+    }
+    /* copy first 2 lines */
+    for( int x = 0; x < x_loopcount; x++ )
+        COPY_PIXEL_TO_YUY2( 0, 1, x );
+    buf += buf_linesize * 2;
+
+    /* interlaced yv12 to yuy2 with 2,3-interpolation */
+    int pic_offset = 0;
+    int y;
+    for( y = 2; y < height - 2; y += 4 )
+    {
+        pic_y = pic_data[0] + pic_linesize[0] * y;
+        pic_u = pic_data[1] + pic_offset;
+        pic_v = pic_data[2] + pic_offset;
+        for( int x = 0; x < x_loopcount; x++ )
+        {
+            COPY_Y_PIXEL_TO_YUY2( 0, x );
+            AVG_UV_PIXEL_TO_YUY2( 0, x, 0, 2 );
+
+            COPY_PIXEL_TO_YUY2( 1, 2, x );
+
+            COPY_Y_PIXEL_TO_YUY2( 3, x );
+            AVG_UV_PIXEL_TO_YUY2( 3, x, 1, 3 );
+        }
+        buf        += buf_linesize * 4;
+        pic_offset += pic_linesize[1] * 2;
+    }
+
+    /* copy last 2 lines */
+    pic_y = pic_data[0] + pic_linesize[0] * y;
+    pic_u = pic_data[1] + pic_offset;
+    pic_v = pic_data[2] + pic_offset;
+    for( int x = 0; x < x_loopcount; x++ )
+        COPY_PIXEL_TO_YUY2( 0, 1, x );
+#undef COPY_PIXEL_TO_YUY2
+#undef AVG_UV_PIXEL_TO_YUY2
+#undef COPY_Y_PIXEL_TO_YUY2
+}
+
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
     int _dst_linesize = picture->linesize[0] << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
@@ -399,26 +478,66 @@ int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pi
 
 int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
-    const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
-    if( !dst_data[0] )
+    int output_size = 0;
+    if( picture->interlaced_frame
+        && ((video_ctx->pix_fmt == PIX_FMT_YUV420P)
+         || (video_ctx->pix_fmt == PIX_FMT_NV12   )
+         || (video_ctx->pix_fmt == PIX_FMT_NV21   )) )
     {
-        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
+        uint8_t *another_chroma = NULL;
+        if( (video_ctx->pix_fmt == PIX_FMT_NV12)
+         || (video_ctx->pix_fmt == PIX_FMT_NV21) )
+        {
+            another_chroma = av_mallocz( (picture->linesize[1] / 2) * video_ctx->height );
+            if( !another_chroma )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+                return 0;
+            }
+            /* convert chroma nv12 to yv12 (split packed uv into planar u and v) */
+            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], video_ctx->width / 2, video_ctx->height / 2 );
+            /* change data set as yv12 */
+            picture->data[2] = another_chroma;
+            picture->linesize[1] /= 2;
+            picture->linesize[2] = picture->linesize[1];
+            if( video_ctx->pix_fmt == PIX_FMT_NV21 )
+            {
+                /* swap chroma pointer */
+                uint8_t *tmp     = picture->data[2];
+                picture->data[2] = picture->data[1];
+                picture->data[1] = tmp;
+            }
+        }
+        /* interlaced yv12 to yuy2 convertion */
+        convert_yv12i_to_yuy2( buf, video_ctx->width * YUY2_SIZE, picture->data, picture->linesize, video_ctx->height );
+        output_size = video_ctx->width * video_ctx->height * YUY2_SIZE;
+
+        if( another_chroma )
+            av_free( another_chroma );
     }
-    int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
-    int buf_linesize  = video_ctx->width * YUY2_SIZE;
-    int output_size   = buf_linesize * output_height;
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
-                                     dst_linesize[0], output_height, output_size );
-    uint8_t *dst = dst_data[0];
-    while( output_height-- )
+    else
     {
-        memcpy( buf, dst, buf_linesize );
-        buf += buf_linesize;
-        dst += dst_linesize[0];
+        const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
+        uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+        dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
+        if( !dst_data[0] )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+            return 0;
+        }
+        int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
+        int buf_linesize  = video_ctx->width * YUY2_SIZE;
+        output_size   = buf_linesize * output_height;
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                                         dst_linesize[0], output_height, output_size );
+        uint8_t *dst = dst_data[0];
+        while( output_height-- )
+        {
+            memcpy( buf, dst, buf_linesize );
+            buf += buf_linesize;
+            dst += dst_linesize[0];
+        }
+        av_free( dst_data[0] );
     }
-    av_free( dst_data[0] );
     return output_size;
 }
