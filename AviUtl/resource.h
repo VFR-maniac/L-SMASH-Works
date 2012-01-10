@@ -26,5 +26,7 @@
 #define IDC_STATIC (-1)
 #endif
 
-#define IDC_SPIN_THREADS 1000
-#define IDC_EDIT_THREADS 1001
+#define IDC_SPIN_THREADS           1000
+#define IDC_EDIT_THREADS           1001
+#define IDC_CHECK_LIBAVSMASH_INPUT 1002
+#define IDC_CHECK_FFMS_INPUT       1003
