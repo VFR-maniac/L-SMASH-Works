@@ -330,7 +330,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 {
                     if( !settings_path )
                         settings_path = (char *)settings_path_list[0];
-                    FILE *ini = fopen( settings_path, "wb" );
+                    FILE *ini = fopen( settings_path, "w" );
                     if( !ini )
                     {
                         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to update configuration file" );
