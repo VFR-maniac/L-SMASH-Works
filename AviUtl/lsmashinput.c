@@ -71,7 +71,6 @@ void *malloc_zero( size_t size )
 }
 
 static int threads = 0;
-static int input[2] = { 1, 1 };
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 
@@ -102,17 +101,10 @@ void get_settings( void )
 {
     FILE *ini = open_settings();
     char buf[128];
+    if( !ini || !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
+        threads = 0;
     if( ini )
-    {
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
-            threads = 0;
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "input=%d,%d", &input[0], &input[1] ) != 2 )
-        {
-            input[0] = 1;
-            input[1] = 1;
-        }
         fclose( ini );
-    }
 }
 
 INPUT_HANDLE func_open( LPSTR file )
@@ -137,8 +129,6 @@ INPUT_HANDLE func_open( LPSTR file )
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )
     {
-        if( !input[lsmash_reader_table[i]->type-1] )
-            continue;
         int video_none = 1;
         int audio_none = 1;
         lsmash_reader_t reader = *lsmash_reader_table[i];
@@ -299,10 +289,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             InitCommonControls();
             get_settings();
             sprintf( edit_buf, "%d", threads );
-            SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
+            SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf ); 
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) input[0] ? BST_CHECKED : BST_UNCHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_SETCHECK, (WPARAM) input[1] ? BST_CHECKED : BST_UNCHECKED, 0 );
             return TRUE;
         case WM_NOTIFY :
             if( wparam == IDC_SPIN_THREADS )
@@ -317,7 +305,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     if( threads < 0 )
                         threads = 0;
                     sprintf( edit_buf, "%d", threads );
-                    SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
+                    SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf ); 
                 }
             }
             return TRUE;
@@ -338,12 +326,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         return FALSE;
                     }
                     if( threads > 0 )
-                        fprintf( ini, "threads=%d\n", threads );
+                        fprintf( ini, "threads=%d", threads );
                     else
-                        fprintf( ini, "threads=0 (auto)\n" );
-                    input[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 1 : 0;
-                    input[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_GETCHECK, 0, 0 )) ? 1 : 0;
-                    fprintf( ini, "input=%d,%d\n", input[0], input[1] );
+                        fprintf( ini, "threads=0 (auto)" );
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
