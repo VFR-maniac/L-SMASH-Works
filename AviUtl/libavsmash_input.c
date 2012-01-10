@@ -86,7 +86,7 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
 int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 
-static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
+static void *open_file( char *file_name, int threads )
 {
     libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )

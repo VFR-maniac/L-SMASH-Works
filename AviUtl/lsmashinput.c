@@ -132,7 +132,7 @@ INPUT_HANDLE func_open( LPSTR file )
         int video_none = 1;
         int audio_none = 1;
         lsmash_reader_t reader = *lsmash_reader_table[i];
-        void *private_stuff = reader.open_file( hp, file, threads > 0 ? threads : get_auto_threads() );
+        void *private_stuff = reader.open_file( file, threads > 0 ? threads : get_auto_threads() );
         if( private_stuff )
         {
             if( !hp->video_private )

@@ -46,7 +46,7 @@ typedef struct
 func_get_output convert_yuv16le_to_yc48;
 func_get_output convert_yuv16le_to_yc48_sse2;
 
-static void *open_file( lsmash_handler_t *h, char *file_name, int threads )
+static void *open_file( char *file_name, int threads )
 {
     ffms_handler_t *hp = malloc_zero( sizeof(ffms_handler_t) );
     if( !hp )
