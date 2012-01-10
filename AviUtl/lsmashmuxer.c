@@ -33,6 +33,8 @@
 
 #include "filter.h"
 
+#include "config.h"
+
 /* chapter handling */
 #define CHAPTER_BUFSIZE 512
 #define UTF8_BOM "\xEF\xBB\xBF"
@@ -62,26 +64,26 @@ do \
 FILTER_DLL filter =
 {
     FILTER_FLAG_IMPORT|FILTER_FLAG_EXPORT|FILTER_FLAG_EX_DATA|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
-    0,0,                        /* Size of configuration window */
-    "Libav-SMASH Muxer",        /* Name of filter plugin */
-    0,                          /* Number of trackbars */
-    NULL,                       /* Pointer to group of names of trackbar */
-    NULL,                       /* Pointer to group of initial values of trackbar */
-    NULL,                       /* Minimum of trackbar */
-    NULL,                       /* Maximum of trackbar */
-    0,                          /* Number of checkboxes */
-    NULL,                       /* Pointer to group of names of checkbox */
-    NULL,                       /* Pointer to group of initial values of checkbox */
-    NULL,                       /* Pointer to filter process function (If NULL, won't be called.) */
-    NULL,                       /* Pointer to function called when beginning (If NULL, won't be called.) */
-    func_exit,                  /* Pointer to function called when ending (If NULL, won't be called.) */
-    NULL,                       /* Pointer to function called when its configuration is updated (If NULL, won't be called.) */
-    func_WndProc,               /* Pointer to function called when window message comes on configuration window (If NULL, won't be called.) */
-    NULL,                       /* Pointer to group of set points of trackbar */
-    NULL,                       /* Pointer to group of set points of checkbox */
-    NULL,                       /* Pointer to extended data region (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
-    0,                          /* Size of extended data (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
-    "Libav-SMASH Muxer",        /* Information of filter plugin */
+    0,0,                                                /* Size of configuration window */
+    "Libav-SMASH Muxer",                                /* Name of filter plugin */
+    0,                                                  /* Number of trackbars */
+    NULL,                                               /* Pointer to group of names of trackbar */
+    NULL,                                               /* Pointer to group of initial values of trackbar */
+    NULL,                                               /* Minimum of trackbar */
+    NULL,                                               /* Maximum of trackbar */
+    0,                                                  /* Number of checkboxes */
+    NULL,                                               /* Pointer to group of names of checkbox */
+    NULL,                                               /* Pointer to group of initial values of checkbox */
+    NULL,                                               /* Pointer to filter process function (If NULL, won't be called.) */
+    NULL,                                               /* Pointer to function called when beginning (If NULL, won't be called.) */
+    func_exit,                                          /* Pointer to function called when ending (If NULL, won't be called.) */
+    NULL,                                               /* Pointer to function called when its configuration is updated (If NULL, won't be called.) */
+    func_WndProc,                                       /* Pointer to function called when window message comes on configuration window (If NULL, won't be called.) */
+    NULL,                                               /* Pointer to group of set points of trackbar */
+    NULL,                                               /* Pointer to group of set points of checkbox */
+    NULL,                                               /* Pointer to extended data region (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
+    0,                                                  /* Size of extended data (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
+    "Libav-SMASH Muxer r" LSMASHWORKS_REV "\0",         /* Information of filter plugin */
 };
 
 EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTable( void )

@@ -25,6 +25,8 @@
 #include "lsmashinput.h"
 #include "resource.h"
 
+#include "config.h"
+
 #include <commctrl.h>
 
 #define MAX_AUTO_NUM_THREADS 4
@@ -42,7 +44,7 @@ INPUT_PLUGIN_TABLE input_plugin_table =
     "Any File (" ANY_FILE_EXT ")\0" ANY_FILE_EXT "\0"
 #endif
     ,
-    "Libav-SMASH File Reader",                                      /* Information of plugin */
+    "Libav-SMASH File Reader r" LSMASHWORKS_REV "\0",               /* Information of plugin */
     NULL,                                                           /* Pointer to function called when opening DLL (If NULL, won't be called.) */
     NULL,                                                           /* Pointer to function called when closing DLL (If NULL, won't be called.) */
     func_open,                                                      /* Pointer to function to open input file */
