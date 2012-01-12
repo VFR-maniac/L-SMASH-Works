@@ -210,7 +210,8 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     {
         if( ts_list.timestamp[i].cts == ts_list.timestamp[i - 1].cts )
         {
-            MESSAGE_BOX_DESKTOP( MB_OK, "Detect CTS duplication at frame %"PRIu32, i );
+            MESSAGE_BOX_DESKTOP( MB_OK, "Detected CTS duplication at frame %"PRIu32, i );
+            lsmash_delete_media_timestamps( &ts_list );
             return 0;
         }
         composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
