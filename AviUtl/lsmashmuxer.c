@@ -147,6 +147,8 @@ typedef struct
     uint32_t                  track_ID;
     uint32_t                  media_timescale;
     uint64_t                  edit_offset;
+    uint64_t                  largest_cts;
+    uint64_t                  second_largest_cts;
     lsmash_track_parameters_t track_param;
     lsmash_media_parameters_t media_param;
 } output_track_t;
@@ -654,6 +656,17 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
     return 0;
 }
 
+static void update_largest_cts( output_track_t *out_track, uint64_t cts )
+{
+    if( out_track->largest_cts < cts )
+    {
+        out_track->second_largest_cts = out_track->largest_cts;
+        out_track->largest_cts = cts;
+    }
+    else if( out_track->second_largest_cts < cts )
+        out_track->second_largest_cts = cts;
+}
+
 static int append_extra_samples( input_movie_t *input, output_movie_t *output, int type, FILE *log_file,
                                  input_sequence_t *sequence, uint32_t start_sample_number, uint32_t number_of_samples )
 {
@@ -704,6 +717,7 @@ static int append_extra_samples( input_movie_t *input, output_movie_t *output, i
         sequence->last_sample_delta = sample_delta;
         output->largest_dts         = max( output->largest_dts, in_track->dts );
         output->total_media_size   += sample_size;
+        update_largest_cts( out_track, last_sample_cts );
         if( sample_number == sequence->media_start_sample_number )
             sequence->first_sample_dts = last_sample_dts;
         /* Check if this sample is the first sample in the presentation of this sequence.
@@ -754,7 +768,10 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                                               sequence[type]->presentation_end_sample_number + 1,
                                               sequence[type]->number_of_end_extra_samples ) )
                         break;
-                    out_track->edit_offset = sequence[type]->last_sample_dts + sequence[type]->last_sample_delta;
+                    out_track->edit_offset  = out_track->largest_cts;
+                    out_track->edit_offset += out_track->largest_cts > out_track->second_largest_cts
+                                            ? out_track->largest_cts - out_track->second_largest_cts
+                                            : sequence[type]->last_sample_delta;
                 }
                 sequence_number[type] = sent->sequence_number;
                 sequence[type] = &hp->sequence[type][sent->sequence_number - 1];
@@ -844,6 +861,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             sequence[type]->last_sample_delta = sample_delta;
             output->largest_dts               = max( output->largest_dts, in_track->dts );
             output->total_media_size         += sample_size;
+            update_largest_cts( out_track, last_sample_cts );
             if( sent->sample_number == sequence[type]->media_start_sample_number )
                 sequence[type]->first_sample_dts = last_sample_dts;
             /* Check if this sample is the first sample in the presentation of this sequence.
