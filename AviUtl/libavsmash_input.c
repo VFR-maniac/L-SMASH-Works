@@ -340,74 +340,6 @@ static void destroy_disposable( void *private_stuff )
     lsmash_discard_boxes( hp->root );
 }
 
-static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
-{
-    lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->video_track_ID, sample_number );
-    if( !sample )
-        return 1;
-    AVPacket pkt;
-    av_init_packet( &pkt );
-    pkt.flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
-    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    pkt.size  = sample->length;
-    pkt.data  = hp->video_input_buffer;
-    memset( pkt.data, 0, hp->video_input_buffer_size );
-    memcpy( pkt.data, sample->data, sample->length );
-    lsmash_delete_sample( sample );
-    if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return -1;
-    }
-    return 0;
-}
-
-static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
-{
-    if( hp->decode_status == DECODE_INITIALIZING )
-    {
-        if( hp->delay_count > DECODER_DELAY( hp->video_ctx ) )
-            -- hp->delay_count;
-        else
-            hp->decode_status = DECODE_INITIALIZED;
-    }
-    avcodec_get_frame_defaults( picture );
-    int got_picture = 0;
-    do
-    {
-        int ret = decode_video_sample( hp, picture, &got_picture, current );
-        if( ret == -1 )
-            return -2;
-        else if( ret == 1 )
-            break;  /* Sample doesn't exist. */
-        ++current;
-        if( !got_picture )
-            ++ hp->delay_count;
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, delay_count = %d",
-                                         goal, current - 1, hp->delay_count );
-        if( hp->delay_count > DECODER_DELAY( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
-            break;
-        if( got_picture && current > goal )
-            break;
-    } while( 1 );
-    /* Flush the last frames. */
-    if( current > video_sample_count && !got_picture && DECODER_DELAY( hp->video_ctx ) )
-    {
-        AVPacket pkt;
-        av_init_packet( &pkt );
-        pkt.data = NULL;
-        pkt.size = 0;
-        if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
-        {
-            MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
-            return -1;
-        }
-    }
-    if( hp->decode_status == DECODE_REQUIRE_INITIAL )
-        hp->decode_status = DECODE_INITIALIZING;
-    return got_picture ? 0 : -1;
-}
-
 static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample_count )
 {
     hp->keyframe_list = malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
@@ -448,12 +380,6 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     if( create_keyframe_list( hp, h->video_sample_count ) )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create keyframe list." );
-        return -1;
-    }
-    AVFrame picture;
-    if( get_picture( hp, &picture, 1, 1, h->video_sample_count ) )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the first video sample." );
         return -1;
     }
     hp->last_video_sample_number = 1;
@@ -531,6 +457,28 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     return 0;
 }
 
+static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
+{
+    lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->video_track_ID, sample_number );
+    if( !sample )
+        return 1;
+    AVPacket pkt;
+    av_init_packet( &pkt );
+    pkt.flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
+    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
+    pkt.size  = sample->length;
+    pkt.data  = hp->video_input_buffer;
+    memset( pkt.data, 0, hp->video_input_buffer_size );
+    memcpy( pkt.data, sample->data, sample->length );
+    lsmash_delete_sample( sample );
+    if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return -1;
+    }
+    return 0;
+}
+
 static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t *rap_number )
 {
     /* Prepare to decode from random accessible sample. */
@@ -562,6 +510,52 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     hp->delay_count = DECODER_DELAY( hp->video_ctx );
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", *rap_number, distance, i );
     return i - hp->delay_count;
+}
+
+static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
+{
+    if( hp->decode_status == DECODE_INITIALIZING )
+    {
+        if( hp->delay_count > DECODER_DELAY( hp->video_ctx ) )
+            -- hp->delay_count;
+        else
+            hp->decode_status = DECODE_INITIALIZED;
+    }
+    avcodec_get_frame_defaults( picture );
+    int got_picture = 0;
+    do
+    {
+        int ret = decode_video_sample( hp, picture, &got_picture, current );
+        if( ret == -1 )
+            return -2;
+        else if( ret == 1 )
+            break;  /* Sample doesn't exist. */
+        ++current;
+        if( !got_picture )
+            ++ hp->delay_count;
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, delay_count = %d",
+                                         goal, current - 1, hp->delay_count );
+        if( hp->delay_count > DECODER_DELAY( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
+            break;
+        if( got_picture && current > goal )
+            break;
+    } while( 1 );
+    /* Flush the last frames. */
+    if( current > video_sample_count && !got_picture && DECODER_DELAY( hp->video_ctx ) )
+    {
+        AVPacket pkt;
+        av_init_packet( &pkt );
+        pkt.data = NULL;
+        pkt.size = 0;
+        if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+            return -1;
+        }
+    }
+    if( hp->decode_status == DECODE_REQUIRE_INITIAL )
+        hp->decode_status = DECODE_INITIALIZING;
+    return got_picture ? 0 : -1;
 }
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
