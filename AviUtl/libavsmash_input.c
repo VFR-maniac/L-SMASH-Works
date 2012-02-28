@@ -364,6 +364,7 @@ static int prepare_video_decoding( lsmash_handler_t *h )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !hp->video_ctx )
         return 0;
+    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
     if( hp->video_input_buffer_size == 0 )
     {
@@ -421,6 +422,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     if( !hp->audio_ctx )
         return 0;
+    /* Note: the input buffer for avcodec_decode_audio3 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     hp->audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
     if( hp->audio_input_buffer_size == 0 )
     {
@@ -457,20 +459,26 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     return 0;
 }
 
-static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
+static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, uint8_t *buffer, uint32_t buffer_size, AVPacket *pkt )
 {
-    lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->video_track_ID, sample_number );
+    lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( root, track_ID, sample_number );
     if( !sample )
         return 1;
-    AVPacket pkt;
-    av_init_packet( &pkt );
-    pkt.flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
-    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    pkt.size  = sample->length;
-    pkt.data  = hp->video_input_buffer;
-    memset( pkt.data, 0, hp->video_input_buffer_size );
-    memcpy( pkt.data, sample->data, sample->length );
+    av_init_packet( pkt );
+    pkt->flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
+    pkt->size  = sample->length;
+    pkt->data  = buffer;
+    memset( pkt->data, 0, buffer_size );
+    memcpy( pkt->data, sample->data, sample->length );
     lsmash_delete_sample( sample );
+    return 0;
+}
+
+static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
+{
+    AVPacket pkt;
+    if( get_sample( hp->root, hp->video_track_ID, sample_number, hp->video_input_buffer, hp->video_input_buffer_size, &pkt ) )
+        return 1;
     if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
     {
         MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
@@ -634,16 +642,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     do
     {
         copy_size = 0;
-        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( hp->root, hp->audio_track_ID, ++frame_number );
-        if( !sample )
-            goto audio_out;
         AVPacket pkt;
-        av_init_packet( &pkt );
-        pkt.size = sample->length;
-        pkt.data = hp->audio_input_buffer;
-        memset( pkt.data, 0, hp->audio_input_buffer_size );
-        memcpy( pkt.data, sample->data, sample->length );
-        lsmash_delete_sample( sample );
+        if( get_sample( hp->root, hp->audio_track_ID, ++frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, &pkt ) )
+            goto audio_out;
         while( pkt.size > 0 )
         {
             int output_buffer_size = AVCODEC_MAX_AUDIO_FRAME_SIZE;
