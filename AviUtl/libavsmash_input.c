@@ -552,16 +552,13 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     uint32_t i;
     for( i = *rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
     {
-        if( i + DECODER_DELAY( hp->video_ctx ) >= composition_sample_number )
+        if( i == composition_sample_number )
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         avcodec_get_frame_defaults( picture );
         if( decode_video_sample( hp, picture, &dummy, i ) == 1 )
-        {
-            /* Sample doesn't exist. */
-            hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
-            break;
-        }
+            break;      /* Sample doesn't exist. */
     }
+    hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
     hp->delay_count = DECODER_DELAY( hp->video_ctx );
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", *rap_number, distance, i );
     return i - hp->delay_count;
