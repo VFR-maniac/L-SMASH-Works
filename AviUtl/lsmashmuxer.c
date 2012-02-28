@@ -101,22 +101,6 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
 
 typedef struct
 {
-    uint32_t presentation_end_sample_number;    /* stored in ascending order of decoding */
-    uint32_t presentation_start_sample_number;  /* stored in ascending order of decoding */
-    uint32_t media_start_sample_number;         /* stored in ascending order of decoding */
-    uint32_t number_of_start_extra_samples;
-    uint32_t number_of_end_extra_samples;
-    uint32_t last_sample_delta;
-    uint64_t last_sample_dts;
-    uint64_t first_sample_dts;
-    uint64_t presentation_start_time;
-    uint64_t start_skip_duration;
-    uint64_t end_skip_duration;
-    uint64_t skip_dt_interval;
-} input_sequence_t;
-
-typedef struct
-{
     int                       active;
     uint32_t                  track_ID;
     uint32_t                  number_of_samples;
@@ -144,6 +128,24 @@ typedef struct
 
 typedef struct
 {
+    input_movie_t *input;
+    uint32_t number;
+    uint32_t current_sample_number;
+    uint32_t presentation_start_sample_number;  /* stored in ascending order of decoding */
+    uint32_t presentation_end_sample_number;    /* stored in ascending order of decoding */
+    uint32_t media_start_sample_number;         /* stored in ascending order of decoding */
+    uint32_t media_end_sample_number;           /* stored in ascending order of decoding */
+    uint32_t last_sample_delta;
+    uint64_t last_sample_dts;
+    uint64_t first_sample_dts;
+    uint64_t presentation_start_time;
+    uint64_t start_skip_duration;               /* start duration skipped by edit list */
+    uint64_t end_skip_duration;                 /* end duration skipped by edit list */
+    uint64_t skip_dt_interval;                  /* decode time interval that non-exported samples occupied */
+} input_sequence_t;
+
+typedef struct
+{
     uint32_t                  track_ID;
     uint32_t                  media_timescale;
     uint64_t                  edit_offset;
@@ -167,13 +169,12 @@ typedef struct
     input_movie_t *input;
     uint32_t       sequence_number;
     uint32_t       sample_number;
-} sent_sample_t;
+} aviutl_sample_t;
 
 typedef struct
 {
     input_movie_t   **input;
     output_movie_t   *output;
-    sent_sample_t    *sent[2];
     input_sequence_t *sequence[2];
     uint32_t          number_of_sequences;
     uint32_t          number_of_inputs;
@@ -368,24 +369,40 @@ static int set_media_starting_point( input_movie_t *input, uint32_t track_ID, in
 static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t *input, uint32_t sequence_number,
                                              uint32_t presentation_start_sample_number, uint32_t presentation_end_sample_number )
 {
+    /* Edit of video sequence is complicated for picture reordering.
+     * The start and end of extra samples included in the video sequence may be invisible on AviUtl's presentation timeline. */
     input_track_t    *in_video_track = &input->track[VIDEO_TRACK];
     input_sequence_t *video_sequence = &hp->sequence[VIDEO_TRACK][sequence_number - 1];
+    video_sequence->input                            = input;
+    video_sequence->number                           = sequence_number;
     video_sequence->presentation_start_sample_number = input->order_converter[presentation_start_sample_number].composition_to_decoding;
     video_sequence->presentation_end_sample_number   = input->order_converter[presentation_end_sample_number].composition_to_decoding;
-    for( uint32_t i = video_sequence->presentation_end_sample_number + 1; i <= in_video_track->number_of_samples; i++ )
-        if( input->order_converter[i].composition_to_decoding < video_sequence->presentation_end_sample_number )
-            ++ video_sequence->number_of_end_extra_samples;
+    /* Extend the range of a sequence that may be placed in outside of a presentation.
+     * This is needed to export all samples of selected range.
+     * For instance,
+     *   composition order: ... I[1] B[2] P[3] ...
+     *   decoding order:    ... I[1] P[3] B[2] ...
+     * Here, B[2] depends on I[1] and P[3].
+     * If you want to select P[3] as the end of presentation of a sequence, you need also B[2] obviously.
+     * If you want to select B[2] as the end of presentation of a sequence, you need also P[3] obviously. */
+    video_sequence->media_end_sample_number = video_sequence->presentation_end_sample_number;
+    for( uint32_t i = presentation_end_sample_number - 1; i; i-- )
+        video_sequence->media_end_sample_number = max( video_sequence->media_end_sample_number, input->order_converter[i].composition_to_decoding );
+    /* Find the closest random accessible point, which may be placed in outside of a presentation.
+     * A sequence shall start from it or follow the portion of media that includes it.
+     * If the closest random accessible point is placed in outside of a presentation,
+     * the portion that includes it should be skipped by edit list. */
     if( set_media_starting_point( input, in_video_track->track_ID, video_sequence ) )
         return -1;
     if( lsmash_get_dts_from_media_timeline( input->root, in_video_track->track_ID,
                                             video_sequence->media_start_sample_number, &video_sequence->skip_dt_interval ) )
         return -1;
-    video_sequence->number_of_start_extra_samples = presentation_start_sample_number - video_sequence->media_start_sample_number;
+    video_sequence->current_sample_number = video_sequence->media_start_sample_number;
+    /* Decide presentation range of audio track from one of video track if audio track is present. */
     if( !hp->with_audio )
         return 0;
     if( in_video_track->media_param.timescale == 0 )
         return -1;
-    /* Decide presentation range of audio track from one of video track. */
     uint32_t ctd_shift;
     uint64_t composition_delay;
     uint64_t video_presentation_start_time;
@@ -435,23 +452,14 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         }
         --sample_number;
     } while( 1 );
-    audio_sequence->presentation_start_sample_number = sample_number;
+    audio_sequence->input                            = input;
+    audio_sequence->number                           = sequence_number;
+    audio_sequence->media_end_sample_number          = audio_sequence->presentation_end_sample_number;
     audio_sequence->media_start_sample_number        = sample_number;
+    audio_sequence->presentation_start_sample_number = sample_number;
     audio_sequence->start_skip_duration              = audio_start_time - dts;
-    uint32_t number_of_samples = hp->number_of_samples[AUDIO_TRACK]
-                               + audio_sequence->presentation_end_sample_number - audio_sequence->presentation_start_sample_number + 1;
-    sent_sample_t *sent_audio_sample = realloc( hp->sent[AUDIO_TRACK], number_of_samples * sizeof(sent_sample_t) );
-    if( !sent_audio_sample )
-        return -1;
-    hp->sent[AUDIO_TRACK] = sent_audio_sample;
-    for( uint32_t i = hp->number_of_samples[AUDIO_TRACK]; i < number_of_samples; i++ )
-    {
-        sent_audio_sample[i].input           = input;
-        sent_audio_sample[i].sequence_number = sequence_number;
-        sent_audio_sample[i].sample_number   = sample_number;
-        ++sample_number;
-    }
-    hp->number_of_samples[AUDIO_TRACK] = number_of_samples;
+    audio_sequence->current_sample_number            = audio_sequence->media_start_sample_number;
+    hp->number_of_samples[AUDIO_TRACK]              += audio_sequence->media_end_sample_number - audio_sequence->media_start_sample_number + 1;
     return lsmash_get_dts_from_media_timeline( input->root, in_audio_track->track_ID,
                                                audio_sequence->media_start_sample_number, &audio_sequence->skip_dt_interval );
 }
@@ -460,10 +468,9 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
 {
     uint32_t number_of_samples = frame_e - frame_s + 1;
     hp->number_of_samples[VIDEO_TRACK] = number_of_samples;
-    sent_sample_t *sent_video_sample = malloc( number_of_samples * sizeof(sent_sample_t) );
-    if( !sent_video_sample )
+    aviutl_sample_t *aviutl_video_sample = malloc( number_of_samples * sizeof(aviutl_sample_t) );
+    if( !aviutl_video_sample )
         return -1;
-    hp->sent[VIDEO_TRACK] = sent_video_sample;
     int prev_source_file_id      = -1;
     int prev_source_video_number = -1;
     int current_input_number     = 0;
@@ -473,66 +480,70 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
         if( !fp->exfunc->get_frame_status( editp, frame_s + i, &fs ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to get the status of the first frame.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
+            goto fail;
         }
         int source_file_id;
         int source_video_number;
         if( !fp->exfunc->get_source_video_number( editp, fs.video, &source_file_id, &source_video_number ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to get the number of the source video.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
+            goto fail;
         }
         FILE_INFO fi;
         if( !fp->exfunc->get_source_file_info( editp, &fi, source_file_id ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to get the information of the source file.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
+            goto fail;
         }
         /* Check if encountered a new sequence. */
         if( source_file_id != prev_source_file_id || source_video_number != (prev_source_video_number + 1) )
         {
             if( !check_file_id_duplication( hp, source_file_id )
              && open_input_movie( hp, fi.name, source_file_id ) )
-                return -1;
+                goto fail;
             current_input_number = get_input_number_from_file_id( hp, source_file_id );
             if( current_input_number == -1 )
-                return -1;  /* unknown error */
+                goto fail;      /* unknown error */
             ++ hp->number_of_sequences;
             prev_source_file_id = source_file_id;
         }
         prev_source_video_number = source_video_number;
         input_movie_t *input = hp->input[current_input_number];
-        sent_video_sample[i].input           = input;
-        sent_video_sample[i].sequence_number = hp->number_of_sequences;
-        sent_video_sample[i].sample_number   = source_video_number + 1;     /* source_video_number is in ascending order of composition. */
+        aviutl_video_sample[i].input           = input;
+        aviutl_video_sample[i].sequence_number = hp->number_of_sequences;
+        aviutl_video_sample[i].sample_number   = source_video_number + 1;   /* source_video_number is in ascending order of composition. */
     }
     hp->sequence[VIDEO_TRACK] = malloc_zero( hp->number_of_sequences * sizeof(input_sequence_t) );
     if( !hp->sequence[VIDEO_TRACK] )
-        return -1;
+        goto fail;
     if( hp->with_audio )
     {
         hp->sequence[AUDIO_TRACK] = malloc_zero( hp->number_of_sequences * sizeof(input_sequence_t) );
         if( !hp->sequence[AUDIO_TRACK] )
-            return -1;
+            goto fail;
     }
     /* Set up exported range of each sequence.
      * Also count number of audio samples for exporting if audio track is present. */
     for( int i = 0; i < number_of_samples; )
     {
-        input_movie_t *input               = sent_video_sample[i].input;
-        uint32_t       sequence_number     = sent_video_sample[i].sequence_number;
-        uint32_t       start_sample_number = sent_video_sample[i].sample_number;
-        for( i += 1; i < number_of_samples && sequence_number == sent_video_sample[i].sequence_number; i++ );
-        uint32_t end_sample_number = sent_video_sample[i - 1].sample_number;
+        input_movie_t *input               = aviutl_video_sample[i].input;
+        uint32_t       sequence_number     = aviutl_video_sample[i].sequence_number;
+        uint32_t       start_sample_number = aviutl_video_sample[i].sample_number;
+        for( i += 1; i < number_of_samples && sequence_number == aviutl_video_sample[i].sequence_number; i++ );
+        uint32_t end_sample_number = aviutl_video_sample[i - 1].sample_number;
         if( setup_exported_range_of_sequence( hp, input, sequence_number, start_sample_number, end_sample_number ) )
-            return -1;
+            goto fail;
     }
     for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
     {
         free( hp->input[i]->order_converter );
         hp->input[i]->order_converter = NULL;
     }
+    free( aviutl_video_sample );
     return 0;
+fail:
+    free( aviutl_video_sample );
+    return -1;
 }
 
 static inline uint64_t get_gcd( uint64_t a, uint64_t b )
@@ -602,8 +613,8 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
     }
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
-    sent_sample_t *sent  = &hp->sent[VIDEO_TRACK][0];
-    input_movie_t *input = sent->input;
+    input_sequence_t *sequence = &hp->sequence[VIDEO_TRACK][0];
+    input_movie_t *input = sequence->input;
     movie_param.major_brand      = input->movie_param.major_brand;
     movie_param.minor_version    = input->movie_param.minor_version;
     movie_param.number_of_brands = input->movie_param.number_of_brands;
@@ -667,76 +678,14 @@ static void update_largest_cts( output_track_t *out_track, uint64_t cts )
         out_track->second_largest_cts = cts;
 }
 
-static int append_extra_samples( input_movie_t *input, output_movie_t *output, int type, FILE *log_file,
-                                 input_sequence_t *sequence, uint32_t start_sample_number, uint32_t number_of_samples )
-{
-    input_track_t  *in_track  = &input->track[type];
-    output_track_t *out_track = &output->track[type];
-    for( uint32_t i = 0; i < number_of_samples; i++ )
-    {
-        uint32_t sample_number = start_sample_number + i;
-        lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( input->root, in_track->track_ID, sample_number );
-        if( sample )
-        {
-            /* The first DTS must be 0. */
-            sample->dts  = (sample->dts - sequence->skip_dt_interval) * in_track->timescale_integrator;
-            sample->cts  = (sample->cts - sequence->skip_dt_interval) * in_track->timescale_integrator;
-            sample->dts += out_track->edit_offset;
-            sample->cts += out_track->edit_offset;
-            in_track->dts = (double)sample->dts / out_track->media_param.timescale;
-        }
-        else
-        {
-            MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
-        }
-        uint32_t sample_delta;
-        if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sample_number, &sample_delta ) )
-        {
-            lsmash_delete_sample( sample );
-            MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
-        }
-        sample_delta *= in_track->timescale_integrator;
-        uint64_t sample_size     = sample->length;      /* sample might be deleted internally after appending. */
-        uint64_t last_sample_dts = sample->dts;         /* same as above */
-        uint64_t last_sample_cts = sample->cts;         /* same as above */
-#ifdef DEBUG
-        char log_data[1024];
-        sprintf( log_data, "file_id=%d, type=%s, edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
-                 input->file_id, type ? "audio" : "video", out_track->edit_offset, sequence->skip_dt_interval, sample->dts, sample->cts, sample_delta );
-        fwrite( log_data, 1, strlen( log_data ), log_file );
-#endif
-        if( lsmash_append_sample( output->root, out_track->track_ID, sample ) )
-        {
-            lsmash_delete_sample( sample );
-            MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            return -1;
-        }
-        sequence->last_sample_dts   = last_sample_dts;
-        sequence->last_sample_delta = sample_delta;
-        output->largest_dts         = max( output->largest_dts, in_track->dts );
-        output->total_media_size   += sample_size;
-        update_largest_cts( out_track, last_sample_cts );
-        if( sample_number == sequence->media_start_sample_number )
-            sequence->first_sample_dts = last_sample_dts;
-        /* Check if this sample is the first sample in the presentation of this sequence.
-         * If so, set its CTS into start time of the presentation of this sequence. */
-        if( sample_number == sequence->presentation_start_sample_number )
-            sequence->presentation_start_time = last_sample_cts;
-    }
-    return 0;
-}
-
 static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { 1, hp->with_audio };
     output_movie_t   *output                      = hp->output;
-    input_sequence_t *sequence[2]                 = { NULL, NULL };
+    input_sequence_t *sequence[2]                 = { hp->sequence[VIDEO_TRACK], hp->sequence[AUDIO_TRACK] };
     lsmash_sample_t  *sample[2]                   = { NULL, NULL };
     uint32_t          sent_sample_count[2]        = { 0, 0 };
-    uint32_t          sequence_number[2]          = { 0, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
 #define UPDATE_PROGRESS( track_type ) \
@@ -750,57 +699,33 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             type ^= 0x01;
             continue;
         }
-        sent_sample_t *sent     = &hp->sent[type][sent_sample_count[type]];
-        input_movie_t *input    = sent->input;
+        input_movie_t *input    = sequence[type]->input;
         input_track_t *in_track = &input->track[type];
         /* Get a new sample data if the track doesn't hold any one. */
         if( !sample[type] )
         {
             output_track_t *out_track = &output->track[type];
-            if( sequence_number[type] != sent->sequence_number )
+            if( sequence[type]->current_sample_number > sequence[type]->media_end_sample_number )
             {
-                /* Change sequence. */
-                if( sequence[type] )
+                /* Check if no more sequences. */
+                if( sequence[type]->number == hp->number_of_sequences )
                 {
-                    /* Append all buffered sample to be flushed for composition. */
-                    if( append_extra_samples( input, output, type, hp->log_file,
-                                              sequence[type],
-                                              sequence[type]->presentation_end_sample_number + 1,
-                                              sequence[type]->number_of_end_extra_samples ) )
-                        break;
-                    out_track->edit_offset  = out_track->largest_cts;
-                    out_track->edit_offset += out_track->largest_cts > out_track->second_largest_cts
-                                            ? out_track->largest_cts - out_track->second_largest_cts
-                                            : sequence[type]->last_sample_delta;
-                }
-                sequence_number[type] = sent->sequence_number;
-                sequence[type] = &hp->sequence[type][sent->sequence_number - 1];
-                sequence[type]->start_skip_duration *= in_track->timescale_integrator;
-                sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
-                /* Append all sample to be skipped by edit list. */
-                if( append_extra_samples( input, output, type, hp->log_file,
-                                          sequence[type],
-                                          sequence[type]->media_start_sample_number,
-                                          sequence[type]->number_of_start_extra_samples ) )
-                    break;
-            }
-            else if( sequence[type] && sent->sample_number > sequence[type]->presentation_end_sample_number )
-            {
-                if( ++sent_sample_count[type] == hp->number_of_samples[type] )
-                {
-                    /* Append all buffered sample to be flushed for composition. */
-                    if( append_extra_samples( input, output, type, hp->log_file,
-                                              sequence[type],
-                                              sequence[type]->presentation_end_sample_number + 1,
-                                              sequence[type]->number_of_end_extra_samples ) )
-                        break;
                     active[type] = 0;
                     if( --num_active_input_tracks == 0 )
                         break;      /* end of muxing */
+                    continue;
                 }
-                continue;
+                /* Give edit timestamp offset. */
+                out_track->edit_offset  = out_track->largest_cts;
+                out_track->edit_offset += out_track->largest_cts > out_track->second_largest_cts
+                                        ? out_track->largest_cts - out_track->second_largest_cts
+                                        : sequence[type]->last_sample_delta;
+                /* Change sequence. */
+                sequence[type] = &hp->sequence[type][ sequence[type]->number ];
+                sequence[type]->start_skip_duration *= in_track->timescale_integrator;
+                sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
             }
-            sample[type] = lsmash_get_sample_from_media_timeline( input->root, in_track->track_ID, sent->sample_number );
+            sample[type] = lsmash_get_sample_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number );
             if( sample[type] )
             {
                 /* The first DTS must be 0. */
@@ -812,7 +737,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             }
             else
             {
-                if( lsmash_check_sample_existence_in_media_timeline( input->root, in_track->track_ID, sent->sample_number ) )
+                if( lsmash_check_sample_existence_in_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number ) )
                 {
                     MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                     break;
@@ -829,7 +754,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
         if( in_track->dts <= output->largest_dts || num_consecutive_sample_skip == num_active_input_tracks )
         {
             uint32_t sample_delta;
-            if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sent->sample_number, &sample_delta ) )
+            if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number, &sample_delta ) )
             {
                 lsmash_delete_sample( sample[type] );
                 MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashmuxer", MB_ICONERROR | MB_OK );
@@ -844,7 +769,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             char log_data[1024];
             sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, sample_number=%"PRIu32", source_sample_number=%"PRIu32", "
                      "edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
-                     sequence_number[type], input->file_id, type ? "audio" : "video", sent_sample_count[type] + 1, sent->sample_number,
+                     sequence[type]->number, input->file_id, type ? "audio" : "video", sent_sample_count[type] + 1, sequence[type]->current_sample_number,
                      out_track->edit_offset, sequence[type]->skip_dt_interval, sample[type]->dts, sample[type]->cts, sample_delta );
             fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
@@ -862,25 +787,13 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             output->largest_dts               = max( output->largest_dts, in_track->dts );
             output->total_media_size         += sample_size;
             update_largest_cts( out_track, last_sample_cts );
-            if( sent->sample_number == sequence[type]->media_start_sample_number )
+            if( sequence[type]->current_sample_number == sequence[type]->media_start_sample_number )
                 sequence[type]->first_sample_dts = last_sample_dts;
             /* Check if this sample is the first sample in the presentation of this sequence.
              * If so, set its CTS into start time of the presentation of this sequence. */
-            if( sent->sample_number == sequence[type]->presentation_start_sample_number )
+            if( sequence[type]->current_sample_number == sequence[type]->presentation_start_sample_number )
                 sequence[type]->presentation_start_time = last_sample_cts;
-            /* Check if this track has no more samples to be appended. */
-            if( ++sent_sample_count[type] == hp->number_of_samples[type] )
-            {
-                /* Append all buffered sample to be flushed for composition. */
-                if( append_extra_samples( input, output, type, hp->log_file,
-                                          sequence[type],
-                                          sequence[type]->presentation_end_sample_number + 1,
-                                          sequence[type]->number_of_end_extra_samples ) )
-                    break;
-                active[type] = 0;
-                if( --num_active_input_tracks == 0 )
-                    break;      /* end of muxing */
-            }
+            ++ sequence[type]->current_sample_number;
             UPDATE_PROGRESS( type );
         }
         else
