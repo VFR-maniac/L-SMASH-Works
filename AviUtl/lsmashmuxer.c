@@ -369,8 +369,8 @@ static int set_media_starting_point( input_movie_t *input, uint32_t track_ID, in
 static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t *input, uint32_t sequence_number,
                                              uint32_t presentation_start_sample_number, uint32_t presentation_end_sample_number )
 {
-    /* Edit of video sequence is complicated for picture reordering.
-     * The start and end of extra samples included in the video sequence may be invisible on AviUtl's presentation timeline. */
+    /* Edit of video sequence is complicated because of picture reordering.
+     * The start and end of some samples included in the video sequence may be invisible on AviUtl's presentation timeline. */
     input_track_t    *in_video_track = &input->track[VIDEO_TRACK];
     input_sequence_t *video_sequence = &hp->sequence[VIDEO_TRACK][sequence_number - 1];
     video_sequence->input                            = input;
@@ -386,7 +386,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
      * If you want to select P[3] as the end of presentation of a sequence, you need also B[2] obviously.
      * If you want to select B[2] as the end of presentation of a sequence, you need also P[3] obviously. */
     video_sequence->media_end_sample_number = video_sequence->presentation_end_sample_number;
-    for( uint32_t i = presentation_end_sample_number - 1; i; i-- )
+    for( uint32_t i = 1; i < presentation_end_sample_number; i++ )
         video_sequence->media_end_sample_number = max( video_sequence->media_end_sample_number, input->order_converter[i].composition_to_decoding );
     /* Find the closest random accessible point, which may be placed in outside of a presentation.
      * A sequence shall start from it or follow the portion of media that includes it.
@@ -685,12 +685,9 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
     output_movie_t   *output                      = hp->output;
     input_sequence_t *sequence[2]                 = { hp->sequence[VIDEO_TRACK], hp->sequence[AUDIO_TRACK] };
     lsmash_sample_t  *sample[2]                   = { NULL, NULL };
-    uint32_t          sent_sample_count[2]        = { 0, 0 };
+    uint32_t          sample_pos_on_aviutl[2]     = { frame_s, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
-#define UPDATE_PROGRESS( track_type ) \
-    if( track_type == VIDEO_TRACK ) \
-        fp->exfunc->set_frame( editp, frame_s + sent_sample_count[VIDEO_TRACK] - 1 )
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -767,9 +764,9 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             output_track_t *out_track = &output->track[type];
 #ifdef DEBUG
             char log_data[1024];
-            sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, sample_number=%"PRIu32", source_sample_number=%"PRIu32", "
+            sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, source_sample_number=%"PRIu32", "
                      "edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
-                     sequence[type]->number, input->file_id, type ? "audio" : "video", sent_sample_count[type] + 1, sequence[type]->current_sample_number,
+                     sequence[type]->number, input->file_id, type ? "audio" : "video", sequence[type]->current_sample_number,
                      out_track->edit_offset, sequence[type]->skip_dt_interval, sample[type]->dts, sample[type]->cts, sample_delta );
             fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
@@ -793,20 +790,20 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
              * If so, set its CTS into start time of the presentation of this sequence. */
             if( sequence[type]->current_sample_number == sequence[type]->presentation_start_sample_number )
                 sequence[type]->presentation_start_time = last_sample_cts;
+            /* Update progress. */
+            if( type == VIDEO_TRACK
+             && sequence[type]->current_sample_number >= sequence[type]->presentation_start_sample_number
+             && sequence[type]->current_sample_number <= sequence[type]->presentation_end_sample_number )
+                fp->exfunc->set_frame( editp, sample_pos_on_aviutl[type]++ );
             ++ sequence[type]->current_sample_number;
-            UPDATE_PROGRESS( type );
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
     for( uint32_t i = 0; i < output->number_of_tracks; i++ )
-    {
         if( lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-        UPDATE_PROGRESS( i );
-    }
-#undef UPDATE_PROGRESS
 }
 
 static int construct_timeline_maps( lsmash_handler_t *hp )
