@@ -136,7 +136,8 @@ typedef struct
     uint32_t presentation_end_sample_number;        /* stored in ascending order of decoding */
     uint32_t media_start_sample_number;             /* stored in ascending order of decoding */
     uint32_t media_end_sample_number;               /* stored in ascending order of decoding */
-    uint32_t presentation_end_next_sample_number;   /* stored in ascending order of decoding */
+    uint32_t presentation_end_next_sample_number;   /* stored in ascending order of decoding
+                                                     * If the value is 0, the presentation ends at the last sample in the media. */
     uint64_t skip_dt_interval;                      /* decode time interval that non-exported samples occupied */
     /* output side */
     uint64_t presentation_start_time;
@@ -419,6 +420,12 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     {
         if( lsmash_get_dts_from_media_timeline( input->root, in_audio_track->track_ID, sample_number, &dts ) )
             return -1;
+        if( sample_number == in_audio_track->number_of_samples )
+        {
+            uint64_t media_duration = dts + in_audio_track->last_sample_delta;
+            if( media_duration > audio_end_time )
+                audio_sequence->end_skip_duration = media_duration - audio_end_time;
+        }
         if( dts > audio_end_time )
         {
             audio_sequence->presentation_end_next_sample_number = sample_number;
@@ -429,11 +436,14 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         --sample_number;
     } while( 1 );
     if( audio_sequence->presentation_end_next_sample_number == 0 )
-        audio_sequence->presentation_end_next_sample_number = sample_number;
-    if( audio_sequence->presentation_end_next_sample_number > 1 )
-        audio_sequence->presentation_end_sample_number = audio_sequence->presentation_end_next_sample_number - 1;
+        audio_sequence->presentation_end_sample_number = in_audio_track->number_of_samples;
     else
-        audio_sequence->presentation_end_sample_number = 1;
+    {
+        if( audio_sequence->presentation_end_next_sample_number > 1 )
+            audio_sequence->presentation_end_sample_number = audio_sequence->presentation_end_next_sample_number - 1;
+        else    /* This audio track cosists of only one sample. */
+            audio_sequence->presentation_end_sample_number = 1;
+    }
     audio_sequence->input                            = input;
     audio_sequence->number                           = sequence_number;
     audio_sequence->media_end_sample_number          = audio_sequence->presentation_end_sample_number;
