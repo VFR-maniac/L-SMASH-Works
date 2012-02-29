@@ -132,21 +132,19 @@ typedef struct
     uint32_t number;
     /* input side */
     uint32_t current_sample_number;
-    uint32_t presentation_start_sample_number;  /* stored in ascending order of decoding */
-    uint32_t presentation_end_sample_number;    /* stored in ascending order of decoding */
-    uint32_t media_start_sample_number;         /* stored in ascending order of decoding */
-    uint32_t media_end_sample_number;           /* stored in ascending order of decoding */
-    uint64_t skip_dt_interval;                  /* decode time interval that non-exported samples occupied */
+    uint32_t presentation_start_sample_number;      /* stored in ascending order of decoding */
+    uint32_t presentation_end_sample_number;        /* stored in ascending order of decoding */
+    uint32_t media_start_sample_number;             /* stored in ascending order of decoding */
+    uint32_t media_end_sample_number;               /* stored in ascending order of decoding */
+    uint32_t presentation_end_next_sample_number;   /* stored in ascending order of decoding */
+    uint64_t skip_dt_interval;                      /* decode time interval that non-exported samples occupied */
     /* output side */
-    uint32_t out_media_start_sample_number;     /* stored in ascending order of decoding */
-    uint32_t out_media_end_sample_number;       /* stored in ascending order of decoding */
     uint64_t presentation_start_time;
     uint64_t presentation_end_time;
-    uint64_t start_skip_duration;               /* start duration skipped by edit list */
-    uint64_t end_skip_duration;                 /* end duration skipped by edit list */
+    uint64_t start_skip_duration;                   /* start duration skipped by edit list */
+    uint64_t end_skip_duration;                     /* end duration skipped by edit list */
     /* */
     uint32_t last_sample_delta;
-    uint32_t last_sample_presentation_duration;
 } sequence_t;
 
 typedef struct
@@ -399,9 +397,9 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         return -1;
     if( presentation_end_sample_number < in_video_track->number_of_samples )
     {
-        uint32_t next_sample_number = input->order_converter[presentation_end_sample_number + 1].composition_to_decoding;
+        video_sequence->presentation_end_next_sample_number = input->order_converter[presentation_end_sample_number + 1].composition_to_decoding;
         uint64_t next_cts;
-        if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, next_sample_number, &next_cts ) )
+        if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, video_sequence->presentation_end_next_sample_number, &next_cts ) )
             return -1;
         if( next_cts <= video_presentation_end_time )
             return -1;
@@ -423,17 +421,19 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
             return -1;
         if( dts > audio_end_time )
         {
-            audio_sequence->presentation_end_sample_number = sample_number;
+            audio_sequence->presentation_end_next_sample_number = sample_number;
             audio_sequence->end_skip_duration = dts - audio_end_time;
         }
         if( dts <= audio_start_time )
-        {
-            if( audio_sequence->presentation_end_sample_number == 0 )
-                audio_sequence->presentation_end_sample_number = sample_number;
             break;
-        }
         --sample_number;
     } while( 1 );
+    if( audio_sequence->presentation_end_next_sample_number == 0 )
+        audio_sequence->presentation_end_next_sample_number = sample_number;
+    if( audio_sequence->presentation_end_next_sample_number > 1 )
+        audio_sequence->presentation_end_sample_number = audio_sequence->presentation_end_next_sample_number - 1;
+    else
+        audio_sequence->presentation_end_sample_number = 1;
     audio_sequence->input                            = input;
     audio_sequence->number                           = sequence_number;
     audio_sequence->media_end_sample_number          = audio_sequence->presentation_end_sample_number;
@@ -667,7 +667,6 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
     output_movie_t   *output                      = hp->output;
     sequence_t       *sequence[2]                 = { hp->sequence[VIDEO_TRACK], hp->sequence[AUDIO_TRACK] };
     lsmash_sample_t  *sample[2]                   = { NULL, NULL };
-    uint32_t          sample_count[2]             = { 0, 0 };
     uint32_t          sample_pos_on_aviutl[2]     = { frame_s, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
@@ -687,6 +686,19 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             output_track_t *out_track = &output->track[type];
             if( sequence[type]->current_sample_number > sequence[type]->media_end_sample_number )
             {
+                if( sequence[type]->presentation_end_next_sample_number )
+                {
+                    uint64_t next_cts;
+                    if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, sequence[type]->presentation_end_next_sample_number, &next_cts ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        break;
+                    }
+                    next_cts = (next_cts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator + out_track->edit_offset;
+                    sequence[type]->presentation_end_time += next_cts - sequence[type]->presentation_end_time;
+                }
+                else
+                    sequence[type]->presentation_end_time += sequence[type]->last_sample_delta;
                 /* Check if no more sequences. */
                 if( sequence[type]->number == hp->number_of_sequences )
                 {
@@ -776,11 +788,6 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                 if( type == VIDEO_TRACK )
                     fp->exfunc->set_frame( editp, sample_pos_on_aviutl[type]++ );
             }
-            ++sample_count[type];
-            if( sequence[type]->current_sample_number == sequence[type]->media_start_sample_number )
-                sequence[type]->out_media_start_sample_number = sample_count[type];
-            if( sequence[type]->current_sample_number == sequence[type]->media_end_sample_number )
-                sequence[type]->out_media_end_sample_number   = sample_count[type];
             ++ sequence[type]->current_sample_number;
         }
         else
@@ -803,57 +810,31 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
         uint32_t media_timescale = lsmash_get_media_timescale( output->root, out_track->track_ID );
         if( media_timescale == 0 )
             continue;
-        if( lsmash_construct_timeline( output->root, out_track->track_ID ) )
-        {
-            MessageBox( HWND_DESKTOP, "Failed to construct the media timeline of a output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            continue;
-        }
         uint32_t movie_timescale = lsmash_get_movie_timescale( output->root );
         double timescale_convert_multiplier = (double)movie_timescale / media_timescale;
         /* Create edits per sequence. */
         for( int j = 0; j < hp->number_of_sequences; j++ )
         {
             sequence_t *sequence = &hp->sequence[i][j];
-            /* At the first, generate presentation duration of the last sample from timeline. */
-            uint64_t sequence_presentation_prev_end_time = sequence->presentation_start_time;
-            for( uint32_t i = sequence->out_media_start_sample_number; i <= sequence->out_media_end_sample_number; i++ )
-            {
-                uint64_t cts;
-                if( lsmash_get_cts_from_media_timeline( output->root, out_track->track_ID, i, &cts ) )
-                {
-                    MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                    break;
-                }
-                if( cts > sequence_presentation_prev_end_time
-                 && cts < sequence->presentation_end_time )
-                    sequence_presentation_prev_end_time = cts;
-            }
-            sequence->last_sample_presentation_duration = sequence->presentation_end_time > sequence_presentation_prev_end_time
-                                                        ? sequence->presentation_end_time - sequence_presentation_prev_end_time
-                                                        : sequence->last_sample_delta;
             /* Set up an edit for this sequence. */
             int64_t start_time = sequence->presentation_start_time + sequence->start_skip_duration;
             uint64_t skip_duration = sequence->start_skip_duration + sequence->end_skip_duration;
-            uint64_t duration = (sequence->presentation_end_time + sequence->last_sample_presentation_duration - sequence->presentation_start_time - skip_duration)
+            uint64_t duration = (sequence->presentation_end_time - sequence->presentation_start_time - skip_duration)
                               * timescale_convert_multiplier;
             if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, duration, start_time, ISOM_EDIT_MODE_NORMAL ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to create the timeline map of a output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                lsmash_destruct_timeline( output->root, out_track->track_ID );
                 continue;
             }
 #ifdef DEBUG
             char log_data[1024];
-            sprintf( log_data, "type=%s, sequence_number=%"PRIu32", media_start_sample=%"PRIu32", media_end_sample=%"PRIu32", "
-                     "presentation_start_time=%"PRIu64", presentation_end_time=%"PRIu64", "
-                     "last_sample_presentation_duration=%"PRIu32", start_skip_duration=%"PRIu64", end_skip_duration=%"PRIu64"\n",
-                     i ? "audio" : "video", sequence->number, sequence->out_media_start_sample_number, sequence->out_media_end_sample_number,
-                     sequence->presentation_start_time, sequence->presentation_end_time,
-                     sequence->last_sample_presentation_duration, sequence->start_skip_duration, sequence->end_skip_duration );
+            sprintf( log_data, "type=%s, sequence_number=%"PRIu32", presentation_start_time=%"PRIu64", presentation_end_time=%"PRIu64", "
+                     "start_skip_duration=%"PRIu64", end_skip_duration=%"PRIu64"\n",
+                     i ? "audio" : "video", sequence->number, sequence->presentation_start_time, sequence->presentation_end_time,
+                     sequence->start_skip_duration, sequence->end_skip_duration );
             fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
         }
-        lsmash_destruct_timeline( output->root, out_track->track_ID );
     }
     return 0;
 }
