@@ -827,11 +827,12 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
         {
             sequence_t *sequence = &hp->sequence[i][j];
             /* Set up an edit for this sequence. */
-            int64_t start_time = sequence->presentation_start_time + sequence->start_skip_duration;
             uint64_t skip_duration = sequence->start_skip_duration + sequence->end_skip_duration;
-            uint64_t duration = (sequence->presentation_end_time - sequence->presentation_start_time - skip_duration)
-                              * timescale_convert_multiplier;
-            if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, duration, start_time, ISOM_EDIT_MODE_NORMAL ) )
+            lsmash_edit_t edit;
+            edit.duration   = (sequence->presentation_end_time - sequence->presentation_start_time - skip_duration) * timescale_convert_multiplier;
+            edit.start_time = sequence->presentation_start_time + sequence->start_skip_duration;
+            edit.rate       = ISOM_EDIT_MODE_NORMAL;
+            if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, edit ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to create the timeline map of a output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                 continue;
