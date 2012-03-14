@@ -250,7 +250,7 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
     memset( iip, 0, sizeof(INPUT_INFO) );
     if( hp->video_reader != READER_NONE )
     {
-        iip->flag             |= INPUT_INFO_FLAG_VIDEO;
+        iip->flag             |= INPUT_INFO_FLAG_VIDEO | INPUT_INFO_FLAG_VIDEO_RANDOM_ACCESS;
         iip->rate              = hp->framerate_num;
         iip->scale             = hp->framerate_den;
         iip->n                 = hp->video_sample_count;
