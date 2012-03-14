@@ -501,7 +501,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
                                                                                rap_number, &rap_type, NULL, &distance ) )
         *rap_number = 1;
-    if( rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_RECOVERY && distance && *rap_number > distance )
+    if( rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL && distance && *rap_number > distance )
         *rap_number -= distance;
     hp->video_ctx->skip_frame = AVDISCARD_NONREF;
     int dummy;
