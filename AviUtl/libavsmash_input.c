@@ -34,7 +34,7 @@
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
 
-#define DECODER_DELAY( ctx ) (ctx->has_b_frames + (ctx->active_thread_type == FF_THREAD_FRAME ? ctx->thread_count - 1 : 0))
+#define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
 
 typedef enum
 {
@@ -65,6 +65,7 @@ typedef struct libavsmash_handler_tag
     uint8_t           *video_input_buffer;
     uint32_t           video_input_buffer_size;
     uint32_t           last_video_sample_number;
+    uint32_t           last_rap_number;
     uint32_t           delay_count;
     decode_status_t    decode_status;
     order_converter_t *order_converter;
@@ -340,6 +341,13 @@ static void destroy_disposable( void *private_stuff )
     lsmash_discard_boxes( hp->root );
 }
 
+static inline uint32_t get_decoding_sample_number( libavsmash_handler_t *hp, uint32_t composition_sample_number )
+{
+    return hp->order_converter
+         ? hp->order_converter[composition_sample_number].composition_to_decoding
+         : composition_sample_number;
+}
+
 static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample_count )
 {
     hp->keyframe_list = malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
@@ -347,9 +355,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
         return -1;
     for( uint32_t composition_sample_number = 1; composition_sample_number <= video_sample_count; composition_sample_number++ )
     {
-        uint32_t decoding_sample_number = hp->order_converter
-                                        ? hp->order_converter[composition_sample_number].composition_to_decoding
-                                        : composition_sample_number;
+        uint32_t decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
         uint32_t rap_number;
         if( lsmash_get_closest_random_accessible_point_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number, &rap_number ) )
             continue;
@@ -479,6 +485,8 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
     AVPacket pkt;
     if( get_sample( hp->root, hp->video_track_ID, sample_number, hp->video_input_buffer, hp->video_input_buffer_size, &pkt ) )
         return 1;
+    if( pkt.flags == AV_PKT_FLAG_KEY )
+        hp->last_rap_number = sample_number;
     if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
     {
         MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
@@ -487,28 +495,34 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
     return 0;
 }
 
-static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t *rap_number )
+static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t composition_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
+{
+    if( decoding_sample_number == 0 )
+        decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
+    lsmash_random_access_type rap_type;
+    uint32_t distance;  /* distance from the closest random accessible point to the previous. */
+    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
+                                                                               rap_number, &rap_type, NULL, &distance ) )
+        *rap_number = 1;
+    if( (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL
+     || (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP && *rap_number + DECODER_DELAY( hp->video_ctx ) >= composition_sample_number))
+     && distance && *rap_number > distance )
+        *rap_number -= distance;
+    hp->last_rap_number = *rap_number;
+}
+
+static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number )
 {
     /* Prepare to decode from random accessible sample. */
     avcodec_flush_buffers( hp->video_ctx );
     hp->delay_count   = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
-    uint32_t decoding_sample_number = hp->order_converter
-                                    ? hp->order_converter[composition_sample_number].composition_to_decoding
-                                    : composition_sample_number;
-    lsmash_random_access_type rap_type;
-    uint32_t distance;
-    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
-                                                                               rap_number, &rap_type, NULL, &distance ) )
-        *rap_number = 1;
-    if( rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL && distance && *rap_number > distance )
-        *rap_number -= distance;
     hp->video_ctx->skip_frame = AVDISCARD_NONREF;
     int dummy;
     uint32_t i;
-    for( i = *rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
+    for( i = rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
     {
-        if( i == composition_sample_number )
+        if( i + DECODER_DELAY( hp->video_ctx ) == composition_sample_number )
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         avcodec_get_frame_defaults( picture );
         if( decode_video_sample( hp, picture, &dummy, i ) == 1 )
@@ -516,7 +530,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     }
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
     hp->delay_count = DECODER_DELAY( hp->video_ctx );
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", *rap_number, distance, i );
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", rap_number, distance, i );
     return i - hp->delay_count;
 }
 
@@ -574,24 +588,32 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
     if( sample_number == hp->last_video_sample_number + 1 )
-        start_number = rap_number = sample_number;
+    {
+        start_number = sample_number;
+        rap_number = hp->last_rap_number;
+    }
     else
+    {
         /* Require starting to decode from random accessible sample. */
-        start_number = seek_video( hp, &picture, sample_number, &rap_number );
+        find_random_accessible_point( hp, sample_number, 0, &rap_number );
+        start_number = seek_video( hp, &picture, sample_number, rap_number );
+    }
     do
     {
         int error = get_picture( hp, &picture, start_number + hp->delay_count, sample_number + hp->delay_count, h->video_sample_count );
         if( error == 0 )
             break;
-        else if( error == -1 )
+        else if( error == -1 && rap_number > 1 )
         {
             /* No error of decoding, but couldn't get a picture.
              * Retry to decode from more past random accessible sample. */
-            start_number = seek_video( hp, &picture, rap_number - 1, &rap_number );
-            if( start_number == 1 )
-                return 0;   /* Not found an appropriate random accessible sample */
+            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
+            start_number = seek_video( hp, &picture, sample_number, rap_number );
+            continue;
         }
-        return 0;   /* error of decoding */
+        /* error of decoding
+         * Not found an appropriate random accessible sample */
+        return 0;
     } while( 1 );
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
