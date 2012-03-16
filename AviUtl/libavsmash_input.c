@@ -501,12 +501,11 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
         decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
     lsmash_random_access_type rap_type;
     uint32_t distance;  /* distance from the closest random accessible point to the previous. */
+    uint32_t leading;
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
-                                                                               rap_number, &rap_type, NULL, &distance ) )
+                                                                               rap_number, &rap_type, &leading, &distance ) )
         *rap_number = 1;
-    if( (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL
-     || (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP && *rap_number + DECODER_DELAY( hp->video_ctx ) >= composition_sample_number))
-     && distance && *rap_number > distance )
+    if( (leading || rap_type != ISOM_SAMPLE_RANDOM_ACCESS_TYPE_CLOSED_RAP) && distance && *rap_number > distance )
         *rap_number -= distance;
     hp->last_rap_number = *rap_number;
 }
@@ -517,7 +516,8 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     avcodec_flush_buffers( hp->video_ctx );
     hp->delay_count   = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
-    hp->video_ctx->skip_frame = AVDISCARD_NONREF;
+    if( rap_number + DECODER_DELAY( hp->video_ctx ) < composition_sample_number )
+        hp->video_ctx->skip_frame = AVDISCARD_NONREF;
     int dummy;
     uint32_t i;
     for( i = rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
