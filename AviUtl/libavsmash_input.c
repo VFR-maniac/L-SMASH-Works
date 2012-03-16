@@ -489,7 +489,7 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
         hp->last_rap_number = sample_number;
     if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
     {
-        MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
         return -1;
     }
     return 0;
@@ -525,7 +525,13 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
         if( i + DECODER_DELAY( hp->video_ctx ) == composition_sample_number )
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         avcodec_get_frame_defaults( picture );
-        if( decode_video_sample( hp, picture, &dummy, i ) == 1 )
+        int ret = decode_video_sample( hp, picture, &dummy, i );
+        if( ret == -1 )
+        {
+            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
+            return 0;
+        }
+        else if( ret == 1 )
             break;      /* Sample doesn't exist. */
     }
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
@@ -551,7 +557,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
         if( ret == -1 )
             return -2;
         else if( ret == 1 )
-            break;  /* Sample doesn't exist. */
+            break;      /* Sample doesn't exist. */
         ++current;
         if( !got_picture )
             ++ hp->delay_count;
@@ -602,7 +608,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     }
     do
     {
-        int error = get_picture( hp, &picture, start_number, sample_number + hp->delay_count, h->video_sample_count );
+        int error = start_number != 0
+                  ? get_picture( hp, &picture, start_number, sample_number + hp->delay_count, h->video_sample_count )
+                  : -1;
         if( error == 0 )
             break;
         else if( error == -1 && rap_number > 1 )
@@ -615,6 +623,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         }
         /* error of decoding
          * Not found an appropriate random accessible sample */
+        MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
         return 0;
     } while( 1 );
     hp->last_video_sample_number = sample_number;
