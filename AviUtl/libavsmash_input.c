@@ -531,7 +531,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
     hp->delay_count = DECODER_DELAY( hp->video_ctx );
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", rap_number, distance, i );
-    return i - hp->delay_count;
+    return i;
 }
 
 static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
@@ -559,22 +559,24 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
                                          goal, current - 1, hp->delay_count );
         if( hp->delay_count > DECODER_DELAY( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
             break;
-        if( got_picture && current > goal )
-            break;
-    } while( 1 );
+    } while( current <= goal );
     /* Flush the last frames. */
     if( current > video_sample_count && !got_picture && DECODER_DELAY( hp->video_ctx ) )
-    {
-        AVPacket pkt;
-        av_init_packet( &pkt );
-        pkt.data = NULL;
-        pkt.size = 0;
-        if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
+        do
         {
-            MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
-            return -1;
-        }
-    }
+            AVPacket pkt;
+            av_init_packet( &pkt );
+            pkt.data = NULL;
+            pkt.size = 0;
+            if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+                return -1;
+            }
+            ++current;
+            if( !got_picture )
+                ++ hp->delay_count;
+        } while( current <= goal );
     if( hp->decode_status == DECODE_REQUIRE_INITIAL )
         hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
@@ -589,7 +591,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
     if( sample_number == hp->last_video_sample_number + 1 )
     {
-        start_number = sample_number;
+        start_number = sample_number + hp->delay_count;
         rap_number = hp->last_rap_number;
     }
     else
@@ -600,7 +602,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     }
     do
     {
-        int error = get_picture( hp, &picture, start_number + hp->delay_count, sample_number + hp->delay_count, h->video_sample_count );
+        int error = get_picture( hp, &picture, start_number, sample_number + hp->delay_count, h->video_sample_count );
         if( error == 0 )
             break;
         else if( error == -1 && rap_number > 1 )
