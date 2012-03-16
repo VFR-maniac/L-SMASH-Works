@@ -510,10 +510,20 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
     hp->last_rap_number = *rap_number;
 }
 
+static void flush_buffers( AVCodecContext *ctx )
+{
+    /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
+     * It seems this brings about more stable composition when seeking. */
+    AVCodec *codec = ctx->codec;
+    avcodec_close( ctx );
+    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+        MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to flush buffers.\nIt is recommended you reopen the file." );
+}
+
 static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number )
 {
     /* Prepare to decode from random accessible sample. */
-    avcodec_flush_buffers( hp->video_ctx );
+    flush_buffers( hp->video_ctx );
     hp->delay_count   = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
     if( rap_number + DECODER_DELAY( hp->video_ctx ) < composition_sample_number )
@@ -660,7 +670,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     else
     {
         /* Seek audio stream. */
-        avcodec_flush_buffers( hp->audio_ctx );
+        flush_buffers( hp->audio_ctx );
         hp->last_remainder_size = 0;
         frame_number = hp->audio_frame_count;
         int frame_pos;
