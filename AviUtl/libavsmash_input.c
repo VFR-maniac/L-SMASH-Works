@@ -652,13 +652,14 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
-    uint32_t frame_number = hp->last_audio_frame_number;
+    uint32_t frame_number;
     int      data_offset;
     int      copy_size;
     int      output_length = 0;
     int      block_align = h->audio_format.nBlockAlign;
     if( start == hp->next_audio_pcm_sample_number )
     {
+        frame_number = hp->last_audio_frame_number;
         if( hp->last_remainder_size )
         {
             copy_size = min( hp->last_remainder_size, wanted_length * block_align );
@@ -671,28 +672,43 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             if( wanted_length <= 0 )
                 goto audio_out;
         }
+        ++frame_number;
         data_offset = 0;
     }
     else
     {
         /* Seek audio stream. */
         flush_buffers( hp->audio_ctx );
-        hp->last_remainder_size = 0;
-        frame_number = hp->audio_frame_count;
-        int frame_pos;
+        hp->last_remainder_size          = 0;
+        hp->next_audio_pcm_sample_number = 0;
+        hp->last_audio_frame_number      = 0;
+        frame_number = 1;
+        uint64_t next_frame_pos = 0;
+        uint32_t frame_length   = 0;
         do
         {
-            frame_pos = hp->audio_frame_length * (--frame_number);
-            if( start >= frame_pos )
+            if( hp->audio_frame_length == 0 )
+            {
+                /* variable frame length
+                 * Guess the frame length from sample duration. */
+                if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, &frame_length ) )
+                    break;
+            }
+            else
+                /* constant frame length */
+                frame_length = hp->audio_frame_length;
+            next_frame_pos += (uint64_t)frame_length;
+            if( start < next_frame_pos )
                 break;
-        } while( 1 );
-        data_offset = (start - frame_pos) * block_align;
+            ++frame_number;
+        } while( frame_number <= hp->audio_frame_count );
+        data_offset = (start + frame_length - next_frame_pos) * block_align;
     }
     do
     {
         copy_size = 0;
         AVPacket pkt;
-        if( get_sample( hp->root, hp->audio_track_ID, ++frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, &pkt ) )
+        if( get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, &pkt ) )
             goto audio_out;
         while( pkt.size > 0 )
         {
@@ -720,13 +736,15 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 copy_size = 0;
                 data_offset -= output_buffer_size;
             }
-            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d", frame_number, output_buffer_size / h->audio_format.nBlockAlign );
+            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, copied_length = %d, output_length = %d",
+                                             frame_number, output_buffer_size / h->audio_format.nBlockAlign, copy_size / block_align, output_length );
             if( wanted_length <= 0 )
             {
                 hp->last_remainder_size = output_buffer_size - copy_size;
                 goto audio_out;
             }
         }
+        ++frame_number;
     } while( 1 );
 audio_out:
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "output_length = %d, remainder = %d", output_length, hp->last_remainder_size );
