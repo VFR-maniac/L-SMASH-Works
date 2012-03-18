@@ -520,7 +520,7 @@ static void flush_buffers( AVCodecContext *ctx )
         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to flush buffers.\nIt is recommended you reopen the file." );
 }
 
-static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number )
+static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
     flush_buffers( hp->video_ctx );
@@ -536,7 +536,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         avcodec_get_frame_defaults( picture );
         int ret = decode_video_sample( hp, picture, &dummy, i );
-        if( ret == -1 )
+        if( ret == -1 && !error_ignorance )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
             return 0;
@@ -565,7 +565,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
     {
         int ret = decode_video_sample( hp, picture, &got_picture, current );
         if( ret == -1 )
-            return -2;
+            return -1;
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
         ++current;
@@ -600,6 +600,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
+#define MAX_ERROR_COUNT 3       /* arbitrary */
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     AVFrame picture;            /* Decoded video data will be stored here. */
@@ -614,8 +615,10 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     {
         /* Require starting to decode from random accessible sample. */
         find_random_accessible_point( hp, sample_number, 0, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, 0 );
     }
+    int error_ignorance = 0;    /* If the value is set to 1, ignore errors of decoding at seeking. */
+    int error_count     = 0;
     do
     {
         int error = start_number != 0
@@ -623,23 +626,26 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
                   : -1;
         if( error == 0 )
             break;
-        else if( error == -1 && rap_number > 1 )
+        /* Failed to get desired picture. */
+        if( error_ignorance == 1 )
         {
-            /* No error of decoding, but couldn't get a picture.
-             * Retry to decode from more past random accessible sample. */
-            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
-            start_number = seek_video( hp, &picture, sample_number, rap_number );
-            continue;
+            /* fatal error of decoding */
+            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
+            return 0;
         }
-        /* error of decoding
-         * Not found an appropriate random accessible sample */
-        MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
-        return 0;
+        if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
+            /* Retry to decode from the same random accessible sample with error ignorance. */
+            error_ignorance = 1;
+        else
+            /* Retry to decode from more past random accessible sample. */
+            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, error_ignorance );
     } while( 1 );
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                      picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
     return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, buf );
+#undef MAX_ERROR_COUNT
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
