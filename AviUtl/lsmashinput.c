@@ -36,7 +36,7 @@
 
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
-    INPUT_PLUGIN_FLAG_VIDEO | INPUT_INFO_FLAG_AUDIO,                /* INPUT_PLUGIN_FLAG_VIDEO : support images
+    INPUT_PLUGIN_FLAG_VIDEO | INPUT_PLUGIN_FLAG_AUDIO,              /* INPUT_PLUGIN_FLAG_VIDEO : support images
                                                                      * INPUT_PLUGIN_FLAG_AUDIO : support audio */
     "Libav-SMASH File Reader",                                      /* Name of plugin */
     "MPEG-4 File (" MPEG4_FILE_EXT ")\0" MPEG4_FILE_EXT "\0"        /* Filter for Input file */
