@@ -451,17 +451,25 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     hp->audio_frame_length = hp->audio_ctx->frame_size;
     if( h->audio_pcm_sample_count * 2 <= hp->audio_frame_count * hp->audio_frame_length )
         h->audio_pcm_sample_count *= 2;     /* for HE-AAC upsampling */
-    /* WAVEFORMATEX */
-    h->audio_format.nChannels       = hp->audio_ctx->channels;
-    h->audio_format.nSamplesPerSec  = hp->audio_ctx->sample_rate;
-    h->audio_format.wBitsPerSample  = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * 8;
-    h->audio_format.nBlockAlign     = (h->audio_format.nChannels * h->audio_format.wBitsPerSample) / 8;
-    h->audio_format.nAvgBytesPerSec = h->audio_format.nSamplesPerSec * h->audio_format.nBlockAlign;
-    h->audio_format.wFormatTag      = WAVE_FORMAT_PCM;      /* AviUtl doesn't support WAVE_FORMAT_EXTENSIBLE even if the input audio is 24bit PCM. */
-    h->audio_format.cbSize          = 0;
+    /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
+    WAVEFORMATEX *Format = &h->audio_format.Format;
+    Format->nChannels       = hp->audio_ctx->channels;
+    Format->nSamplesPerSec  = hp->audio_ctx->sample_rate;
+    Format->wBitsPerSample  = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * 8;
+    Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
+    Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
+    Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
+    if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
+    {
+        Format->cbSize = 22;
+        h->audio_format.Samples.wValidBitsPerSample = hp->audio_ctx->bits_per_raw_sample;
+        h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
+    }
+    else
+        Format->cbSize = 0;
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_length = %"PRIu32", channels = %d, sampling_rate = %d, bits_per_sample = %d, block_align = %d, avg_bps = %d",
-                                     hp->audio_frame_length, h->audio_format.nChannels, h->audio_format.nSamplesPerSec,
-                                     h->audio_format.wBitsPerSample, h->audio_format.nBlockAlign, h->audio_format.nAvgBytesPerSec );
+                                     hp->audio_frame_length, Format->nChannels, Format->nSamplesPerSec,
+                                     Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
     return 0;
 }
 
@@ -656,7 +664,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     int      data_offset;
     int      copy_size;
     int      output_length = 0;
-    int      block_align = h->audio_format.nBlockAlign;
+    int      block_align = h->audio_format.Format.nBlockAlign;
     if( start == hp->next_audio_pcm_sample_number )
     {
         frame_number = hp->last_audio_frame_number;

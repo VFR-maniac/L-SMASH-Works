@@ -26,12 +26,18 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <windows.h>
+#include <mmreg.h>
 
 #include "input.h"
 
 #define YC48_SIZE  6
 #define RGB24_SIZE 3
 #define YUY2_SIZE  2
+
+/* MinGW32 doesn't define subformat constants for WAVEFORMATEXTENSIBLE. */
+#ifndef KSDATAFORMAT_SUBTYPE_PCM
+#define KSDATAFORMAT_SUBTYPE_PCM (GUID){ 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } }
+#endif
 
 #define MESSAGE_BOX_DESKTOP( uType, ... ) \
 do \
@@ -98,21 +104,21 @@ struct lsmash_handler_tag
     void              *global_private;
     void (*close_file)( void *private_stuff );
     /* Video stuff */
-    reader_type        video_reader;
-    void              *video_private;
-    BITMAPINFOHEADER   video_format;
-    int                framerate_num;
-    int                framerate_den;
-    uint32_t           video_sample_count;
+    reader_type          video_reader;
+    void                *video_private;
+    BITMAPINFOHEADER     video_format;
+    int                  framerate_num;
+    int                  framerate_den;
+    uint32_t             video_sample_count;
     int  (*read_video)      ( lsmash_handler_t *h, int sample_number, void *buf );
     int  (*is_keyframe)     ( lsmash_handler_t *h, int sample_number );
     void (*video_cleanup)   ( lsmash_handler_t *h );
     void (*close_video_file)( void *private_stuff );
     /* Audio stuff */
-    reader_type        audio_reader;
-    void              *audio_private;
-    WAVEFORMATEX       audio_format;
-    uint32_t           audio_pcm_sample_count;
+    reader_type          audio_reader;
+    void                *audio_private;
+    WAVEFORMATEXTENSIBLE audio_format;
+    uint32_t             audio_pcm_sample_count;
     int  (*read_audio)      ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
     void (*audio_cleanup)   ( lsmash_handler_t *h );
     void (*close_audio_file)( void *private_stuff );

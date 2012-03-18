@@ -264,8 +264,8 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
     {
         iip->flag             |= INPUT_INFO_FLAG_AUDIO;
         iip->audio_n           = hp->audio_pcm_sample_count;
-        iip->audio_format      = &hp->audio_format;
-        iip->audio_format_size = sizeof( WAVEFORMATEX );
+        iip->audio_format      = &hp->audio_format.Format;
+        iip->audio_format_size = sizeof( WAVEFORMATEX ) + hp->audio_format.Format.cbSize;
     }
     return TRUE;
 }

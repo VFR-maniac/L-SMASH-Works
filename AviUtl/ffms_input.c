@@ -180,17 +180,25 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     if( !ap )
         return -1;
     h->audio_pcm_sample_count = ap->NumSamples;
-    /* WAVEFORMATEX */
-    h->audio_format.nChannels       = ap->Channels;
-    h->audio_format.nSamplesPerSec  = ap->SampleRate;
-    h->audio_format.wBitsPerSample  = ap->BitsPerSample;
-    h->audio_format.nBlockAlign     = (h->audio_format.nChannels * h->audio_format.wBitsPerSample) / 8;
-    h->audio_format.nAvgBytesPerSec = h->audio_format.nSamplesPerSec * h->audio_format.nBlockAlign;
-    h->audio_format.wFormatTag      = WAVE_FORMAT_PCM;      /* AviUtl doesn't support WAVE_FORMAT_EXTENSIBLE even if the input audio is 24bit PCM. */
-    h->audio_format.cbSize          = 0;
+    /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
+    WAVEFORMATEX *Format = &h->audio_format.Format;
+    Format->nChannels       = ap->Channels;
+    Format->nSamplesPerSec  = ap->SampleRate;
+    Format->wBitsPerSample  = ap->BitsPerSample;
+    Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
+    Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
+    Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
+    if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
+    {
+        Format->cbSize = 22;
+        h->audio_format.Samples.wValidBitsPerSample = Format->wBitsPerSample;
+        h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
+    }
+    else
+        Format->cbSize = 0;
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "channels = %d, sampling_rate = %d, bits_per_sample = %d, block_align = %d, avg_bps = %d",
-                                     h->audio_format.nChannels, h->audio_format.nSamplesPerSec,
-                                     h->audio_format.wBitsPerSample, h->audio_format.nBlockAlign, h->audio_format.nAvgBytesPerSec );
+                                     Format->nChannels, Format->nSamplesPerSec,
+                                     Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
     return 0;
 }
 
