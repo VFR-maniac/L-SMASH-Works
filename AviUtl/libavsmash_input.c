@@ -482,7 +482,6 @@ static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_n
     pkt->flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
     pkt->size  = sample->length;
     pkt->data  = buffer;
-    memset( pkt->data, 0, buffer_size );
     memcpy( pkt->data, sample->data, sample->length );
     lsmash_delete_sample( sample );
     return 0;
@@ -495,6 +494,7 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
         return 1;
     if( pkt.flags == AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
+    avcodec_get_frame_defaults( picture );
     if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
@@ -542,7 +542,6 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     {
         if( i + DECODER_DELAY( hp->video_ctx ) == composition_sample_number )
             hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
-        avcodec_get_frame_defaults( picture );
         int ret = decode_video_sample( hp, picture, &dummy, i );
         if( ret == -1 && !error_ignorance )
         {
@@ -567,7 +566,6 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
         else
             hp->decode_status = DECODE_INITIALIZED;
     }
-    avcodec_get_frame_defaults( picture );
     int got_picture = 0;
     do
     {
@@ -592,6 +590,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
             av_init_packet( &pkt );
             pkt.data = NULL;
             pkt.size = 0;
+            avcodec_get_frame_defaults( picture );
             if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
             {
                 MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
