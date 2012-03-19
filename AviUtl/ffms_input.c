@@ -65,14 +65,14 @@ static void *open_file( char *file_name, int threads )
     return hp;
 }
 
-static int get_first_video_track( lsmash_handler_t *h )
+static int get_first_video_track( lsmash_handler_t *h, int seek_mode )
 {
     ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     FFMS_ErrorInfo e = { 0 };
     int video_track_number = FFMS_GetFirstTrackOfType( hp->index, FFMS_TYPE_VIDEO, &e );
     if( video_track_number < 0 )
         return -1;
-    hp->video_source = FFMS_CreateVideoSource( hp->file_name, video_track_number, hp->index, hp->threads, FFMS_SEEK_NORMAL, &e );
+    hp->video_source = FFMS_CreateVideoSource( hp->file_name, video_track_number, hp->index, hp->threads, FFMS_SEEK_NORMAL + seek_mode, &e );
     return 0;
 }
 

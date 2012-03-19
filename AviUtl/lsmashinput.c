@@ -34,6 +34,8 @@
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v"
 #define ANY_FILE_EXT        "*.*"
 
+#define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
+
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
     INPUT_PLUGIN_FLAG_VIDEO | INPUT_PLUGIN_FLAG_AUDIO,              /* INPUT_PLUGIN_FLAG_VIDEO : support images
@@ -71,9 +73,11 @@ void *malloc_zero( size_t size )
 }
 
 static int threads = 0;
+static int seek_mode = 0;
 static int reader_disabled[2] = { 0 };
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
+static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
 
 static FILE *open_settings( void )
 {
@@ -106,6 +110,10 @@ void get_settings( void )
     {
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
             threads = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &seek_mode ) != 1 )
+            seek_mode = 0;
+        else
+            seek_mode = CLIP_VALUE( seek_mode, 0, 2 );
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "ffms_disabled=%d", &reader_disabled[1] ) != 1 )
@@ -147,7 +155,7 @@ INPUT_HANDLE func_open( LPSTR file )
             if( !hp->video_private )
             {
                 hp->video_private = private_stuff;
-                if( !reader.get_first_video_track( hp ) )
+                if( !reader.get_first_video_track( hp, seek_mode ) )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -294,14 +302,21 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
 {
     static char edit_buf[128] = { 0 };
+    HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
     switch( message )
     {
         case WM_INITDIALOG :
             InitCommonControls();
             get_settings();
+            /* threads */
             sprintf( edit_buf, "%d", threads );
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            /* seek mode */
+            for( int i = 0; i < 3; i++ )
+                SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
+            SendMessage( hcombo, CB_SETCURSEL, seek_mode, 0 );
+            /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
             return TRUE;
@@ -342,6 +357,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         fprintf( ini, "threads=%d\n", threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
+                    seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "seek_mode=%d\n", seek_mode );
                     reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
@@ -350,6 +367,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
                     return TRUE;
+                }
+                case IDC_COMBOBOX_BUTTON_SEEK_MODE :
+                {
+                    seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
+                    SetDlgItemText( hwnd, IDC_COMBOBOX_STATIC_SEEK_MODE, seek_mode_list[seek_mode] );
+                    break;
                 }
                 default :
                     return FALSE;

@@ -36,6 +36,10 @@
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
 
+#define SEEK_MODE_NORMAL     0
+#define SEEK_MODE_UNSAFE     1
+#define SEEK_MODE_AGGRESSIVE 2
+
 typedef enum
 {
     DECODE_REQUIRE_INITIAL = 0,
@@ -70,6 +74,7 @@ typedef struct libavsmash_handler_tag
     decode_status_t    decode_status;
     order_converter_t *order_converter;
     uint8_t           *keyframe_list;
+    int                seek_mode;
     int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
     /* Audio stuff */
     uint8_t           *audio_input_buffer;
@@ -307,11 +312,14 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     return 0;
 }
 
-static int get_first_video_track( lsmash_handler_t *h )
+static int get_first_video_track( lsmash_handler_t *h, int seek_mode )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
+    {
+        hp->seek_mode = seek_mode;
         return 0;
+    }
     lsmash_destruct_timeline( hp->root, hp->video_track_ID );
     if( hp->video_ctx )
     {
@@ -513,7 +521,9 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
                                                                                rap_number, &rap_type, &leading, &distance ) )
         *rap_number = 1;
-    if( (leading || rap_type != ISOM_SAMPLE_RANDOM_ACCESS_TYPE_CLOSED_RAP) && distance && *rap_number > distance )
+    int roll_recovery = (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_PRE_ROLL);
+    int open_rap = (leading || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_UNKNOWN_RAP);
+    if( (roll_recovery || ((hp->seek_mode == SEEK_MODE_NORMAL || hp->seek_mode == SEEK_MODE_UNSAFE) && open_rap)) && *rap_number > distance )
         *rap_number -= distance;
     hp->last_rap_number = *rap_number;
 }
@@ -613,6 +623,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     AVFrame picture;            /* Decoded video data will be stored here. */
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    int seek_mode = hp->seek_mode;
     if( sample_number == hp->last_video_sample_number + 1 )
     {
         start_number = sample_number + hp->delay_count;
@@ -622,10 +633,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     {
         /* Require starting to decode from random accessible sample. */
         find_random_accessible_point( hp, sample_number, 0, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, 0 );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
     }
-    int error_ignorance = 0;    /* If the value is set to 1, ignore errors of decoding at seeking. */
-    int error_count     = 0;
+    int error_count = 0;
     do
     {
         int error = start_number != 0
@@ -634,7 +644,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         if( error == 0 )
             break;
         /* Failed to get desired picture. */
-        if( error_ignorance == 1 )
+        if( seek_mode == SEEK_MODE_AGGRESSIVE )
         {
             /* fatal error of decoding */
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
@@ -642,11 +652,11 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         }
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
             /* Retry to decode from the same random accessible sample with error ignorance. */
-            error_ignorance = 1;
+            seek_mode = SEEK_MODE_AGGRESSIVE;
         else
             /* Retry to decode from more past random accessible sample. */
             find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, error_ignorance );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
     } while( 1 );
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",

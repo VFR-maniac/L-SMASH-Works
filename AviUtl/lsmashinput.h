@@ -86,7 +86,7 @@ typedef struct
 {
     reader_type type;
     void *(*open_file)             ( char *file_name, int threads );
-    int   (*get_first_video_track) ( lsmash_handler_t *h );
+    int   (*get_first_video_track) ( lsmash_handler_t *h, int seek_mode );
     int   (*get_first_audio_track) ( lsmash_handler_t *h );
     void  (*destroy_disposable)    ( void *private_stuff );
     int   (*prepare_video_decoding)( lsmash_handler_t *h );
