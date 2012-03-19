@@ -517,13 +517,14 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
         decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
     lsmash_random_access_type rap_type;
     uint32_t distance;  /* distance from the closest random accessible point to the previous. */
-    uint32_t leading;
+    uint32_t number_of_leadings;
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
-                                                                               rap_number, &rap_type, &leading, &distance ) )
+                                                                               rap_number, &rap_type, &number_of_leadings, &distance ) )
         *rap_number = 1;
     int roll_recovery = (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_PRE_ROLL);
-    int open_rap = (leading || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_UNKNOWN_RAP);
-    if( (roll_recovery || ((hp->seek_mode == SEEK_MODE_NORMAL || hp->seek_mode == SEEK_MODE_UNSAFE) && open_rap)) && *rap_number > distance )
+    int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
+    int open_rap      = (number_of_leadings || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_UNKNOWN_RAP);
+    if( (roll_recovery || is_leading || ((hp->seek_mode == SEEK_MODE_NORMAL || hp->seek_mode == SEEK_MODE_UNSAFE) && open_rap)) && *rap_number > distance )
         *rap_number -= distance;
     hp->last_rap_number = *rap_number;
 }
