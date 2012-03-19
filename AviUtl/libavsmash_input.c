@@ -523,8 +523,7 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
         *rap_number = 1;
     int roll_recovery = (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_PRE_ROLL);
     int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
-    int open_rap      = (number_of_leadings || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_OPEN_RAP || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_UNKNOWN_RAP);
-    if( (roll_recovery || is_leading || ((hp->seek_mode == SEEK_MODE_NORMAL || hp->seek_mode == SEEK_MODE_UNSAFE) && open_rap)) && *rap_number > distance )
+    if( (roll_recovery || is_leading) && *rap_number > distance )
         *rap_number -= distance;
     hp->last_rap_number = *rap_number;
 }
