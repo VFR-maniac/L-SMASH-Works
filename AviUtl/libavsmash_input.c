@@ -511,7 +511,7 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
     return 0;
 }
 
-static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t composition_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
+static int find_random_accessible_point( libavsmash_handler_t *hp, uint32_t composition_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
 {
     if( decoding_sample_number == 0 )
         decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
@@ -526,6 +526,7 @@ static void find_random_accessible_point( libavsmash_handler_t *hp, uint32_t com
     if( (roll_recovery || is_leading) && *rap_number > distance )
         *rap_number -= distance;
     hp->last_rap_number = *rap_number;
+    return roll_recovery;
 }
 
 static void flush_buffers( AVCodecContext *ctx )
@@ -603,7 +604,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
             avcodec_get_frame_defaults( picture );
             if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
             {
-                MessageBox( HWND_DESKTOP, "Failed to decode a video frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+                DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode and flush a video frame." );
                 return -1;
             }
             ++current;
@@ -624,6 +625,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
+    int roll_recovery = 0;
     if( sample_number == hp->last_video_sample_number + 1 )
     {
         start_number = sample_number + hp->delay_count;
@@ -632,8 +634,8 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     else
     {
         /* Require starting to decode from random accessible sample. */
-        find_random_accessible_point( hp, sample_number, 0, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
+        roll_recovery = find_random_accessible_point( hp, sample_number, 0, &rap_number );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     /* Get desired picture. */
     int error_count = 0;
@@ -651,8 +653,8 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         }
         else
             /* Retry to decode from more past random accessible sample. */
-            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
+            roll_recovery = find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
+        start_number = seek_video( hp, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
