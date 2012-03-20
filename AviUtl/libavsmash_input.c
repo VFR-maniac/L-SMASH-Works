@@ -635,33 +635,33 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         find_random_accessible_point( hp, sample_number, 0, &rap_number );
         start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
     }
+    /* Get desired picture. */
     int error_count = 0;
-    do
+    while( start_number == 0 || get_picture( hp, &picture, start_number, sample_number + hp->delay_count, h->video_sample_count ) )
     {
-        int error = start_number != 0
-                  ? get_picture( hp, &picture, start_number, sample_number + hp->delay_count, h->video_sample_count )
-                  : -1;
-        if( error == 0 )
-            break;
         /* Failed to get desired picture. */
         if( seek_mode == SEEK_MODE_AGGRESSIVE )
-        {
-            /* fatal error of decoding */
-            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
-            return 0;
-        }
+            goto video_fail;
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
+        {
+            if( seek_mode == SEEK_MODE_UNSAFE )
+                goto video_fail;
             /* Retry to decode from the same random accessible sample with error ignorance. */
             seek_mode = SEEK_MODE_AGGRESSIVE;
+        }
         else
             /* Retry to decode from more past random accessible sample. */
             find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
         start_number = seek_video( hp, &picture, sample_number, rap_number, seek_mode != SEEK_MODE_NORMAL );
-    } while( 1 );
+    }
     hp->last_video_sample_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                      picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
     return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, buf );
+video_fail:
+    /* fatal error of decoding */
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
+    return 0;
 #undef MAX_ERROR_COUNT
 }
 

@@ -101,7 +101,7 @@ typedef struct
 
 struct lsmash_handler_tag
 {
-    void              *global_private;
+    void                *global_private;
     void (*close_file)( void *private_stuff );
     /* Video stuff */
     reader_type          video_reader;
