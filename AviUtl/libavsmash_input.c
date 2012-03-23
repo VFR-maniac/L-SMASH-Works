@@ -85,6 +85,7 @@ typedef struct libavsmash_handler_tag
     uint32_t           next_audio_pcm_sample_number;
     uint32_t           last_audio_frame_number;
     uint32_t           last_remainder_size;
+    uint32_t           priming_samples;
 } libavsmash_handler_t;
 
 /* Colorspace converters */
@@ -240,12 +241,12 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     /* L-SMASH */
     uint32_t track_ID = 0;
     uint32_t i;
+    lsmash_media_parameters_t media_param;
     for( i = 1; i <= hp->number_of_tracks; i++ )
     {
         track_ID = lsmash_get_track_ID( hp->root, i );
         if( track_ID == 0 )
             return -1;
-        lsmash_media_parameters_t media_param;
         lsmash_initialize_media_parameters( &media_param );
         if( lsmash_get_media_parameters( hp->root, track_ID, &media_param ) )
         {
@@ -281,6 +282,24 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         hp->audio_track_ID = track_ID;
         hp->audio_frame_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
         h->audio_pcm_sample_count = lsmash_get_media_duration( hp->root, track_ID );
+        if( media_param.roll_grouping )
+        {
+            uint32_t edit_count = lsmash_count_explicit_timeline_map( hp->root, track_ID );
+            for( uint32_t edit_number = 1; edit_number <= edit_count; edit_number++ )
+            {
+                lsmash_edit_t edit;
+                if( lsmash_get_explicit_timeline_map( hp->root, track_ID, edit_number, &edit ) )
+                    break;
+                if( edit.duration == 0 )
+                    break;  /* no edits */
+                if( edit.start_time >= 0 )
+                {
+                    /* Streams that is concatenated with different number of priming samples are not supported yet. */
+                    hp->priming_samples = edit.start_time;
+                    break;
+                }
+            }
+        }
     }
     /* libavformat */
     type = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK) ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
@@ -458,7 +477,12 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     }
     hp->audio_frame_length = hp->audio_ctx->frame_size;
     if( h->audio_pcm_sample_count * 2 <= hp->audio_frame_count * hp->audio_frame_length )
-        h->audio_pcm_sample_count *= 2;     /* for HE-AAC upsampling */
+    {
+        /* for HE-AAC upsampling */
+        h->audio_pcm_sample_count *= 2;
+        hp->priming_samples       *= 2;
+    }
+    hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->audio_ctx->channels;
@@ -667,12 +691,22 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
+static uint32_t get_priming_samples( libavsmash_handler_t *hp, uint32_t sample_number )
+{
+    /* If the audio stream has priming samples, they precede the actual audio data.
+     * Priming samples are needed for correct composition because of CODEC characteristic and given by encoder. */
+    lsmash_sample_property_t prop;
+    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->audio_track_ID, sample_number, &prop ) )
+        return 0;
+    return prop.pre_roll.distance ? hp->priming_samples : 0;
+}
+
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     uint32_t frame_number;
-    int      data_offset;
+    uint64_t data_offset;
     int      copy_size;
     int      output_length = 0;
     int      block_align = h->audio_format.Format.nBlockAlign;
@@ -721,7 +755,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 break;
             ++frame_number;
         } while( frame_number <= hp->audio_frame_count );
-        data_offset = (start + frame_length - next_frame_pos) * block_align;
+        uint32_t priming_samples = hp->priming_samples ? get_priming_samples( hp, frame_number ) : 0;
+        data_offset = (priming_samples + start + frame_length - next_frame_pos) * block_align;
     }
     do
     {
