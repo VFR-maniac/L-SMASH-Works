@@ -691,14 +691,39 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
-static uint32_t get_priming_samples( libavsmash_handler_t *hp, uint32_t sample_number )
+static inline int get_frame_length( libavsmash_handler_t *hp, uint32_t frame_number, uint32_t *frame_length )
+{
+    if( hp->audio_frame_length == 0 )
+    {
+        /* variable frame length
+         * Guess the frame length from sample duration. */
+        if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, frame_length ) )
+            return -1;
+    }
+    else
+        /* constant frame length */
+        *frame_length = hp->audio_frame_length;
+    return 0;
+}
+
+static uint32_t get_priming_samples( libavsmash_handler_t *hp, uint32_t frame_number, uint32_t frame_length )
 {
     /* If the audio stream has priming samples, they precede the actual audio data.
      * Priming samples are needed for correct composition because of CODEC characteristic and given by encoder. */
     lsmash_sample_property_t prop;
-    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->audio_track_ID, sample_number, &prop ) )
+    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, &prop ) )
         return 0;
-    return prop.pre_roll.distance ? hp->priming_samples : 0;
+    if( prop.pre_roll.distance == 0 )
+        return 0;
+    /* Stream shall have number of priming samples greater or equal to pre-roll distance. */
+    uint32_t min_priming_samples = frame_length;
+    for( uint32_t i = 1; i < prop.pre_roll.distance; i++ )
+    {
+        if( get_frame_length( hp, frame_number + i, &frame_length ) )
+            break;
+        min_priming_samples += frame_length;
+    }
+    return max( hp->priming_samples, min_priming_samples );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -740,22 +765,14 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         uint32_t frame_length   = 0;
         do
         {
-            if( hp->audio_frame_length == 0 )
-            {
-                /* variable frame length
-                 * Guess the frame length from sample duration. */
-                if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, &frame_length ) )
-                    break;
-            }
-            else
-                /* constant frame length */
-                frame_length = hp->audio_frame_length;
+            if( get_frame_length( hp, frame_number, &frame_length ) )
+                break;
             next_frame_pos += (uint64_t)frame_length;
             if( start < next_frame_pos )
                 break;
             ++frame_number;
         } while( frame_number <= hp->audio_frame_count );
-        uint32_t priming_samples = hp->priming_samples ? get_priming_samples( hp, frame_number ) : 0;
+        uint32_t priming_samples = get_priming_samples( hp, frame_number, frame_length );
         data_offset = (priming_samples + start + frame_length - next_frame_pos) * block_align;
     }
     do
