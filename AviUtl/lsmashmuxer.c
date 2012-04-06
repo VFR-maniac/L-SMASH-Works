@@ -746,15 +746,19 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                         break;      /* end of muxing */
                     continue;
                 }
+                uint64_t last_composition_duration = out_track->largest_cts > out_track->second_largest_cts
+                                                   ? out_track->largest_cts - out_track->second_largest_cts
+                                                   : sequence[type]->last_sample_delta;
                 /* Give edit timestamp offset. */
                 out_track->edit_offset  = max( out_track->largest_cts - sequence[type]->composition_delay, out_track->largest_dts );
-                out_track->edit_offset += out_track->largest_cts > out_track->second_largest_cts
-                                        ? out_track->largest_cts - out_track->second_largest_cts
-                                        : sequence[type]->last_sample_delta;
+                out_track->edit_offset += last_composition_duration;
                 /* Change sequence. */
                 sequence[type] = &hp->sequence[type][ sequence[type]->number ];
                 sequence[type]->start_skip_duration *= in_track->timescale_integrator;
                 sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
+                /* Any sample within current sequence must not precede any sample within the previous sequence in composition order. */
+                if( out_track->largest_cts >= out_track->edit_offset + sequence[type]->composition_delay )
+                    out_track->edit_offset = out_track->largest_cts + last_composition_duration;
             }
             sample[type] = lsmash_get_sample_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number );
             if( sample[type] )
