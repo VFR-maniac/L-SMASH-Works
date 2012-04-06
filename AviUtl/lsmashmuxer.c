@@ -154,6 +154,7 @@ typedef struct
     uint32_t                  track_ID;
     uint32_t                  media_timescale;
     uint64_t                  edit_offset;
+    uint64_t                  largest_dts;
     uint64_t                  largest_cts;
     uint64_t                  second_largest_cts;
     lsmash_track_parameters_t track_param;
@@ -746,7 +747,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                     continue;
                 }
                 /* Give edit timestamp offset. */
-                out_track->edit_offset  = out_track->largest_cts - sequence[type]->composition_delay;
+                out_track->edit_offset  = max( out_track->largest_cts - sequence[type]->composition_delay, out_track->largest_dts );
                 out_track->edit_offset += out_track->largest_cts > out_track->second_largest_cts
                                         ? out_track->largest_cts - out_track->second_largest_cts
                                         : sequence[type]->last_sample_delta;
@@ -791,8 +792,9 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                 break;
             }
             sample_delta *= in_track->timescale_integrator;
-            uint64_t sample_size     = sample[type]->length;        /* sample might be deleted internally after appending. */
-            uint64_t last_sample_cts = sample[type]->cts;           /* same as above */
+            uint64_t sample_size = sample[type]->length;    /* sample might be deleted internally after appending. */
+            uint64_t sample_dts  = sample[type]->dts;       /* same as above */
+            uint64_t sample_cts  = sample[type]->cts;       /* same as above */
             output_track_t *out_track = &output->track[type];
 #ifdef DEBUG
             char log_data[1024];
@@ -814,14 +816,15 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             sequence[type]->last_sample_delta = sample_delta;
             output->largest_dts               = max( output->largest_dts, in_track->dts );
             output->total_media_size         += sample_size;
-            update_largest_cts( out_track, last_sample_cts );
+            out_track->largest_dts            = sample_dts;
+            update_largest_cts( out_track, sample_cts );
             if( sequence[type]->current_sample_number >= sequence[type]->presentation_start_sample_number
              && sequence[type]->current_sample_number <= sequence[type]->presentation_end_sample_number )
             {
                 if( sequence[type]->current_sample_number == sequence[type]->presentation_start_sample_number )
-                    sequence[type]->presentation_start_time = last_sample_cts;
+                    sequence[type]->presentation_start_time = sample_cts;
                 if( sequence[type]->current_sample_number == sequence[type]->presentation_end_sample_number )
-                    sequence[type]->presentation_end_time   = last_sample_cts;
+                    sequence[type]->presentation_end_time   = sample_cts;
                 /* Update progress. */
                 if( type == VIDEO_TRACK )
                     fp->exfunc->set_frame( editp, sample_pos_on_aviutl[type]++ );
