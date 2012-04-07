@@ -392,7 +392,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
-static int prepare_video_decoding( lsmash_handler_t *h )
+static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !hp->video_ctx )

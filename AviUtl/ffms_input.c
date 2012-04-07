@@ -121,7 +121,7 @@ static void just_copy( uint8_t *out_data, int out_linesize, uint8_t **in_data, i
     memcpy( out_data, in_data[0], out_linesize * height );
 }
 
-static int prepare_video_decoding( lsmash_handler_t *h )
+static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     if( !hp->video_source )

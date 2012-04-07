@@ -75,6 +75,7 @@ void *malloc_zero( size_t size )
 static int threads = 0;
 static int seek_mode = 0;
 static int reader_disabled[3] = { 0 };
+static video_option_t opt = { 0 };
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
@@ -108,16 +109,40 @@ void get_settings( void )
     char buf[128];
     if( ini )
     {
+        /* threads */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
             threads = 0;
+        /* seek_mode */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &seek_mode ) != 1 )
             seek_mode = 0;
         else
             seek_mode = CLIP_VALUE( seek_mode, 0, 2 );
+        /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "ffms_disabled=%d", &reader_disabled[1] ) != 1 )
             reader_disabled[1] = 0;
+        /* dummy reader */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &opt.width, &opt.height ) != 2 )
+        {
+            opt.width  = 720;
+            opt.height = 480;
+        }
+        else
+        {
+            opt.width  = max( opt.width,  32 );
+            opt.height = max( opt.height, 32 );
+        }
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_framerate=%d/%d", &opt.framerate_num, &opt.framerate_den ) != 2 )
+        {
+            opt.framerate_num = 24;
+            opt.framerate_den = 1;
+        }
+        else
+        {
+            opt.framerate_num = max( opt.framerate_num, 1 );
+            opt.framerate_den = max( opt.framerate_den, 1 );
+        }
         fclose( ini );
     }
 }
@@ -198,7 +223,7 @@ INPUT_HANDLE func_open( LPSTR file )
                 reader.destroy_disposable( private_stuff );
             if( !video_none
              && reader.prepare_video_decoding
-             && reader.prepare_video_decoding( hp ) )
+             && reader.prepare_video_decoding( hp, &opt ) )
             {
                 if( hp->video_cleanup )
                 {
@@ -334,6 +359,15 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            /* dummy reader */
+            sprintf( edit_buf, "%d", opt.width );
+            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
+            sprintf( edit_buf, "%d", opt.height );
+            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPCTSTR)edit_buf );
+            sprintf( edit_buf, "%d", opt.framerate_num );
+            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPCTSTR)edit_buf );
+            sprintf( edit_buf, "%d", opt.framerate_den );
+            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPCTSTR)edit_buf );
             return TRUE;
         case WM_NOTIFY :
             if( wparam == IDC_SPIN_THREADS )
@@ -368,27 +402,39 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to update configuration file" );
                         return FALSE;
                     }
+                    /* threads */
                     if( threads > 0 )
                         fprintf( ini, "threads=%d\n", threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
+                    /* seek_mode */
                     seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "seek_mode=%d\n", seek_mode );
+                    /* readers */
                     reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
                     fprintf( ini, "ffms_disabled=%d\n", reader_disabled[1] );
+                    /* dummy reader */
+                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    opt.width = max( atoi( edit_buf ), 32 );
+                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    opt.height = max( atoi( edit_buf ), 32 );
+                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    opt.framerate_num = max( atoi( edit_buf ), 1 );
+                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    opt.framerate_den = max( atoi( edit_buf ), 1 );
+                    fprintf( ini, "dummy_resolution=%dx%d\n", opt.width, opt.height );
+                    fprintf( ini, "dummy_framerate=%d/%d\n", opt.framerate_num, opt.framerate_den );
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
                     return TRUE;
                 }
                 case IDC_COMBOBOX_BUTTON_SEEK_MODE :
-                {
                     seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
                     SetDlgItemText( hwnd, IDC_COMBOBOX_STATIC_SEEK_MODE, seek_mode_list[seek_mode] );
                     break;
-                }
                 default :
                     return FALSE;
             }
