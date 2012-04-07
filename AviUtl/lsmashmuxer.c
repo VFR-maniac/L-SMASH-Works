@@ -793,7 +793,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                 sequence[type] = &hp->sequence[type][ sequence[type]->number ];
                 sequence[type]->start_skip_duration *= in_track->timescale_integrator;
                 sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
-                /* Any sample within current sequence must not precede any sample within the previous sequence in composition order. */
+                /* Any sample within the current sequence must not precede any sample within the previous sequence in composition order. */
                 if( out_track->largest_cts >= out_track->edit_offset + sequence[type]->composition_delay )
                     out_track->edit_offset = out_track->largest_cts + last_composition_duration;
             }
@@ -950,9 +950,10 @@ static int validate_chapter( char *chapter_file )
 
 static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
 {
-    if( hp->ref_chap_available )
-        return lsmash_create_reference_chapter_track( hp->output->root, hp->output->track[VIDEO_TRACK].track_ID, fp->ex_data_ptr );
-    return 0;
+    if( !hp->ref_chap_available )
+        return 0;
+    uint32_t track_ID = hp->with_video ? hp->output->track[VIDEO_TRACK].track_ID : hp->output->track[AUDIO_TRACK].track_ID;
+    return lsmash_create_reference_chapter_track( hp->output->root, track_ID, fp->ex_data_ptr );
 }
 
 static int write_chapter_list( lsmash_handler_t *hp, FILTER *fp )
