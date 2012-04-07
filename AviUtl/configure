@@ -85,7 +85,7 @@ LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 FFMSLIBS="-lffms2 -lavformat -lavcodec -lswscale -lavutil"
 
-SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c"
+SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c dummy_input.c"
 SRC_MUXER="lsmashmuxer.c"
 SRC_DUMPER="lsmashdumper.c"
 

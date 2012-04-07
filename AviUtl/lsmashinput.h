@@ -71,6 +71,7 @@ typedef enum
     READER_NONE       = 0,
     LIBAVSMASH_READER = 1,
     FFMS_READER       = 2,
+    DUMMY_READER      = 3,
 } reader_type;
 
 typedef enum

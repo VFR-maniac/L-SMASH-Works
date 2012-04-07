@@ -74,7 +74,7 @@ void *malloc_zero( size_t size )
 
 static int threads = 0;
 static int seek_mode = 0;
-static int reader_disabled[2] = { 0 };
+static int reader_disabled[3] = { 0 };
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
@@ -130,16 +130,19 @@ INPUT_HANDLE func_open( LPSTR file )
     hp->video_reader = READER_NONE;
     hp->audio_reader = READER_NONE;
     get_settings();
+    int reader_threads = threads > 0 ? threads : get_auto_threads();
     extern lsmash_reader_t libavsmash_reader;
 #ifdef HAVE_FFMS
     extern lsmash_reader_t ffms_reader;
 #endif
+    extern lsmash_reader_t dummy_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
         &libavsmash_reader,
 #ifdef HAVE_FFMS
         &ffms_reader,
 #endif
+        &dummy_reader,
         NULL
     };
     for( int i = 0; lsmash_reader_table[i]; i++ )
@@ -149,13 +152,14 @@ INPUT_HANDLE func_open( LPSTR file )
         int video_none = 1;
         int audio_none = 1;
         lsmash_reader_t reader = *lsmash_reader_table[i];
-        void *private_stuff = reader.open_file( file, threads > 0 ? threads : get_auto_threads() );
+        void *private_stuff = reader.open_file( file, reader_threads );
         if( private_stuff )
         {
             if( !hp->video_private )
             {
                 hp->video_private = private_stuff;
-                if( !reader.get_first_video_track( hp, seek_mode ) )
+                if( reader.get_first_video_track
+                 && reader.get_first_video_track( hp, seek_mode ) == 0 )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -170,7 +174,8 @@ INPUT_HANDLE func_open( LPSTR file )
             if( !hp->audio_private )
             {
                 hp->audio_private = private_stuff;
-                if( !reader.get_first_audio_track( hp ) )
+                if( reader.get_first_audio_track
+                 && reader.get_first_audio_track( hp ) == 0 )
                 {
                     hp->audio_reader     = reader.type;
                     hp->read_audio       = reader.read_audio;
@@ -191,18 +196,28 @@ INPUT_HANDLE func_open( LPSTR file )
         {
             if( reader.destroy_disposable )
                 reader.destroy_disposable( private_stuff );
-            if( !video_none && reader.prepare_video_decoding( hp ) )
+            if( !video_none
+             && reader.prepare_video_decoding
+             && reader.prepare_video_decoding( hp ) )
             {
-                hp->video_cleanup( hp );
-                hp->video_cleanup = NULL;
+                if( hp->video_cleanup )
+                {
+                    hp->video_cleanup( hp );
+                    hp->video_cleanup = NULL;
+                }
                 hp->video_private = NULL;
                 hp->video_reader  = READER_NONE;
                 video_none = 1;
             }
-            if( !audio_none && reader.prepare_audio_decoding( hp ) )
+            if( !audio_none
+             && reader.prepare_audio_decoding
+             && reader.prepare_audio_decoding( hp ) )
             {
-                hp->audio_cleanup( hp );
-                hp->audio_cleanup = NULL;
+                if( hp->audio_cleanup )
+                {
+                    hp->audio_cleanup( hp );
+                    hp->audio_cleanup = NULL;
+                }
                 hp->audio_private = NULL;
                 hp->audio_reader  = READER_NONE;
                 audio_none = 1;
@@ -296,7 +311,7 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
     if( sample_number >= hp->video_sample_count )
         return FALSE;   /* In reading as double framerate, keyframe detection doesn't work at all
                          * since sample_number exceeds the number of video samples. */
-    return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : FALSE;
+    return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : TRUE;
 }
 
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
