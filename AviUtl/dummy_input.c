@@ -46,8 +46,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;  /* Only available if audio stream is present. */
     h->framerate_num = opt->framerate_num;
     h->framerate_den = opt->framerate_den;
-    uint64_t audio_duration = (h->audio_pcm_sample_count - 1) / h->audio_format.Format.nSamplesPerSec + 1;
-    h->video_sample_count = (h->framerate_num * audio_duration - 1) / h->framerate_den + 1;
+    h->video_sample_count = ((uint64_t)h->framerate_num * h->audio_pcm_sample_count - 1)
+                          / ((uint64_t)h->framerate_den * h->audio_format.Format.nSamplesPerSec) + 1;
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
     hp->out_linesize = opt->width * YUY2_SIZE;
     hp->out_height   = opt->height;
