@@ -791,6 +791,8 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                 out_track->edit_offset += last_composition_duration;
                 /* Change sequence. */
                 sequence[type] = &hp->sequence[type][ sequence[type]->number ];
+                input    = sequence[type]->input;
+                in_track = &input->track[type];
                 sequence[type]->start_skip_duration *= in_track->timescale_integrator;
                 sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
                 /* Any sample within the current sequence must not precede any sample within the previous sequence in composition order. */
@@ -952,7 +954,7 @@ static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
 {
     if( !hp->ref_chap_available )
         return 0;
-    uint32_t track_ID = hp->with_video ? hp->output->track[VIDEO_TRACK].track_ID : hp->output->track[AUDIO_TRACK].track_ID;
+    uint32_t track_ID = hp->output->track[ hp->with_video ? VIDEO_TRACK : AUDIO_TRACK ].track_ID;
     return lsmash_create_reference_chapter_track( hp->output->root, track_ID, fp->ex_data_ptr );
 }
 
