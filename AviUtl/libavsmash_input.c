@@ -588,7 +588,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     }
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
     hp->delay_count = DECODER_DELAY( hp->video_ctx );
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, distance = %d, seek_position = %d", rap_number, distance, i );
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, seek_position = %d", rap_number, i );
     return i;
 }
 
@@ -787,7 +787,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             int wasted_data_length = avcodec_decode_audio3( hp->audio_ctx, (int16_t *)hp->audio_output_buffer, &output_buffer_size, &pkt );
             if( wasted_data_length < 0 )
             {
-                MessageBox( HWND_DESKTOP, "Failed to decode a audio frame.", "lsmashinput", MB_ICONERROR | MB_OK );
+                DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to decode a audio frame." );
                 goto audio_out;
             }
             pkt.size -= wasted_data_length;

@@ -74,7 +74,7 @@ void *malloc_zero( size_t size )
 
 static int threads = 0;
 static int seek_mode = 0;
-static int reader_disabled[3] = { 0 };
+static int reader_disabled[4] = { 0 };
 static video_option_t opt = { 0 };
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
@@ -122,6 +122,8 @@ void get_settings( void )
             reader_disabled[0] = 0;
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "ffms_disabled=%d", &reader_disabled[1] ) != 1 )
             reader_disabled[1] = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d", &reader_disabled[2] ) != 1 )
+            reader_disabled[2] = 0;
         /* dummy reader */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &opt.width, &opt.height ) != 2 )
         {
@@ -160,6 +162,7 @@ INPUT_HANDLE func_open( LPSTR file )
 #ifdef HAVE_FFMS
     extern lsmash_reader_t ffms_reader;
 #endif
+    extern lsmash_reader_t libav_reader;
     extern lsmash_reader_t dummy_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
@@ -167,6 +170,7 @@ INPUT_HANDLE func_open( LPSTR file )
 #ifdef HAVE_FFMS
         &ffms_reader,
 #endif
+        &libav_reader,
         &dummy_reader,
         NULL
     };
@@ -298,7 +302,7 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
     memset( iip, 0, sizeof(INPUT_INFO) );
     if( hp->video_reader != READER_NONE )
     {
-        iip->flag             |= hp->video_reader == LIBAVSMASH_READER
+        iip->flag             |= hp->video_reader != FFMS_READER
                                ? INPUT_INFO_FLAG_VIDEO | INPUT_INFO_FLAG_VIDEO_RANDOM_ACCESS
                                : INPUT_INFO_FLAG_VIDEO;
         iip->rate              = hp->framerate_num;
@@ -358,7 +362,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SendMessage( hcombo, CB_SETCURSEL, seek_mode, 0 );
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT       ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* dummy reader */
             sprintf( edit_buf, "%d", opt.width );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
@@ -412,9 +417,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     fprintf( ini, "seek_mode=%d\n", seek_mode );
                     /* readers */
                     reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
-                    reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
+                    reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT       ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
+                    reader_disabled[2] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
-                    fprintf( ini, "ffms_disabled=%d\n", reader_disabled[1] );
+                    fprintf( ini, "ffms_disabled=%d\n",       reader_disabled[1] );
+                    fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     opt.width = max( atoi( edit_buf ), 32 );
