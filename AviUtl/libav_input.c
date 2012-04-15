@@ -281,6 +281,16 @@ static void create_index( libav_handler_t *hp )
                 free( video_info );
             return;
         }
+        hp->audio_output_buffer = av_mallocz( AVCODEC_MAX_AUDIO_FRAME_SIZE );
+        if( !hp->audio_output_buffer )
+        {
+            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the output buffer for audio." );
+            if( video_info )
+                free( video_info );
+            if( audio_info )
+                free( audio_info );
+            return;
+        }
         if( hp->audio_ctx->frame_size == 0 )
         {
             hp->audio_parser = av_parser_init( hp->audio_ctx->codec_id );
@@ -332,6 +342,7 @@ static void create_index( libav_handler_t *hp )
         }
         else if( read_audio && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
         {
+            /* Get frame_length. */
             if( hp->audio_parser )
             {
                 uint8_t *out_buffer;
@@ -340,15 +351,34 @@ static void create_index( libav_handler_t *hp )
                                   &out_buffer, &out_buffer_size,
                                   pkt.data, pkt.size, pkt.pts, pkt.dts, pkt.pos );
             }
-            audio_duration += frame_length
-                            = hp->audio_ctx->frame_size                        ? hp->audio_ctx->frame_size
-                            : (hp->audio_parser && hp->audio_parser->duration) ? hp->audio_parser->duration
-                            :                                                    pkt.duration;
+            frame_length = hp->audio_ctx->frame_size                        ? hp->audio_ctx->frame_size
+                         : (hp->audio_parser && hp->audio_parser->duration) ? hp->audio_parser->duration
+                         :                                                    pkt.duration;
+            if( frame_length == 0 )
+            {
+                AVPacket temp = pkt;
+                uint8_t *data = pkt.data;
+                while( temp.size > 0 )
+                {
+                    int output_buffer_size = AVCODEC_MAX_AUDIO_FRAME_SIZE;
+                    int wasted_data_length = avcodec_decode_audio3( hp->audio_ctx, (int16_t *)hp->audio_output_buffer, &output_buffer_size, &temp );
+                    if( wasted_data_length <= 0 )
+                        break;
+                    temp.size -= wasted_data_length;
+                    temp.data += wasted_data_length;
+                    if( output_buffer_size > 0 )
+                        frame_length += output_buffer_size / (av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * hp->audio_ctx->channels);
+                }
+                pkt      = temp;
+                pkt.data = data;
+            }
+            audio_duration += frame_length;
             if( audio_duration > INT32_MAX )
             {
                 av_free_packet( &pkt );
                 continue;
             }
+            /* Set up audio frame info. */
             ++audio_sample_count;
             audio_info[audio_sample_count].pts         = pkt.pts;
             audio_info[audio_sample_count].dts         = pkt.dts;
@@ -424,7 +454,7 @@ static void create_index( libav_handler_t *hp )
             else if( hp->video_seek_base & SEEK_DTS_BASED )
                 hp->av_gap = audio_info[1].dts - av_rescale_q( video_info[1].dts, video_time_base, audio_time_base );
             if( hp->av_gap )
-                hp->av_gap = av_rescale_q( hp->av_gap, audio_stream->time_base, (AVRational){ 1, audio_stream->codec->sample_rate } );
+                hp->av_gap = av_rescale_q( hp->av_gap, audio_time_base, (AVRational){ 1, audio_stream->codec->sample_rate } );
         }
     }
 }
@@ -531,6 +561,11 @@ static int get_first_audio_track( lsmash_handler_t *h )
         {
             av_free( hp->audio_index_entries );
             hp->audio_index_entries = NULL;
+        }
+        if( hp->audio_output_buffer )
+        {
+            av_free( hp->audio_output_buffer );
+            hp->audio_output_buffer = NULL;
         }
         if( hp->audio_frame_list )
         {
@@ -703,12 +738,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
-        return -1;
-    }
-    hp->audio_output_buffer = av_mallocz( AVCODEC_MAX_AUDIO_FRAME_SIZE );
-    if( !hp->audio_output_buffer )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the output buffer for audio." );
         return -1;
     }
     if( hp->audio_index_entries )
