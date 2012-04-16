@@ -65,7 +65,7 @@ static void *open_file( char *file_name, int threads )
     return hp;
 }
 
-static int get_first_video_track( lsmash_handler_t *h, int seek_mode )
+static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
 {
     ffms_handler_t *hp = (ffms_handler_t *)h->video_private;
     FFMS_ErrorInfo e = { 0 };

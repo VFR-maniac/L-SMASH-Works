@@ -79,6 +79,7 @@ typedef struct libavsmash_handler_tag
     order_converter_t       *order_converter;
     uint8_t                 *keyframe_list;
     int                      seek_mode;
+    uint32_t                 forward_seek_threshold;
     func_convert_colorspace *convert_colorspace;
     /* Audio stuff */
     uint8_t                 *audio_input_buffer;
@@ -331,12 +332,13 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     return 0;
 }
 
-static int get_first_video_track( lsmash_handler_t *h, int seek_mode )
+static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
     {
         hp->seek_mode = seek_mode;
+        hp->forward_seek_threshold = forward_seek_threshold;
         return 0;
     }
     lsmash_destruct_timeline( hp->root, hp->video_track_ID );
@@ -683,9 +685,10 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
     int roll_recovery = 0;
-    if( sample_number == hp->last_video_sample_number + 1 )
+    if( sample_number > hp->last_video_sample_number
+     && sample_number <= hp->last_video_sample_number + hp->forward_seek_threshold )
     {
-        start_number = sample_number + hp->video_delay_count;
+        start_number = hp->last_video_sample_number + 1 + hp->video_delay_count;
         rap_number = hp->last_rap_number;
     }
     else

@@ -74,6 +74,7 @@ void *malloc_zero( size_t size )
 
 static int threads = 0;
 static int seek_mode = 0;
+static int forward_seek_threshold = 10;
 static int reader_disabled[4] = { 0 };
 static video_option_t opt = { 0 };
 static char *settings_path = NULL;
@@ -117,6 +118,11 @@ void get_settings( void )
             seek_mode = 0;
         else
             seek_mode = CLIP_VALUE( seek_mode, 0, 2 );
+        /* forward_seek_threshold */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "forward_threshold=%d", &forward_seek_threshold ) != 1 )
+            forward_seek_threshold = 10;
+        else
+            forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
         /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
@@ -188,7 +194,7 @@ INPUT_HANDLE func_open( LPSTR file )
             {
                 hp->video_private = private_stuff;
                 if( reader.get_first_video_track
-                 && reader.get_first_video_track( hp, seek_mode ) == 0 )
+                 && reader.get_first_video_track( hp, seek_mode, forward_seek_threshold ) == 0 )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -356,6 +362,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             sprintf( edit_buf, "%d", threads );
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            /* forward_seek_threshold */
+            sprintf( edit_buf, "%d", forward_seek_threshold );
+            SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
+            SendMessage( GetDlgItem( hwnd, IDC_SPIN_FORWARD_THRESHOLD ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_FORWARD_THRESHOLD ), 0 );
             /* seek mode */
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
@@ -390,6 +400,20 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
                 }
             }
+            else if( wparam == IDC_SPIN_FORWARD_THRESHOLD )
+            {
+                LPNMUPDOWN lpnmud = (LPNMUPDOWN)lparam;
+                if( lpnmud->hdr.code == UDN_DELTAPOS )
+                {
+                    GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    forward_seek_threshold = atoi( edit_buf );
+                    if( lpnmud->iDelta )
+                        forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
+                    forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
+                    sprintf( edit_buf, "%d", forward_seek_threshold );
+                    SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
+                }
+            }
             return TRUE;
         case WM_COMMAND :
             switch( wparam )
@@ -408,6 +432,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         return FALSE;
                     }
                     /* threads */
+                    GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    threads = max( atoi( edit_buf ), 0 );
                     if( threads > 0 )
                         fprintf( ini, "threads=%d\n", threads );
                     else
@@ -415,6 +441,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* seek_mode */
                     seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "seek_mode=%d\n", seek_mode );
+                    /* forward_seek_threshold */
+                    GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
+                    fprintf( ini, "forward_threshold=%d\n", forward_seek_threshold );
                     /* readers */
                     reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FFMS_INPUT       ), BM_GETCHECK, 0, 0 )) ? 0 : 1;

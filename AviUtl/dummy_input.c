@@ -35,7 +35,7 @@ static void *open_file( char *file_name, int threads )
     return malloc_zero( sizeof(dummy_handler_t) );
 }
 
-static int get_first_video_track( lsmash_handler_t *h, int seek_mode )
+static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
 {
     return 0;
 }
