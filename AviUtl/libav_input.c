@@ -75,12 +75,15 @@ typedef struct libav_handler_tag
     /* Video stuff */
     int                      video_index;
     AVFormatContext         *video_format;
-    AVCodecContext           *video_ctx;
+    AVCodecContext          *video_ctx;
     struct SwsContext       *sws_ctx;
     uint32_t                 video_frame_count;
-    uint32_t                 last_video_sample_number;
+    uint32_t                 last_video_frame_number;
     uint32_t                 last_rap_number;
     uint32_t                 delay_count;
+    uint32_t                 first_valid_video_frame_number;
+    uint32_t                 first_valid_video_frame_size;
+    uint8_t                 *first_valid_video_frame_data;
     decode_status_t          decode_status;
     video_frame_info_t      *video_frame_list;      /* stored in presentation order */
     uint8_t                 *keyframe_list;         /* stored in decoding order */
@@ -683,6 +686,21 @@ static void setup_timestamp_info( lsmash_handler_t *h )
     h->framerate_den = presentation_timebase;
 }
 
+static int get_sample( AVFormatContext *format_ctx, int stream_index, AVPacket *pkt )
+{
+    av_init_packet( pkt );
+    while( av_read_frame( format_ctx, pkt ) >= 0 )
+    {
+        if( pkt->stream_index != stream_index )
+        {
+            av_free_packet( pkt );
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
@@ -690,7 +708,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return 0;
     h->video_sample_count = hp->video_frame_count;
     setup_timestamp_info( h );
-    hp->last_video_sample_number = 1;
     /* swscale */
     int output_pixel_format;
     output_colorspace_index index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );
@@ -721,6 +738,38 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biHeight      = hp->video_ctx->height;
     h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
     h->video_format.biCompression = colorspace_table[index].compression;
+    /* Find the first valid video frame. */
+    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
+    {
+        AVPacket pkt;
+        if( get_sample( hp->video_format, hp->video_index, &pkt ) == 1 )
+        {
+            av_free_packet( &pkt );
+            break;
+        }
+        AVFrame picture;
+        avcodec_get_frame_defaults( &picture );
+        int got_picture;
+        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) > 0 && got_picture )
+        {
+            av_free_packet( &pkt );
+            if( i <= DECODER_DELAY( hp->video_ctx ) )
+                continue;
+            hp->first_valid_video_frame_number = i - DECODER_DELAY( hp->video_ctx );
+            if( hp->first_valid_video_frame_number > 1 )
+            {
+                hp->first_valid_video_frame_size = h->video_format.biWidth * (h->video_format.biBitCount / 8) * h->video_format.biHeight;
+                hp->first_valid_video_frame_data = malloc( hp->first_valid_video_frame_size );
+                if( !hp->first_valid_video_frame_data )
+                    return -1;
+                if( hp->first_valid_video_frame_size > hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, hp->first_valid_video_frame_data ) )
+                    continue;
+            }
+            break;
+        }
+        av_free_packet( &pkt );
+    }
+    hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
     return 0;
 }
 
@@ -772,21 +821,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
                                      hp->audio_frame_length, Format->nChannels, Format->nSamplesPerSec,
                                      Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
     return 0;
-}
-
-static int get_sample( AVFormatContext *format_ctx, int stream_index, AVPacket *pkt )
-{
-    av_init_packet( pkt );
-    while( av_read_frame( format_ctx, pkt ) >= 0 )
-    {
-        if( pkt->stream_index != stream_index )
-        {
-            av_free_packet( pkt );
-            continue;
-        }
-        return 0;
-    }
-    return 1;
 }
 
 static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
@@ -938,12 +972,19 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     ++sample_number;            /* sample_number is 1-origin. */
+    if( sample_number < hp->first_valid_video_frame_number )
+    {
+        /* Copy the first valid video frame data. */
+        memcpy( buf, hp->first_valid_video_frame_data, hp->first_valid_video_frame_size );
+        hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid frame. */
+        return hp->first_valid_video_frame_size;
+    }
     AVFrame picture;            /* Decoded video data will be stored here. */
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
     int64_t rap_pos = INT64_MIN;
-    if( sample_number == hp->last_video_sample_number + 1 )
+    if( sample_number == hp->last_video_frame_number + 1 )
     {
         start_number = sample_number + hp->delay_count;
         rap_number = hp->last_rap_number;
@@ -973,7 +1014,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             rap_pos = find_random_accessible_point( h, sample_number, rap_number - 1, &rap_number );
         start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
     }
-    hp->last_video_sample_number = sample_number;
+    hp->last_video_frame_number = sample_number;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
                                      picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
     return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, buf );
@@ -1129,6 +1170,8 @@ static void video_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp )
         return;
+    if( hp->first_valid_video_frame_data )
+        free( hp->first_valid_video_frame_data );
     if( hp->video_frame_list )
         free( hp->video_frame_list );
     if( hp->keyframe_list )
