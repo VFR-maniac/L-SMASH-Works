@@ -28,9 +28,9 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "lsmashinput.h"
-
 #include <ffms.h>
+
+#include "lsmashinput.h"
 
 typedef struct
 {
@@ -139,17 +139,17 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     int input_pixel_format = frame->EncodedPixelFormat;
     int output_pixel_format;
-    output_colorspace index = determine_colorspace_conversion( &input_pixel_format, &output_pixel_format );
+    output_colorspace_index index = determine_colorspace_conversion( &input_pixel_format, &output_pixel_format );
     static const struct
     {
-        func_get_output *get_output;
-        int              pixel_size;
-        uint32_t         compression;
+        func_get_output      *get_output;
+        int                   pixel_size;
+        output_colorspace_tag compression;
     } colorspace_table[3] =
         {
-            { yuv16le_to_yc48, YC48_SIZE,  MAKEFOURCC( 'Y', 'C', '4', '8' ) },
-            { flip_vertical,   RGB24_SIZE, 0                                },
-            { just_copy,       YUY2_SIZE,  MAKEFOURCC( 'Y', 'U', 'Y', '2' ) }
+            { yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 },
+            { flip_vertical,   RGB24_SIZE, OUTPUT_TAG_RGB  },
+            { just_copy,       YUY2_SIZE,  OUTPUT_TAG_YUY2 }
         };
     hp->get_output = colorspace_table[index].get_output;
     int pixelformat[2] = { output_pixel_format, -1 };

@@ -77,7 +77,7 @@ static void avoid_yuv_scale_conversion( int *input_pixel_format )
             *input_pixel_format = range_hack_table[i].limited;
 }
 
-output_colorspace determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format )
+output_colorspace_index determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format )
 {
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "input_pixel_format = %s", av_pix_fmt_descriptors[*input_pixel_format].name );
     avoid_yuv_scale_conversion( input_pixel_format );

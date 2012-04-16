@@ -22,14 +22,15 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "lsmashinput.h"
-
 /* Libav
  * The binary file will be LGPLed or GPLed. */
 #include <libavformat/avformat.h>   /* Demuxer */
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
-#include <libavutil/mathematics.h>  /* av_rescale */
+#include <libavutil/mathematics.h>  /* Timebase rescaler */
+
+#include "lsmashinput.h"
+#include "colorspace.h"
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
 
@@ -69,45 +70,40 @@ typedef struct
 
 typedef struct libav_handler_tag
 {
-    char               *file_name;
-    int                 threads;
+    char                    *file_name;
+    int                      threads;
     /* Video stuff */
-    int                 video_index;
-    AVFormatContext    *video_format;
-    AVCodecContext     *video_ctx;
-    struct SwsContext  *sws_ctx;
-    uint32_t            video_frame_count;
-    uint32_t            last_video_sample_number;
-    uint32_t            last_rap_number;
-    uint32_t            delay_count;
-    decode_status_t     decode_status;
-    video_frame_info_t *video_frame_list;    /* stored in presentation order */
-    uint8_t            *keyframe_list;       /* stored in decoding order */
-    int                 video_seek_base;
-    int                 seek_mode;
-    int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
+    int                      video_index;
+    AVFormatContext         *video_format;
+    AVCodecContext           *video_ctx;
+    struct SwsContext       *sws_ctx;
+    uint32_t                 video_frame_count;
+    uint32_t                 last_video_sample_number;
+    uint32_t                 last_rap_number;
+    uint32_t                 delay_count;
+    decode_status_t          decode_status;
+    video_frame_info_t      *video_frame_list;      /* stored in presentation order */
+    uint8_t                 *keyframe_list;         /* stored in decoding order */
+    int                      video_seek_base;
+    int                      seek_mode;
+    func_convert_colorspace *convert_colorspace;
     /* Audio stuff */
-    int                 audio_index;
-    AVFormatContext    *audio_format;
-    AVCodecContext     *audio_ctx;
-    AVCodecParserContext *audio_parser;
-    AVIndexEntry       *audio_index_entries;
-    int                 audio_index_entries_count;
-    uint8_t            *audio_output_buffer;
-    uint32_t            audio_frame_count;
-    uint32_t            audio_frame_length;
-    audio_frame_info_t *audio_frame_list;
-    int                 audio_seek_base;
-    uint32_t            next_audio_pcm_sample_number;
-    uint32_t            last_audio_frame_number;
-    uint32_t            last_remainder_size;
-    int64_t             av_gap;
+    int                      audio_index;
+    AVFormatContext         *audio_format;
+    AVCodecContext          *audio_ctx;
+    AVCodecParserContext    *audio_parser;
+    AVIndexEntry            *audio_index_entries;
+    int                      audio_index_entries_count;
+    uint8_t                 *audio_output_buffer;
+    uint32_t                 audio_frame_count;
+    uint32_t                 audio_frame_length;
+    audio_frame_info_t      *audio_frame_list;
+    int                      audio_seek_base;
+    uint32_t                 next_audio_pcm_sample_number;
+    uint32_t                 last_audio_frame_number;
+    uint32_t                 last_remainder_size;
+    int64_t                  av_gap;
 } libav_handler_t;
-
-/* Colorspace converters */
-int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
-int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
-int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf );
 
 static int lavf_open_file( AVFormatContext **format_ctx, char *file_name )
 {
@@ -697,17 +693,17 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     hp->last_video_sample_number = 1;
     /* swscale */
     int output_pixel_format;
-    output_colorspace index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );
+    output_colorspace_index index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );
     static const struct
     {
-        int (*convert_colorspace)( AVCodecContext *, struct SwsContext *, AVFrame *, uint8_t * );
-        int      pixel_size;
-        uint32_t compression;
+        func_convert_colorspace *convert_colorspace;
+        int                      pixel_size;
+        output_colorspace_tag    compression;
     } colorspace_table[3] =
         {
-            { to_yuv16le_to_yc48, YC48_SIZE,  MAKEFOURCC( 'Y', 'C', '4', '8' ) },
-            { to_rgb24,           RGB24_SIZE, 0                                },
-            { to_yuy2,            YUY2_SIZE,  MAKEFOURCC( 'Y', 'U', 'Y', '2' ) }
+            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 },
+            { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
+            { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 }
         };
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,
@@ -997,7 +993,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         if( start + wanted_length < hp->av_gap )
         {
             hp->last_remainder_size          = 0;
-            hp->next_audio_pcm_sample_number = 0;
             hp->last_audio_frame_number      = 0;
             hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;
             return 0;

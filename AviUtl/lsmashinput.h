@@ -80,7 +80,14 @@ typedef enum
     OUTPUT_YC48  = 0,
     OUTPUT_RGB24 = 1,
     OUTPUT_YUY2  = 2,
-} output_colorspace;
+} output_colorspace_index;
+
+typedef enum
+{
+    OUTPUT_TAG_YC48 = MAKEFOURCC( 'Y', 'C', '4', '8' ),
+    OUTPUT_TAG_RGB  = 0x00000000,
+    OUTPUT_TAG_YUY2 = MAKEFOURCC( 'Y', 'U', 'Y', '2' ),
+} output_colorspace_tag;
 
 typedef struct
 {
@@ -137,6 +144,6 @@ struct lsmash_handler_tag
 
 void *malloc_zero( size_t size );
 int check_sse2();
-output_colorspace determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format );
+output_colorspace_index determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format );
 
 typedef void func_get_output( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range );
