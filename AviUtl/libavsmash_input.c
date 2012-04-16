@@ -881,6 +881,8 @@ static void video_cleanup( lsmash_handler_t *h )
         free( hp->keyframe_list );
     if( hp->video_input_buffer )
         av_free( hp->video_input_buffer );
+    if( hp->first_valid_video_sample_data )
+        free( hp->first_valid_video_sample_data );
     if( hp->sws_ctx )
         sws_freeContext( hp->sws_ctx );
     if( hp->video_ctx )
