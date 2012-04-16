@@ -844,7 +844,7 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     return 0;
 }
 
-static int64_t find_random_accessible_point( lsmash_handler_t *h, uint32_t presentation_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
+static void find_random_accessible_point( lsmash_handler_t *h, uint32_t presentation_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     uint8_t is_leading = hp->video_frame_list[presentation_sample_number].is_leading;
@@ -864,10 +864,14 @@ static int64_t find_random_accessible_point( lsmash_handler_t *h, uint32_t prese
     }
     if( *rap_number == 0 )
         *rap_number = 1;
-    hp->last_rap_number = *rap_number;
+}
+
+static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
+{
+    libav_handler_t *hp = (libav_handler_t *)h->video_private;
     int64_t rap_pos = INT64_MIN;
     for( uint32_t i = 1; i <= h->video_sample_count; i++ )
-        if( *rap_number == hp->video_frame_list[i].sample_number )
+        if( rap_number == hp->video_frame_list[i].sample_number )
         {
             rap_pos = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[i].file_offset
                     : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[i].pts
@@ -995,9 +999,17 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     }
     else
     {
-        /* Require starting to decode from random accessible sample. */
-        rap_pos = find_random_accessible_point( h, sample_number, 0, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+
+        find_random_accessible_point( h, sample_number, 0, &rap_number );
+        if( rap_number == hp->last_rap_number && sample_number > hp->last_video_frame_number )
+            start_number = hp->last_video_frame_number + 1 + hp->video_delay_count;
+        else
+        {
+            /* Require starting to decode from random accessible sample. */
+            rap_pos = get_random_accessible_point_position( h, rap_number );
+            hp->last_rap_number = rap_number;
+            start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+        }
     }
     /* Get desired picture. */
     int error_count = 0;
@@ -1014,8 +1026,12 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             seek_mode = SEEK_MODE_AGGRESSIVE;
         }
         else
+        {
             /* Retry to decode from more past random accessible sample. */
-            rap_pos = find_random_accessible_point( h, sample_number, rap_number - 1, &rap_number );
+            find_random_accessible_point( h, sample_number, rap_number - 1, &rap_number );
+            rap_pos = get_random_accessible_point_position( h, rap_number );
+            hp->last_rap_number = rap_number;
+        }
         start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
     }
     hp->last_video_frame_number = sample_number;

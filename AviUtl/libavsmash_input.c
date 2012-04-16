@@ -577,7 +577,6 @@ static int find_random_accessible_point( libavsmash_handler_t *hp, uint32_t comp
     int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
     if( (roll_recovery || is_leading) && *rap_number > distance )
         *rap_number -= distance;
-    hp->last_rap_number = *rap_number;
     return roll_recovery;
 }
 
@@ -693,9 +692,18 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     }
     else
     {
-        /* Require starting to decode from random accessible sample. */
         roll_recovery = find_random_accessible_point( hp, sample_number, 0, &rap_number );
-        start_number = seek_video( hp, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
+        if( rap_number == hp->last_rap_number && sample_number > hp->last_video_sample_number )
+        {
+            roll_recovery = 0;
+            start_number = hp->last_video_sample_number + 1 + hp->video_delay_count;
+        }
+        else
+        {
+            /* Require starting to decode from random accessible sample. */
+            hp->last_rap_number = rap_number;
+            start_number = seek_video( hp, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
+        }
     }
     /* Get desired picture. */
     int error_count = 0;
@@ -712,8 +720,11 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             seek_mode = SEEK_MODE_AGGRESSIVE;
         }
         else
+        {
             /* Retry to decode from more past random accessible sample. */
             roll_recovery = find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
+            hp->last_rap_number = rap_number;
+        }
         start_number = seek_video( hp, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     hp->last_video_sample_number = sample_number;
