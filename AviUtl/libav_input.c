@@ -933,7 +933,8 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
 {
     /* Prepare to decode from random accessible sample. */
     int flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
+    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0
+     && av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY ) < 0 )
         return 0;
     flush_buffers( hp->video_ctx );
     hp->video_delay_count = 0;
