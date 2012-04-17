@@ -77,6 +77,8 @@ typedef struct libav_handler_tag
     AVFormatContext         *video_format;
     AVCodecContext          *video_ctx;
     struct SwsContext       *sws_ctx;
+    AVIndexEntry            *video_index_entries;
+    int                      video_index_entries_count;
     uint32_t                 video_frame_count;
     uint32_t                 last_video_frame_number;
     uint32_t                 last_rap_number;
@@ -406,6 +408,22 @@ static void create_index( libav_handler_t *hp )
         hp->video_frame_list = video_info;
         hp->video_frame_count = video_sample_count;
         decide_video_seek_method( hp, video_sample_count );
+        AVStream *video_stream = format_ctx->streams[ hp->video_index ];
+        if( video_stream->nb_index_entries > 0 )
+        {
+            hp->video_index_entries = av_malloc( video_stream->index_entries_allocated_size );
+            if( !hp->video_index_entries )
+            {
+                if( video_info )
+                    free( video_info );
+                if( audio_info )
+                    free( audio_info );
+                return;
+            }
+            for( int i = 0; i < video_stream->nb_index_entries; i++ )
+                hp->video_index_entries[i] = video_stream->index_entries[i];
+            hp->video_index_entries_count = video_stream->nb_index_entries;
+        }
     }
     if( read_audio )
     {
@@ -528,6 +546,11 @@ static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forwar
      || lavf_open_file( &hp->video_format, hp->file_name )
      || !get_first_track_of_type( hp, hp->video_format, AVMEDIA_TYPE_VIDEO ) )
     {
+        if( hp->video_index_entries )
+        {
+            av_free( hp->video_index_entries );
+            hp->video_index_entries = NULL;
+        }
         if( hp->video_frame_list )
         {
             free( hp->video_frame_list );
@@ -709,6 +732,18 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     if( !hp->video_ctx )
         return 0;
     h->video_sample_count = hp->video_frame_count;
+    if( hp->video_index_entries )
+    {
+        AVStream *video_stream = hp->video_format->streams[ hp->video_index ];
+        for( int i = 0; i < hp->video_index_entries_count; i++ )
+        {
+            AVIndexEntry *ie = &hp->video_index_entries[i];
+            if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
+                return -1;
+        }
+        av_free( hp->video_index_entries );
+        hp->video_index_entries = NULL;
+    }
     setup_timestamp_info( h );
     /* swscale */
     int output_pixel_format;
@@ -1208,6 +1243,8 @@ static void video_cleanup( lsmash_handler_t *h )
         free( hp->video_frame_list );
     if( hp->keyframe_list )
         free( hp->keyframe_list );
+    if( hp->video_index_entries )
+        av_free( hp->video_index_entries );
     if( hp->sws_ctx )
         sws_freeContext( hp->sws_ctx );
     if( hp->video_ctx )
