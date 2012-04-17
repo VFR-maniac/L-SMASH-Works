@@ -51,6 +51,17 @@ typedef enum
 
 typedef struct
 {
+    int64_t pts;
+    int64_t dts;
+} video_timestamp_t;
+
+typedef struct
+{
+    uint32_t decoding_to_presentation;
+} order_converter_t;
+
+typedef struct
+{
     uint8_t  keyframe;
     uint8_t  is_leading;
     uint32_t sample_number;
@@ -89,6 +100,8 @@ typedef struct libav_handler_tag
     decode_status_t          decode_status;
     video_frame_info_t      *video_frame_list;      /* stored in presentation order */
     uint8_t                 *keyframe_list;         /* stored in decoding order */
+    order_converter_t       *order_converter;       /* stored in decoding order */
+    int                      reordering_present;
     int                      video_seek_base;
     int                      seek_mode;
     uint32_t                 forward_seek_threshold;
@@ -178,12 +191,23 @@ static int compare_pts( const video_frame_info_t *a, const video_frame_info_t *b
     return diff > 0 ? 1 : (diff == 0 ? 0 : -1);
 }
 
+static int compare_dts( const video_timestamp_t *a, const video_timestamp_t *b )
+{
+    int64_t diff = (int64_t)(a->dts - b->dts);
+    return diff > 0 ? 1 : (diff == 0 ? 0 : -1);
+}
+
 static inline void sort_presentation_order( video_frame_info_t *info, uint32_t sample_count )
 {
     qsort( info, sample_count, sizeof(video_frame_info_t), (int(*)( const void *, const void * ))compare_pts );
 }
 
-static void decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count )
+static inline void sort_decoding_order( video_timestamp_t *timestamp, uint32_t sample_count )
+{
+    qsort( timestamp, sample_count, sizeof(video_timestamp_t), (int(*)( const void *, const void * ))compare_dts );
+}
+
+static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count )
 {
     hp->video_seek_base = !strcmp( hp->video_format->iformat->name, "mpeg" ) || !strcmp( hp->video_format->iformat->name, "mpegts" )
                         ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
@@ -216,13 +240,35 @@ static void decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count
     if( hp->video_seek_base & SEEK_PTS_BASED )
     {
         if( check_frame_reordering( info, sample_count ) )
+        {
             /* Consider presentation order for keyframe detection.
              * Note: sample number is 1-origin. */
             sort_presentation_order( &info[1], sample_count );
+            hp->reordering_present = 1;
+            if( hp->video_seek_base & SEEK_DTS_BASED )
+            {
+                hp->order_converter = malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
+                if( !hp->order_converter )
+                {
+                    DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
+                    return -1;
+                }
+                video_timestamp_t timestamp[sample_count + 1];
+                for( uint32_t i = 1; i <= sample_count; i++ )
+                {
+                    timestamp[i].pts = i;
+                    timestamp[i].dts = info[i].dts;
+                }
+                sort_decoding_order( &timestamp[1], sample_count );
+                for( uint32_t i = 1; i <= sample_count; i++ )
+                    hp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
+            }
+        }
     }
     else if( hp->video_seek_base & SEEK_DTS_BASED )
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
+    return 0;
 }
 
 static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count )
@@ -325,11 +371,7 @@ static void create_index( libav_handler_t *hp )
                 if( !temp )
                 {
                     av_free_packet( &pkt );
-                    if( video_info )
-                        free( video_info );
-                    if( audio_info )
-                        free( audio_info );
-                    return;
+                    goto fail_index;
                 }
                 video_info = temp;
             }
@@ -381,11 +423,7 @@ static void create_index( libav_handler_t *hp )
                 if( !temp )
                 {
                     av_free_packet( &pkt );
-                    if( video_info )
-                        free( video_info );
-                    if( audio_info )
-                        free( audio_info );
-                    return;
+                    goto fail_index;
                 }
                 audio_info = temp;
             }
@@ -396,30 +434,19 @@ static void create_index( libav_handler_t *hp )
     {
         hp->keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
         if( !hp->keyframe_list )
-        {
-            if( video_info )
-                free( video_info );
-            if( audio_info )
-                free( audio_info );
-            return;
-        }
+            goto fail_index;
         for( uint32_t i = 0; i <= video_sample_count; i++ )
             hp->keyframe_list[i] = video_info[i].keyframe;
         hp->video_frame_list = video_info;
         hp->video_frame_count = video_sample_count;
-        decide_video_seek_method( hp, video_sample_count );
+        if( decide_video_seek_method( hp, video_sample_count ) )
+            goto fail_index;
         AVStream *video_stream = format_ctx->streams[ hp->video_index ];
         if( video_stream->nb_index_entries > 0 )
         {
             hp->video_index_entries = av_malloc( video_stream->index_entries_allocated_size );
             if( !hp->video_index_entries )
-            {
-                if( video_info )
-                    free( video_info );
-                if( audio_info )
-                    free( audio_info );
-                return;
-            }
+                goto fail_index;
             for( int i = 0; i < video_stream->nb_index_entries; i++ )
                 hp->video_index_entries[i] = video_stream->index_entries[i];
             hp->video_index_entries_count = video_stream->nb_index_entries;
@@ -457,13 +484,7 @@ static void create_index( libav_handler_t *hp )
              * This avoids for re-reading the file to create index_entries since the file will be closed once. */
             hp->audio_index_entries = av_malloc( audio_stream->index_entries_allocated_size );
             if( !hp->audio_index_entries )
-            {
-                if( video_info )
-                    free( video_info );
-                if( audio_info )
-                    free( audio_info );
-                return;
-            }
+                goto fail_index;
             for( int i = 0; i < audio_stream->nb_index_entries; i++ )
                 hp->audio_index_entries[i] = audio_stream->index_entries[i];
             hp->audio_index_entries_count = audio_stream->nb_index_entries;
@@ -480,6 +501,13 @@ static void create_index( libav_handler_t *hp )
                 hp->av_gap = av_rescale_q( hp->av_gap, audio_time_base, (AVRational){ 1, audio_stream->codec->sample_rate } );
         }
     }
+    return;
+fail_index:
+    if( video_info )
+        free( video_info );
+    if( audio_info )
+        free( audio_info );
+    return;
 }
 
 static void *open_file( char *file_name, int threads )
@@ -555,6 +583,11 @@ static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forwar
         {
             free( hp->video_frame_list );
             hp->video_frame_list = NULL;
+        }
+        if( hp->order_converter )
+        {
+            free( hp->order_converter );
+            hp->order_converter = NULL;
         }
         if( hp->keyframe_list )
         {
@@ -723,6 +756,7 @@ static int get_sample( AVFormatContext *format_ctx, int stream_index, AVPacket *
         }
         return 0;
     }
+    av_free_packet( pkt );
     return 1;
 }
 
@@ -904,6 +938,16 @@ static void find_random_accessible_point( lsmash_handler_t *h, uint32_t presenta
 static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
+    if( hp->order_converter || !hp->reordering_present )
+    {
+        uint32_t presentation_rap_number = hp->order_converter
+                                         ? hp->order_converter[rap_number].decoding_to_presentation
+                                         : rap_number;
+        return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
+             : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
+             : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
+             :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
+    }
     int64_t rap_pos = INT64_MIN;
     for( uint32_t i = 1; i <= h->video_sample_count; i++ )
         if( rap_number == hp->video_frame_list[i].sample_number )
@@ -1182,12 +1226,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         else if( get_sample( hp->audio_format, hp->audio_index, &pkt ) )
             goto audio_out;
         int decode_complete;
-        if( avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &pkt ) < 0 )
-        {
-            DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to decode a audio frame." );
-            goto audio_out;
-        }
-        if( decode_complete && hp->audio_frame_buffer.data[0] )
+        if( avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &pkt ) >= 0
+         && decode_complete && hp->audio_frame_buffer.data[0] )
         {
             int decoded_data_size = hp->audio_frame_buffer.nb_samples * block_align;
             if( decoded_data_size > data_offset )
@@ -1202,6 +1242,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 if( wanted_length <= 0 )
                 {
                     hp->last_remainder_size = decoded_data_size - copy_size;
+                    av_free_packet( &pkt );
                     goto audio_out;
                 }
             }
@@ -1211,7 +1252,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 data_offset -= decoded_data_size;
             }
         }
-        else
+        else if( pkt.data )     /* Count audio frame delay only if feeding non-NULL packet. */
             ++ hp->audio_delay_count;
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, copied_length = %d, output_length = %d",
                                          frame_number, hp->audio_frame_buffer.nb_samples, copy_size / block_align, output_length );
@@ -1242,6 +1283,8 @@ static void video_cleanup( lsmash_handler_t *h )
         free( hp->first_valid_video_frame_data );
     if( hp->video_frame_list )
         free( hp->video_frame_list );
+    if( hp->order_converter )
+        free( hp->order_converter );
     if( hp->keyframe_list )
         free( hp->keyframe_list );
     if( hp->video_index_entries )
