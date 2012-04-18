@@ -697,6 +697,11 @@ static int get_first_audio_track( lsmash_handler_t *h )
             free( hp->audio_frame_list );
             hp->audio_frame_list = NULL;
         }
+        if( hp->audio_parser )
+        {
+            av_parser_close( hp->audio_parser );
+            hp->audio_parser = NULL;
+        }
         if( hp->audio_ctx )
         {
             avcodec_close( hp->audio_ctx );
@@ -1375,6 +1380,8 @@ static void audio_cleanup( lsmash_handler_t *h )
         return;
     if( hp->audio_index_entries )
         av_free( hp->audio_index_entries );
+    if( hp->audio_parser )
+        av_parser_close( hp->audio_parser );
     if( hp->audio_ctx )
         avcodec_close( hp->audio_ctx );
     if( hp->audio_format )
