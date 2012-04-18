@@ -73,6 +73,7 @@ typedef struct
 typedef struct
 {
     int      length;
+    int      keyframe;
     uint32_t sample_number;
     int64_t  pts;
     int64_t  dts;
@@ -477,6 +478,28 @@ static void create_index( libav_handler_t *hp )
         hp->audio_frame_list   = audio_info;
         hp->audio_frame_count  = audio_sample_count;
         decide_audio_seek_method( hp, audio_sample_count );
+        /* Treat audio frames with unique value as a keyframe. */
+        if( hp->audio_seek_base & SEEK_FILE_OFFSET_BASED )
+        {
+            audio_info[1].keyframe = (audio_info[1].file_offset != -1);
+            for( uint32_t i = 2; i <= audio_sample_count; i++ )
+                audio_info[i].keyframe = (audio_info[i].file_offset != -1) && (audio_info[i].file_offset != audio_info[i - 1].file_offset);
+        }
+        else if( hp->audio_seek_base & SEEK_PTS_BASED )
+        {
+            audio_info[1].keyframe = (audio_info[1].pts != AV_NOPTS_VALUE);
+            for( uint32_t i = 2; i <= audio_sample_count; i++ )
+                audio_info[i].keyframe = (audio_info[i].pts != AV_NOPTS_VALUE) && (audio_info[i].pts != audio_info[i - 1].pts);
+        }
+        else if( hp->audio_seek_base & SEEK_DTS_BASED )
+        {
+            audio_info[1].keyframe = (audio_info[1].dts != AV_NOPTS_VALUE);
+            for( uint32_t i = 2; i <= audio_sample_count; i++ )
+                audio_info[i].keyframe = (audio_info[i].dts != AV_NOPTS_VALUE) && (audio_info[i].dts != audio_info[i - 1].dts);
+        }
+        else
+            for( uint32_t i = 1; i <= audio_sample_count; i++ )
+                audio_info[i].keyframe = 1;
         AVStream *audio_stream = format_ctx->streams[ hp->audio_index ];
         if( audio_stream->nb_index_entries > 0 )
         {
@@ -1183,17 +1206,12 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         } while( frame_number <= hp->audio_frame_count );
         data_offset = (start + frame_length - next_frame_pos) * block_align;
         uint32_t rap_number = frame_number;
-        int64_t rap_pos;
-        if( hp->audio_seek_base & SEEK_FILE_OFFSET_BASED )
-        {
-            while( hp->audio_frame_list[rap_number].file_offset == -1 )
-                --rap_number;
-            rap_pos = hp->audio_frame_list[rap_number].file_offset;
-        }
-        else
-            rap_pos = (hp->audio_seek_base & SEEK_PTS_BASED) ? hp->audio_frame_list[rap_number].pts
-                    : (hp->audio_seek_base & SEEK_DTS_BASED) ? hp->audio_frame_list[rap_number].dts
-                    :                                          hp->audio_frame_list[rap_number].sample_number;
+        while( !hp->audio_frame_list[rap_number].keyframe )
+            --rap_number;
+        int64_t rap_pos = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->audio_frame_list[rap_number].file_offset
+                        : (hp->audio_seek_base & SEEK_PTS_BASED)         ? hp->audio_frame_list[rap_number].pts
+                        : (hp->audio_seek_base & SEEK_DTS_BASED)         ? hp->audio_frame_list[rap_number].dts
+                        :                                                  hp->audio_frame_list[rap_number].sample_number;
         int flags = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->audio_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
         if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
