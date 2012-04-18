@@ -1173,6 +1173,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     int      copy_size;
     int      output_length = 0;
     int      block_align = h->audio_format.Format.nBlockAlign;
+    int      already_gotten;
+    AVPacket pkt;
     if( start == hp->next_audio_pcm_sample_number )
     {
         frame_number = hp->last_audio_frame_number;
@@ -1190,6 +1192,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         }
         ++frame_number;
         data_offset = 0;
+        already_gotten = 0;
     }
     else
     {
@@ -1221,19 +1224,24 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
         flush_buffers( hp->audio_ctx );
-        AVPacket pkt;
-        while( rap_number < frame_number )
+        while( rap_number <= frame_number )
         {
             if( get_sample( hp->audio_format, hp->audio_index, &pkt ) )
                 break;
+            if( ((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt.pos == -1 || hp->audio_frame_list[rap_number].file_offset > pkt.pos))
+             || ((hp->audio_seek_base & SEEK_PTS_BASED) && (pkt.pts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].pts > pkt.pts))
+             || ((hp->audio_seek_base & SEEK_DTS_BASED) && (pkt.dts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].dts > pkt.dts)) )
+                continue;   /* Seeking was too backward. */
             ++rap_number;
         }
+        already_gotten = 1;
     }
     do
     {
         copy_size = 0;
-        AVPacket pkt;
-        if( frame_number > hp->audio_frame_count )
+        if( already_gotten )
+            already_gotten = 0;
+        else if( frame_number > hp->audio_frame_count )
         {
             if( hp->audio_delay_count )
             {
