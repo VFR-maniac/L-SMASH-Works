@@ -516,12 +516,17 @@ static void create_index( libav_handler_t *hp )
         {
             AVRational video_time_base = format_ctx->streams[ hp->video_index ]->time_base;
             AVRational audio_time_base = audio_stream->time_base;
-            if( hp->video_seek_base & SEEK_PTS_BASED )
-                hp->av_gap = audio_info[1].pts - av_rescale_q( video_info[1].pts, video_time_base, audio_time_base );
-            else if( hp->video_seek_base & SEEK_DTS_BASED )
-                hp->av_gap = audio_info[1].dts - av_rescale_q( video_info[1].dts, video_time_base, audio_time_base );
-            if( hp->av_gap )
-                hp->av_gap = av_rescale_q( hp->av_gap, audio_time_base, (AVRational){ 1, audio_stream->codec->sample_rate } );
+            int64_t video_ts = (hp->video_seek_base & SEEK_PTS_BASED) ? video_info[1].pts
+                             : (hp->video_seek_base & SEEK_DTS_BASED) ? video_info[1].dts
+                             :                                          0;
+            int64_t audio_ts = (hp->audio_seek_base & SEEK_PTS_BASED) ? audio_info[1].pts
+                             : (hp->audio_seek_base & SEEK_DTS_BASED) ? audio_info[1].dts
+                             :                                          0;
+            if( video_ts || audio_ts )
+            {
+                AVRational audio_sample_base = (AVRational){ 1, audio_stream->codec->sample_rate };
+                hp->av_gap = av_rescale_q( audio_ts, audio_time_base, audio_sample_base ) - av_rescale_q( video_ts, video_time_base, audio_sample_base );
+            }
         }
     }
     return;
