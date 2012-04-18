@@ -193,8 +193,8 @@ INPUT_HANDLE func_open( LPSTR file )
             if( !hp->video_private )
             {
                 hp->video_private = private_stuff;
-                if( reader.get_first_video_track
-                 && reader.get_first_video_track( hp, seek_mode, forward_seek_threshold ) == 0 )
+                if( reader.get_video_track
+                 && reader.get_video_track( hp, seek_mode, forward_seek_threshold ) == 0 )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -209,8 +209,8 @@ INPUT_HANDLE func_open( LPSTR file )
             if( !hp->audio_private )
             {
                 hp->audio_private = private_stuff;
-                if( reader.get_first_audio_track
-                 && reader.get_first_audio_track( hp ) == 0 )
+                if( reader.get_audio_track
+                 && reader.get_audio_track( hp ) == 0 )
                 {
                     hp->audio_reader     = reader.type;
                     hp->read_audio       = reader.read_audio;

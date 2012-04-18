@@ -86,11 +86,15 @@ typedef struct libav_handler_tag
     int                      threads;
     /* Video stuff */
     int                      video_index;
+    enum CodecID             video_codec_id;
     AVFormatContext         *video_format;
     AVCodecContext          *video_ctx;
     struct SwsContext       *sws_ctx;
     AVIndexEntry            *video_index_entries;
     int                      video_index_entries_count;
+    int                      video_width;
+    int                      video_height;
+    enum PixelFormat         pix_fmt;
     uint32_t                 video_frame_count;
     uint32_t                 last_video_frame_number;
     uint32_t                 last_rap_number;
@@ -140,42 +144,13 @@ static int lavf_open_file( AVFormatContext **format_ctx, char *file_name )
     }
     return 0;
 }
-
-static int get_first_track_of_type( libav_handler_t *hp, AVFormatContext *format_ctx, uint32_t type )
+static int open_decoder( AVCodecContext *ctx, enum CodecID codec_id, int threads )
 {
-    /* libavformat */
-    int index;
-    for( index = 0; index < format_ctx->nb_streams && format_ctx->streams[index]->codec->codec_type != type; index++ );
-    if( index == format_ctx->nb_streams )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find stream by libavformat." );
-        return 0;
-    }
-    /* libavcodec */
-    AVCodecContext *ctx = format_ctx->streams[index]->codec;
-    if( type == AVMEDIA_TYPE_VIDEO )
-    {
-        hp->video_ctx   = ctx;
-        hp->video_index = index;
-    }
-    else
-    {
-        hp->audio_ctx   = ctx;
-        hp->audio_index = index;
-    }
-    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
+    AVCodec *codec = avcodec_find_decoder( codec_id );
     if( !codec )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s decoder.", codec->name );
-        return 0;
-    }
-    ctx->thread_count = hp->threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avcodec_open2." );
-        return 0;
-    }
-    return 1;
+        return -1;
+    ctx->thread_count = threads;
+    return (avcodec_open2( ctx, codec, NULL ) < 0) ? -1 : 0;
 }
 
 static inline int check_frame_reordering( video_frame_info_t *info, uint32_t sample_count )
@@ -341,43 +316,64 @@ static void create_index( libav_handler_t *hp )
     }
     AVPacket pkt;
     av_init_packet( &pkt );
+    AVFormatContext *format_ctx    = hp->video_format;
+    int      video_resolution      = hp->video_ctx->width * hp->video_ctx->height;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = INT64_MIN;
     uint32_t audio_sample_count    = 0;
     int      constant_frame_length = 1;
     int      frame_length          = 0;
     uint64_t audio_duration        = 0;
-    AVFormatContext *format_ctx    = hp->video_format;
     /* av_read_frame() obtains exactly one frame. */
     while( av_read_frame( format_ctx, &pkt ) >= 0 )
     {
-        if( read_video && pkt.stream_index == hp->video_index )
+        if( read_video )
         {
-            ++video_sample_count;
-            video_info[video_sample_count].pts           = pkt.pts;
-            video_info[video_sample_count].dts           = pkt.dts;
-            video_info[video_sample_count].file_offset   = pkt.pos;
-            video_info[video_sample_count].sample_number = video_sample_count;
-            if( pkt.pts < last_keyframe_pts )
-                video_info[video_sample_count].is_leading = 1;
-            if( pkt.flags & AV_PKT_FLAG_KEY )
+            AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;
+            if( pkt.stream_index == hp->video_index
+             || (pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO && pkt_ctx->width * pkt_ctx->height > video_resolution) )
             {
-                video_info[video_sample_count].keyframe = 1;
-                last_keyframe_pts = pkt.pts;
-            }
-            if( video_sample_count == video_info_count )
-            {
-                video_info_count <<= 1;
-                video_frame_info_t *temp = realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
-                if( !temp )
+                if( pkt.stream_index != hp->video_index && !open_decoder( pkt_ctx, pkt_ctx->codec_id, hp->threads ) )
                 {
-                    av_free_packet( &pkt );
-                    goto fail_index;
+                    /* Replace lower resolution stream with higher. */
+                    if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
+                        pkt_ctx->pix_fmt = hp->video_ctx->pix_fmt;
+                    avcodec_close( hp->video_ctx );
+                    hp->video_ctx      = pkt_ctx;
+                    hp->video_codec_id = pkt_ctx->codec_id;
+                    hp->video_index    = pkt.stream_index;
+                    video_resolution   = pkt_ctx->width * pkt_ctx->height;
+                    video_sample_count = 0;
+                    last_keyframe_pts  = INT64_MIN;
+                    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "index = %d, codec_id = %d, width = %d, height = %d",
+                                                     hp->video_index, hp->video_codec_id, pkt_ctx->width, pkt_ctx->height );
                 }
-                video_info = temp;
+                ++video_sample_count;
+                video_info[video_sample_count].pts           = pkt.pts;
+                video_info[video_sample_count].dts           = pkt.dts;
+                video_info[video_sample_count].file_offset   = pkt.pos;
+                video_info[video_sample_count].sample_number = video_sample_count;
+                if( pkt.pts < last_keyframe_pts )
+                    video_info[video_sample_count].is_leading = 1;
+                if( pkt.flags & AV_PKT_FLAG_KEY )
+                {
+                    video_info[video_sample_count].keyframe = 1;
+                    last_keyframe_pts = pkt.pts;
+                }
+                if( video_sample_count == video_info_count )
+                {
+                    video_info_count <<= 1;
+                    video_frame_info_t *temp = realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
+                    if( !temp )
+                    {
+                        av_free_packet( &pkt );
+                        goto fail_index;
+                    }
+                    video_info = temp;
+                }
             }
         }
-        else if( read_audio && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
+        if( read_audio && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
         {
             /* Get frame_length. */
             if( hp->audio_parser )
@@ -439,8 +435,11 @@ static void create_index( libav_handler_t *hp )
             goto fail_index;
         for( uint32_t i = 0; i <= video_sample_count; i++ )
             hp->keyframe_list[i] = video_info[i].keyframe;
-        hp->video_frame_list = video_info;
+        hp->video_frame_list  = video_info;
         hp->video_frame_count = video_sample_count;
+        hp->video_width       = hp->video_ctx->width;
+        hp->video_height      = hp->video_ctx->height;
+        hp->pix_fmt           = hp->video_ctx->pix_fmt;
         if( decide_video_seek_method( hp, video_sample_count ) )
             goto fail_index;
         /* Treat video frames with unique value as keyframe. */
@@ -598,8 +597,36 @@ static void *open_file( char *file_name, int threads )
     hp->audio_format = format_ctx;
     hp->file_name    = file_name;
     hp->threads      = threads;
-    int video_present = get_first_track_of_type( hp, hp->video_format, AVMEDIA_TYPE_VIDEO );
-    int audio_present = get_first_track_of_type( hp, hp->audio_format, AVMEDIA_TYPE_AUDIO );
+    int video_present = 0;
+    int video_resolution = 0;
+    for( int index = 0; index < format_ctx->nb_streams; index++ )
+    {
+        AVCodecContext *ctx = format_ctx->streams[index]->codec;
+        if( ctx->codec_type == AVMEDIA_TYPE_VIDEO && (ctx->width * ctx->height) > video_resolution )
+        {
+            video_resolution   = ctx->width * ctx->height;
+            hp->video_codec_id = ctx->codec_id;
+            hp->video_ctx      = ctx;
+            hp->video_index    = index;
+            video_present      = 1;
+        }
+        if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
+            continue;
+    }
+    int audio_present = 0;
+    for( int index = 0; index < format_ctx->nb_streams; index++ )
+    {
+        AVCodecContext *ctx = format_ctx->streams[index]->codec;
+        if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
+        {
+            hp->audio_ctx   = ctx;
+            hp->audio_index = index;
+            audio_present   = 1;
+            break;
+        }
+        if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
+            continue;
+    }
     if( !video_present && !audio_present )
     {
         if( hp->video_ctx )
@@ -614,7 +641,6 @@ static void *open_file( char *file_name, int threads )
         hp->video_index = -1;
     if( !audio_present )
         hp->audio_index = -1;
-
     create_index( hp );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
@@ -634,13 +660,14 @@ static void *open_file( char *file_name, int threads )
     return hp;
 }
 
-static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
+static int get_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( hp->video_index < 0
-     || hp->video_frame_count == 0
-     || lavf_open_file( &hp->video_format, hp->file_name )
-     || !get_first_track_of_type( hp, hp->video_format, AVMEDIA_TYPE_VIDEO ) )
+    int error = hp->video_index < 0
+             || hp->video_frame_count == 0
+             || lavf_open_file( &hp->video_format, hp->file_name );
+    AVCodecContext *ctx = !error ? hp->video_format->streams[ hp->video_index ]->codec : NULL;
+    if( error || open_decoder( ctx, hp->video_codec_id, hp->threads ) )
     {
         if( hp->video_index_entries )
         {
@@ -674,18 +701,20 @@ static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forwar
         }
         return -1;
     }
-    hp->seek_mode = seek_mode;
+    hp->video_ctx              = ctx;
+    hp->seek_mode              = seek_mode;
     hp->forward_seek_threshold = forward_seek_threshold;
     return 0;
 }
 
-static int get_first_audio_track( lsmash_handler_t *h )
+static int get_audio_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( hp->audio_index < 0
-     || hp->audio_frame_count == 0
-     || lavf_open_file( &hp->audio_format, hp->file_name )
-     || !get_first_track_of_type( hp, hp->audio_format, AVMEDIA_TYPE_AUDIO ) )
+    int error = hp->audio_index < 0
+             || hp->audio_frame_count == 0
+             || lavf_open_file( &hp->audio_format, hp->file_name );
+    AVCodecContext *ctx = !error ? hp->audio_format->streams[ hp->audio_index ]->codec : NULL;
+    if( error || open_decoder( ctx, ctx->codec_id, hp->threads ) )
     {
         if( hp->audio_index_entries )
         {
@@ -714,6 +743,7 @@ static int get_first_audio_track( lsmash_handler_t *h )
         }
         return -1;
     }
+    hp->audio_ctx = ctx;
     return 0;
 }
 
@@ -853,6 +883,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     setup_timestamp_info( h );
     /* swscale */
+    hp->video_ctx->width   = hp->video_width;
+    hp->video_ctx->height  = hp->video_height;
+    hp->video_ctx->pix_fmt = hp->pix_fmt;
     int output_pixel_format;
     output_colorspace_index index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );
     static const struct
@@ -1398,8 +1431,8 @@ lsmash_reader_t libav_reader =
 {
     LIBAV_READER,
     open_file,
-    get_first_video_track,
-    get_first_audio_track,
+    get_video_track,
+    get_audio_track,
     NULL,
     prepare_video_decoding,
     prepare_audio_decoding,
