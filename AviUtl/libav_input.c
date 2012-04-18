@@ -407,9 +407,10 @@ static void create_index( libav_handler_t *hp )
             }
             /* Set up audio frame info. */
             ++audio_sample_count;
-            audio_info[audio_sample_count].pts         = pkt.pts;
-            audio_info[audio_sample_count].dts         = pkt.dts;
-            audio_info[audio_sample_count].file_offset = pkt.pos;
+            audio_info[audio_sample_count].pts           = pkt.pts;
+            audio_info[audio_sample_count].dts           = pkt.dts;
+            audio_info[audio_sample_count].file_offset   = pkt.pos;
+            audio_info[audio_sample_count].sample_number = audio_sample_count;
             if( audio_sample_count > hp->audio_delay_count )
             {
                 uint32_t audio_frame_number = audio_sample_count - hp->audio_delay_count;
