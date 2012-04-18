@@ -872,7 +872,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 data_offset -= decoded_data_size;
             }
         }
-        else
+        else if( pkt.data )     /* Count audio frame delay only if feeding non-NULL packet. */
             ++ hp->audio_delay_count;
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, copied_length = %d, output_length = %d",
                                          frame_number, hp->audio_frame_buffer.nb_samples, copy_size / block_align, output_length );
