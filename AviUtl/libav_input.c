@@ -442,6 +442,45 @@ static void create_index( libav_handler_t *hp )
         hp->video_frame_count = video_sample_count;
         if( decide_video_seek_method( hp, video_sample_count ) )
             goto fail_index;
+        /* Treat video frames with unique value as keyframe. */
+        if( hp->video_seek_base & SEEK_FILE_OFFSET_BASED )
+        {
+            video_info[ video_info[1].sample_number ].keyframe &= (video_info[ video_info[1].sample_number ].file_offset != -1);
+            for( uint32_t i = 2; i <= video_sample_count; i++ )
+            {
+                uint32_t j = video_info[i    ].sample_number;
+                uint32_t k = video_info[i - 1].sample_number;
+                video_info[j].keyframe &= (video_info[j].file_offset != -1) && (video_info[j].file_offset != video_info[k].file_offset);
+            }
+        }
+        else if( hp->video_seek_base & SEEK_PTS_BASED )
+        {
+            video_info[ video_info[1].sample_number ].keyframe &= (video_info[ video_info[1].sample_number ].pts != AV_NOPTS_VALUE);
+            for( uint32_t i = 2; i <= video_sample_count; i++ )
+            {
+                uint32_t j = video_info[i    ].sample_number;
+                uint32_t k = video_info[i - 1].sample_number;
+                video_info[j].keyframe &= (video_info[j].pts != AV_NOPTS_VALUE) && (video_info[j].pts != video_info[k].pts);
+            }
+        }
+        else if( hp->video_seek_base & SEEK_DTS_BASED )
+        {
+            video_info[ video_info[1].sample_number ].keyframe &= (video_info[ video_info[1].sample_number ].dts != AV_NOPTS_VALUE);
+            for( uint32_t i = 2; i <= video_sample_count; i++ )
+            {
+                uint32_t j = video_info[i    ].sample_number;
+                uint32_t k = video_info[i - 1].sample_number;
+                video_info[j].keyframe &= (video_info[j].dts != AV_NOPTS_VALUE) && (video_info[j].dts != video_info[k].dts);
+            }
+        }
+        if( hp->order_converter || !hp->reordering_present )
+            for( uint32_t i = 1; i <= video_sample_count; i++ )
+            {
+                uint32_t presentation_number = hp->order_converter
+                                             ? hp->order_converter[i].decoding_to_presentation
+                                             : i;
+                hp->keyframe_list[ video_info[presentation_number].sample_number ] = video_info[presentation_number].keyframe;
+            }
         AVStream *video_stream = format_ctx->streams[ hp->video_index ];
         if( video_stream->nb_index_entries > 0 )
         {
