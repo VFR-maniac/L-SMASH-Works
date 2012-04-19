@@ -450,7 +450,11 @@ static void create_index( libav_handler_t *hp )
             {
                 uint32_t j = video_info[i    ].sample_number;
                 uint32_t k = video_info[i - 1].sample_number;
-                video_info[j].keyframe &= (video_info[j].file_offset != -1) && (video_info[j].file_offset != video_info[k].file_offset);
+                if( video_info[j].file_offset == -1 || video_info[j].file_offset == video_info[k].file_offset )
+                {
+                    video_info[j].keyframe = 0;
+                    video_info[k].keyframe = 0;
+                }
             }
         }
         else if( hp->video_seek_base & SEEK_PTS_BASED )
@@ -460,7 +464,11 @@ static void create_index( libav_handler_t *hp )
             {
                 uint32_t j = video_info[i    ].sample_number;
                 uint32_t k = video_info[i - 1].sample_number;
-                video_info[j].keyframe &= (video_info[j].pts != AV_NOPTS_VALUE) && (video_info[j].pts != video_info[k].pts);
+                if( video_info[j].pts == AV_NOPTS_VALUE || video_info[j].pts == video_info[k].pts )
+                {
+                    video_info[j].keyframe = 0;
+                    video_info[k].keyframe = 0;
+                }
             }
         }
         else if( hp->video_seek_base & SEEK_DTS_BASED )
@@ -470,7 +478,11 @@ static void create_index( libav_handler_t *hp )
             {
                 uint32_t j = video_info[i    ].sample_number;
                 uint32_t k = video_info[i - 1].sample_number;
-                video_info[j].keyframe &= (video_info[j].dts != AV_NOPTS_VALUE) && (video_info[j].dts != video_info[k].dts);
+                if( video_info[j].dts == AV_NOPTS_VALUE || video_info[j].dts == video_info[k].dts )
+                {
+                    video_info[j].keyframe = 0;
+                    video_info[k].keyframe = 0;
+                }
             }
         }
         if( hp->order_converter || !hp->reordering_present )
@@ -522,19 +534,37 @@ static void create_index( libav_handler_t *hp )
         {
             audio_info[1].keyframe = (audio_info[1].file_offset != -1);
             for( uint32_t i = 2; i <= audio_sample_count; i++ )
-                audio_info[i].keyframe = (audio_info[i].file_offset != -1) && (audio_info[i].file_offset != audio_info[i - 1].file_offset);
+                if( audio_info[i].file_offset == -1 || audio_info[i].file_offset == audio_info[i - 1].file_offset )
+                {
+                    audio_info[i    ].keyframe = 0;
+                    audio_info[i - 1].keyframe = 0;
+                }
+                else
+                    audio_info[i].keyframe = 1;
         }
         else if( hp->audio_seek_base & SEEK_PTS_BASED )
         {
             audio_info[1].keyframe = (audio_info[1].pts != AV_NOPTS_VALUE);
             for( uint32_t i = 2; i <= audio_sample_count; i++ )
-                audio_info[i].keyframe = (audio_info[i].pts != AV_NOPTS_VALUE) && (audio_info[i].pts != audio_info[i - 1].pts);
+                if( audio_info[i].pts == AV_NOPTS_VALUE || audio_info[i].pts == audio_info[i - 1].pts )
+                {
+                    audio_info[i    ].keyframe = 0;
+                    audio_info[i - 1].keyframe = 0;
+                }
+                else
+                    audio_info[i].keyframe = 1;
         }
         else if( hp->audio_seek_base & SEEK_DTS_BASED )
         {
             audio_info[1].keyframe = (audio_info[1].dts != AV_NOPTS_VALUE);
             for( uint32_t i = 2; i <= audio_sample_count; i++ )
-                audio_info[i].keyframe = (audio_info[i].dts != AV_NOPTS_VALUE) && (audio_info[i].dts != audio_info[i - 1].dts);
+                if( audio_info[i].dts == AV_NOPTS_VALUE || audio_info[i].dts == audio_info[i - 1].pts )
+                {
+                    audio_info[i    ].keyframe = 0;
+                    audio_info[i - 1].keyframe = 0;
+                }
+                else
+                    audio_info[i].keyframe = 1;
         }
         else
             for( uint32_t i = 1; i <= audio_sample_count; i++ )
