@@ -877,6 +877,53 @@ static void setup_timestamp_info( lsmash_handler_t *h )
     h->framerate_den = stream_timebase;
 }
 
+static void find_random_accessible_point( libav_handler_t *hp, uint32_t presentation_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
+{
+    uint8_t is_leading = hp->video_frame_list[presentation_sample_number].is_leading;
+    if( decoding_sample_number == 0 )
+        decoding_sample_number = hp->video_frame_list[presentation_sample_number].sample_number;
+    *rap_number = decoding_sample_number;
+    while( *rap_number )
+    {
+        if( hp->keyframe_list[ *rap_number ] )
+        {
+            if( !is_leading )
+                break;
+            /* Shall be decoded from more past random access point. */
+            is_leading = 0;
+        }
+        --(*rap_number);
+    }
+    if( *rap_number == 0 )
+        *rap_number = 1;
+}
+
+static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
+{
+    libav_handler_t *hp = (libav_handler_t *)h->video_private;
+    if( hp->order_converter || !hp->reordering_present )
+    {
+        uint32_t presentation_rap_number = hp->order_converter
+                                         ? hp->order_converter[rap_number].decoding_to_presentation
+                                         : rap_number;
+        return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
+             : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
+             : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
+             :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
+    }
+    int64_t rap_pos = INT64_MIN;
+    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
+        if( rap_number == hp->video_frame_list[i].sample_number )
+        {
+            rap_pos = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[i].file_offset
+                    : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[i].pts
+                    : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[i].dts
+                    :                                                  hp->video_frame_list[i].sample_number;
+            break;
+        }
+    return rap_pos;
+}
+
 static int get_sample( AVFormatContext *format_ctx, int stream_index, AVPacket *pkt )
 {
     av_init_packet( pkt );
@@ -946,6 +993,12 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Find the first valid video frame. */
+    uint32_t rap_number;
+    find_random_accessible_point( hp, 1, 0, &rap_number );
+    int64_t rap_pos = get_random_accessible_point_position( h, rap_number );
+    int flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
+        av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
     for( uint32_t i = 1; i <= h->video_sample_count; i++ )
     {
         AVPacket pkt;
@@ -1047,54 +1100,6 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     }
     av_free_packet( &pkt );
     return 0;
-}
-
-static void find_random_accessible_point( lsmash_handler_t *h, uint32_t presentation_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
-{
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    uint8_t is_leading = hp->video_frame_list[presentation_sample_number].is_leading;
-    if( decoding_sample_number == 0 )
-        decoding_sample_number = hp->video_frame_list[presentation_sample_number].sample_number;
-    *rap_number = decoding_sample_number;
-    while( *rap_number )
-    {
-        if( hp->keyframe_list[ *rap_number ] )
-        {
-            if( !is_leading )
-                break;
-            /* Shall be decoded from more past random access point. */
-            is_leading = 0;
-        }
-        --(*rap_number);
-    }
-    if( *rap_number == 0 )
-        *rap_number = 1;
-}
-
-static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
-{
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( hp->order_converter || !hp->reordering_present )
-    {
-        uint32_t presentation_rap_number = hp->order_converter
-                                         ? hp->order_converter[rap_number].decoding_to_presentation
-                                         : rap_number;
-        return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
-             : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
-             : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
-             :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
-    }
-    int64_t rap_pos = INT64_MIN;
-    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
-        if( rap_number == hp->video_frame_list[i].sample_number )
-        {
-            rap_pos = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[i].file_offset
-                    : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[i].pts
-                    : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[i].dts
-                    :                                                  hp->video_frame_list[i].sample_number;
-            break;
-        }
-    return rap_pos;
 }
 
 static void flush_buffers( AVCodecContext *ctx )
@@ -1216,7 +1221,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     else
     {
 
-        find_random_accessible_point( h, sample_number, 0, &rap_number );
+        find_random_accessible_point( hp, sample_number, 0, &rap_number );
         if( rap_number == hp->last_rap_number && sample_number > hp->last_video_frame_number )
             start_number = hp->last_video_frame_number + 1 + hp->video_delay_count;
         else
@@ -1244,7 +1249,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         else
         {
             /* Retry to decode from more past random accessible sample. */
-            find_random_accessible_point( h, sample_number, rap_number - 1, &rap_number );
+            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
             rap_pos = get_random_accessible_point_position( h, rap_number );
             hp->last_rap_number = rap_number;
         }
