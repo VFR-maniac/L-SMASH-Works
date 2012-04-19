@@ -822,29 +822,59 @@ static void setup_timestamp_info( lsmash_handler_t *h )
         return;
     }
     video_frame_info_t *info = hp->video_frame_list;
-    uint64_t largest_pts           = info[2].pts;
-    uint64_t second_largest_pts    = info[1].pts;
-    uint64_t presentation_timebase = info[2].pts - info[1].pts;
-    for( uint32_t i = 3; i <= h->video_sample_count; i++ )
+    int64_t  first_ts;
+    int64_t  largest_ts;
+    int64_t  second_largest_ts;
+    uint64_t stream_timebase;
+    if( hp->video_seek_base & SEEK_PTS_BASED )
     {
-        if( info[i].pts == info[i - 1].pts )
+        first_ts          = info[1].pts;
+        largest_ts        = info[2].pts;
+        second_largest_ts = info[1].pts;
+        stream_timebase   = info[2].pts - info[1].pts;
+        for( uint32_t i = 3; i <= h->video_sample_count; i++ )
         {
-            MESSAGE_BOX_DESKTOP( MB_OK, "Detected PTS duplication at frame %"PRIu32, i );
-            return;
+            if( info[i].pts == info[i - 1].pts )
+            {
+                MESSAGE_BOX_DESKTOP( MB_OK, "Detected PTS duplication at frame %"PRIu32, i );
+                h->framerate_num = video_stream->avg_frame_rate.num;
+                h->framerate_den = video_stream->avg_frame_rate.den;
+                return;
+            }
+            stream_timebase = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
+            second_largest_ts = largest_ts;
+            largest_ts = info[i].pts;
         }
-        presentation_timebase = get_gcd( presentation_timebase, info[i].pts - info[i - 1].pts );
-        second_largest_pts = largest_pts;
-        largest_pts = info[i].pts;
     }
-    presentation_timebase *= video_stream->time_base.num;
-    uint64_t media_timescale = video_stream->time_base.den;
-    uint64_t reduce = reduce_fraction( &media_timescale, &presentation_timebase );
-    uint64_t presentation_duration = ((largest_pts - info[1].pts) + (largest_pts - second_largest_pts)) / reduce;
-    double presentation_framerate = h->video_sample_count * ((double)media_timescale / presentation_duration);
-    if( try_ntsc_framerate( h, presentation_framerate ) )
+    else
+    {
+        first_ts          = info[1].dts;
+        largest_ts        = info[2].dts;
+        second_largest_ts = info[1].dts;
+        stream_timebase   = info[2].dts - info[1].dts;
+        for( uint32_t i = 3; i <= h->video_sample_count; i++ )
+        {
+            if( info[i].dts == info[i - 1].dts )
+            {
+                MESSAGE_BOX_DESKTOP( MB_OK, "Detected DTS duplication at frame %"PRIu32, i );
+                h->framerate_num = video_stream->avg_frame_rate.num;
+                h->framerate_den = video_stream->avg_frame_rate.den;
+                return;
+            }
+            stream_timebase = get_gcd( stream_timebase, info[i].dts - info[i - 1].dts );
+            second_largest_ts = largest_ts;
+            largest_ts = info[i].dts;
+        }
+    }
+    stream_timebase *= video_stream->time_base.num;
+    uint64_t stream_timescale = video_stream->time_base.den;
+    uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
+    uint64_t presentation_duration = ((largest_ts - first_ts) + (largest_ts - second_largest_ts)) / reduce;
+    double stream_framerate = h->video_sample_count * ((double)stream_timescale / presentation_duration);
+    if( try_ntsc_framerate( h, stream_framerate ) )
         return;
-    h->framerate_num = presentation_framerate * presentation_timebase + 0.5;
-    h->framerate_den = presentation_timebase;
+    h->framerate_num = stream_framerate * stream_timebase + 0.5;
+    h->framerate_den = stream_timebase;
 }
 
 static int get_sample( AVFormatContext *format_ctx, int stream_index, AVPacket *pkt )
