@@ -83,7 +83,6 @@ CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
 AU_LDFLAGS="-shared -Wl,--dll,--add-stdcall-alias"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
-FFMSLIBS="-lffms2 -lavformat -lavcodec -lswscale -lavutil"
 
 SRC_INPUT="lsmashinput.c colorspace.c libavsmash_input.c libav_input.c dummy_input.c"
 SRC_MUXER="lsmashmuxer.c"
@@ -104,9 +103,6 @@ for opt; do
             ;;
         --includedir=*)
             includedir="$optarg"
-            ;;
-        --disable-ffms)
-            FFMSLIBS=""
             ;;
         --debug-video)
             CFLAGS="$CFLAGS -DDEBUG_VIDEO"
@@ -168,29 +164,10 @@ if cc_check "$CFLAGS -fexcess-precision=fast" "$LDFLAGS"; then
     CFLAGS="$CFLAGS -fexcess-precision=fast"
 fi
 
-# -- check pkg-config and ffms ----------------------------------------------------------------
+# -- check pkg-config ----------------------------------------------------------------
 PKGCONFIGEXE="pkg-config"
 test -n "$(which ${CROSS}${PKGCONFIGEXE} 2> /dev/null)" && \
     PKGCONFIGEXE=${CROSS}${PKGCONFIGEXE}
-
-if test -n "$FFMSLIBS"; then
-    log_echo "checking for ffms..."
-    if $PKGCONFIGEXE --exists ffms2 2> /dev/null; then
-        FFCFLAGS="$($PKGCONFIGEXE --cflags ffms2)"
-        FFMSLIBS="$($PKGCONFIGEXE --libs ffms2)"
-    else
-        FFCFLAGS=""
-    fi
-    FFMSLIBS="$FFMSLIBS -lstdc++"
-    if cc_check "$CFLAGS $FFCFLAGS" "$LDFLAGS $FFMSLIBS $XLIBS" "ffms.h" "FFMS_DestroyVideoSource(0);"; then
-        CFLAGS="-DHAVE_FFMS $CFLAGS"
-        DEPLIBS="ffms2 $DEPLIBS"
-        XLIBS="-lstdc++ $XLIBS"
-        SRC_INPUT="$SRC_INPUT ffms_input.c"
-    else
-        log_echo "warning: couldn't find valid ffms2 library...disabled"
-    fi
-fi
 
 if $PKGCONFIGEXE --exists $DEPLIBS 2> /dev/null; then
     LIBS="$($PKGCONFIGEXE --libs $DEPLIBS)"

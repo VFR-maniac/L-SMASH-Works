@@ -383,7 +383,6 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
     for( int x = 0; x < x_loopcount; x++ )
         COPY_PIXEL_TO_YUY2( 0, 1, x );
     buf += buf_linesize * 2;
-
     /* interlaced yv12 to yuy2 with 2,3-interpolation */
     int pic_offset = 0;
     int y;
@@ -405,7 +404,6 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
         buf        += buf_linesize * 4;
         pic_offset += pic_linesize[1] * 2;
     }
-
     /* copy last 2 lines */
     pic_y = pic_data[0] + pic_linesize[0] * y;
     pic_u = pic_data[1] + pic_offset;
@@ -511,7 +509,6 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         /* interlaced yv12 to yuy2 convertion */
         convert_yv12i_to_yuy2( buf, video_ctx->width * YUY2_SIZE, picture->data, picture->linesize, video_ctx->height );
         output_size = video_ctx->width * video_ctx->height * YUY2_SIZE;
-
         if( another_chroma )
             av_free( another_chroma );
     }
