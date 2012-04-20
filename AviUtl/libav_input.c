@@ -283,7 +283,7 @@ static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count
             info[i].pts = info[i].dts;
 }
 
-static void create_index( libav_handler_t *hp )
+static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
 {
     uint32_t video_info_count = 1 << 16;
     uint32_t audio_info_count = 1 << 16;
@@ -316,8 +316,9 @@ static void create_index( libav_handler_t *hp )
     }
     AVPacket pkt;
     av_init_packet( &pkt );
-    AVFormatContext *format_ctx    = hp->video_format;
-    int      video_resolution      = hp->video_ctx->width * hp->video_ctx->height;
+    hp->video_format = format_ctx;
+    hp->audio_format = format_ctx;
+    int      video_resolution      = hp->video_ctx ? hp->video_ctx->width * hp->video_ctx->height : 0;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = INT64_MIN;
     uint32_t audio_sample_count    = 0;
@@ -598,12 +599,16 @@ static void create_index( libav_handler_t *hp )
             }
         }
     }
+    hp->video_format = NULL;
+    hp->audio_format = NULL;
     return;
 fail_index:
     if( video_info )
         free( video_info );
     if( audio_info )
         free( audio_info );
+    hp->video_format = NULL;
+    hp->audio_format = NULL;
     return;
 }
 
@@ -623,8 +628,6 @@ static void *open_file( char *file_name, int threads )
         free( hp );
         return NULL;
     }
-    hp->video_format = format_ctx;
-    hp->audio_format = format_ctx;
     hp->file_name    = file_name;
     hp->threads      = threads;
     int video_present = 0;
@@ -671,7 +674,7 @@ static void *open_file( char *file_name, int threads )
         hp->video_index = -1;
     if( !audio_present )
         hp->audio_index = -1;
-    create_index( hp );
+    create_index( hp, format_ctx );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
     if( hp->video_ctx )
@@ -684,8 +687,6 @@ static void *open_file( char *file_name, int threads )
         avcodec_close( hp->audio_ctx );
         hp->audio_ctx = NULL;
     }
-    hp->video_format = NULL;
-    hp->audio_format = NULL;
     avformat_close_input( &format_ctx );
     return hp;
 }
