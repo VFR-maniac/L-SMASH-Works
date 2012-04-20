@@ -107,7 +107,7 @@ typedef struct
     int   (*get_audio_track)       ( lsmash_handler_t *h );
     void  (*destroy_disposable)    ( void *private_stuff );
     int   (*prepare_video_decoding)( lsmash_handler_t *h, video_option_t *opt );
-    int   (*prepare_audio_decoding)( lsmash_handler_t *h );
+    int   (*prepare_audio_decoding)( lsmash_handler_t *h, int audio_delay );
     int   (*read_video)            ( lsmash_handler_t *h, int sample_number, void *buf );
     int   (*read_audio)            ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
     int   (*is_keyframe)           ( lsmash_handler_t *h, int sample_number );

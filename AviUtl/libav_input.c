@@ -1063,7 +1063,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static int prepare_audio_decoding( lsmash_handler_t *h )
+static int prepare_audio_decoding( lsmash_handler_t *h, int audio_delay )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp->audio_ctx )
@@ -1092,6 +1092,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         /* for HE-AAC upsampling */
         h->audio_pcm_sample_count *= 2;
     hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
+    hp->av_gap += audio_delay;
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->audio_ctx->channels;

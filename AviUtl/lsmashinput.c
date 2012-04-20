@@ -74,6 +74,7 @@ static int seek_mode = 0;
 static int forward_seek_threshold = 10;
 static int reader_disabled[3] = { 0 };
 static video_option_t opt = { 0 };
+static int audio_delay = 0;
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
@@ -120,6 +121,9 @@ void get_settings( void )
             forward_seek_threshold = 10;
         else
             forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
+        /* audio_delay */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
+            audio_delay = 0;
         /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
@@ -235,7 +239,7 @@ INPUT_HANDLE func_open( LPSTR file )
             }
             if( !audio_none
              && reader.prepare_audio_decoding
-             && reader.prepare_audio_decoding( hp ) )
+             && reader.prepare_audio_decoding( hp, audio_delay ) )
             {
                 if( hp->audio_cleanup )
                 {
@@ -357,6 +361,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, seek_mode, 0 );
+            /* audio_delay */
+            sprintf( edit_buf, "%d", audio_delay );
+            SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
@@ -431,6 +438,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
                     fprintf( ini, "forward_threshold=%d\n", forward_seek_threshold );
+                    /* audio_delay */
+                    GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    audio_delay = atoi( edit_buf );
+                    fprintf( ini, "audio_delay=%d\n", audio_delay );
                     /* readers */
                     reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
                     reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
