@@ -30,9 +30,9 @@
 
 #include "input.h"
 
-#define YC48_SIZE  6
-#define RGB24_SIZE 3
 #define YUY2_SIZE  2
+#define RGB24_SIZE 3
+#define YC48_SIZE  6
 
 /* MinGW32 doesn't define subformat constants for WAVEFORMATEXTENSIBLE. */
 #ifndef KSDATAFORMAT_SUBTYPE_PCM
@@ -76,16 +76,16 @@ typedef enum
 
 typedef enum
 {
-    OUTPUT_YC48  = 0,
+    OUTPUT_YUY2  = 0,
     OUTPUT_RGB24 = 1,
-    OUTPUT_YUY2  = 2,
+    OUTPUT_YC48  = 2,
 } output_colorspace_index;
 
 typedef enum
 {
-    OUTPUT_TAG_YC48 = MAKEFOURCC( 'Y', 'C', '4', '8' ),
-    OUTPUT_TAG_RGB  = 0x00000000,
     OUTPUT_TAG_YUY2 = MAKEFOURCC( 'Y', 'U', 'Y', '2' ),
+    OUTPUT_TAG_RGB  = 0x00000000,
+    OUTPUT_TAG_YC48 = MAKEFOURCC( 'Y', 'C', '4', '8' ),
 } output_colorspace_tag;
 
 typedef struct
@@ -95,6 +95,7 @@ typedef struct
     int height;
     int framerate_num;
     int framerate_den;
+    output_colorspace_index colorspace;
 } video_option_t;
 
 typedef struct lsmash_handler_tag lsmash_handler_t;

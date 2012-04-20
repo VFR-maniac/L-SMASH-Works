@@ -1003,9 +1003,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         output_colorspace_tag    compression;
     } colorspace_table[3] =
         {
-            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 },
+            { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 },
             { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
-            { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 }
+            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,

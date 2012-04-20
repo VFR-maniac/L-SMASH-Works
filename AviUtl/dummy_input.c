@@ -48,7 +48,17 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->framerate_den = opt->framerate_den;
     h->video_sample_count = ((uint64_t)h->framerate_num * h->audio_pcm_sample_count - 1)
                           / ((uint64_t)h->framerate_den * h->audio_format.Format.nSamplesPerSec) + 1;
-    int linesize = opt->width * YUY2_SIZE;
+    static const struct
+    {
+        int                   pixel_size;
+        output_colorspace_tag compression;
+    } colorspace_table[3] =
+        {
+            { YUY2_SIZE,  OUTPUT_TAG_YUY2 },
+            { RGB24_SIZE, OUTPUT_TAG_RGB  },
+            { YC48_SIZE,  OUTPUT_TAG_YC48 }
+        };
+    int linesize = opt->width * colorspace_table[ opt->colorspace ].pixel_size;
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
     hp->dummy_size = linesize * opt->height;
     if( hp->dummy_size <= 0 )
@@ -57,21 +67,34 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     if( !hp->dummy_data )
         return -1;
     uint8_t *pic = hp->dummy_data;
-    for( int i = 0; i < opt->height; i++ )
+    switch( colorspace_table[ opt->colorspace ].compression )
     {
-        for( int j = 0; j < linesize; j += 2 )
-        {
-            pic[j    ] = 0;
-            pic[j + 1] = 128;
-        }
-        pic += linesize;
+        case OUTPUT_TAG_YC48 :
+        case OUTPUT_TAG_RGB :
+            memset( pic, 0, hp->dummy_size );
+            break;
+        case OUTPUT_TAG_YUY2 :
+            for( int i = 0; i < opt->height; i++ )
+            {
+                for( int j = 0; j < linesize; j += 2 )
+                {
+                    pic[j    ] = 0;
+                    pic[j + 1] = 128;
+                }
+                pic += linesize;
+            }
+            break;
+        default :
+            free( hp->dummy_data );
+            hp->dummy_data = NULL;
+            return -1;
     }
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = opt->width;
     h->video_format.biHeight      = opt->height;
-    h->video_format.biBitCount    = YUY2_SIZE * 8;
-    h->video_format.biCompression = MAKEFOURCC( 'Y', 'U', 'Y', '2' );
+    h->video_format.biBitCount    = colorspace_table[ opt->colorspace ].pixel_size * 8;
+    h->video_format.biCompression = colorspace_table[ opt->colorspace ].compression;
     return 0;
 }
 

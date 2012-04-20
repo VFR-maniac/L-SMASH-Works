@@ -78,6 +78,7 @@ static int audio_delay = 0;
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
+static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
 
 static FILE *open_settings( void )
 {
@@ -150,6 +151,10 @@ void get_settings( void )
             opt.framerate_num = max( opt.framerate_num, 1 );
             opt.framerate_den = max( opt.framerate_den, 1 );
         }
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&opt.colorspace ) != 1 )
+            opt.colorspace = OUTPUT_YUY2;
+        else
+            opt.colorspace = CLIP_VALUE( opt.colorspace, 0, 2 );
         fclose( ini );
     }
 }
@@ -343,7 +348,6 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
 {
     static char edit_buf[128] = { 0 };
-    HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
     switch( message )
     {
         case WM_INITDIALOG :
@@ -358,6 +362,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_FORWARD_THRESHOLD ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_FORWARD_THRESHOLD ), 0 );
             /* seek mode */
+            HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, seek_mode, 0 );
@@ -376,6 +381,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPCTSTR)edit_buf );
             sprintf( edit_buf, "%d", opt.framerate_den );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPCTSTR)edit_buf );
+            hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE );
+            for( int i = 0; i < 3; i++ )
+                SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
+            SendMessage( hcombo, CB_SETCURSEL, opt.colorspace, 0 );
             return TRUE;
         case WM_NOTIFY :
             if( wparam == IDC_SPIN_THREADS )
@@ -432,7 +441,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
                     /* seek_mode */
-                    seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
+                    seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "seek_mode=%d\n", seek_mode );
                     /* forward_seek_threshold */
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
@@ -456,17 +465,15 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     opt.framerate_num = max( atoi( edit_buf ), 1 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     opt.framerate_den = max( atoi( edit_buf ), 1 );
+                    opt.colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "dummy_resolution=%dx%d\n", opt.width, opt.height );
                     fprintf( ini, "dummy_framerate=%d/%d\n", opt.framerate_num, opt.framerate_den );
+                    fprintf( ini, "dummy_colorspace=%d\n", opt.colorspace );
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
                     return TRUE;
                 }
-                case IDC_COMBOBOX_BUTTON_SEEK_MODE :
-                    seek_mode = SendMessage( hcombo, CB_GETCURSEL, 0, 0 );
-                    SetDlgItemText( hwnd, IDC_COMBOBOX_STATIC_SEEK_MODE, seek_mode_list[seek_mode] );
-                    break;
                 default :
                     return FALSE;
             }
