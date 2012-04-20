@@ -26,8 +26,8 @@
 
 typedef struct
 {
-    int out_linesize;
-    int out_height;
+    uint8_t *dummy_data;
+    int      dummy_size;
 } dummy_handler_t;
 
 static void *open_file( char *file_name, int threads )
@@ -48,9 +48,24 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->framerate_den = opt->framerate_den;
     h->video_sample_count = ((uint64_t)h->framerate_num * h->audio_pcm_sample_count - 1)
                           / ((uint64_t)h->framerate_den * h->audio_format.Format.nSamplesPerSec) + 1;
+    int linesize = opt->width * YUY2_SIZE;
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
-    hp->out_linesize = opt->width * YUY2_SIZE;
-    hp->out_height   = opt->height;
+    hp->dummy_size = linesize * opt->height;
+    if( hp->dummy_size <= 0 )
+        return -1;
+    hp->dummy_data = malloc( hp->dummy_size );
+    if( !hp->dummy_data )
+        return -1;
+    uint8_t *pic = hp->dummy_data;
+    for( int i = 0; i < opt->height; i++ )
+    {
+        for( int j = 0; j < linesize; j += 2 )
+        {
+            pic[j    ] = 0;
+            pic[j + 1] = 128;
+        }
+        pic += linesize;
+    }
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = opt->width;
@@ -64,23 +79,18 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     /* Generate a black video frame. */
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
-    uint8_t *pic = (uint8_t *)buf;
-    for( int i = 0; i < hp->out_height; i++ )
-    {
-        for( int j = 0; j < hp->out_linesize; j += 2 )
-        {
-            pic[j    ] = 0;
-            pic[j + 1] = 128;
-        }
-        pic += hp->out_linesize;
-    }
-    return hp->out_linesize * hp->out_height;
+    memcpy( buf, hp->dummy_data, hp->dummy_size );
+    return hp->dummy_size;
 }
 
 static void close_file( void *private_stuff )
 {
-    if( private_stuff )
-        free( private_stuff );
+    dummy_handler_t *hp = (dummy_handler_t *)private_stuff;
+    if( !hp )
+        return;
+    if( hp->dummy_data )
+        free( hp->dummy_data );
+    free( hp );
 }
 
 lsmash_reader_t dummy_reader =
