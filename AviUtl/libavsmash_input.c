@@ -333,15 +333,11 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     return 0;
 }
 
-static int get_first_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
+static int get_first_video_track( lsmash_handler_t *h )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
-    {
-        hp->seek_mode = seek_mode;
-        hp->forward_seek_threshold = forward_seek_threshold;
         return 0;
-    }
     lsmash_destruct_timeline( hp->root, hp->video_track_ID );
     if( hp->video_ctx )
     {
@@ -414,6 +410,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !hp->video_ctx )
         return 0;
+    hp->seek_mode              = opt->seek_mode;
+    hp->forward_seek_threshold = opt->forward_seek_threshold;
     /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
     if( hp->video_input_buffer_size == 0 )
@@ -447,10 +445,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
+    int flags = 1 << opt->scaler;
+    if( flags != SWS_FAST_BILINEAR )
+        flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,
                                         hp->video_ctx->width, hp->video_ctx->height, output_pixel_format,
-                                        SWS_POINT, NULL, NULL, NULL );
+                                        flags, NULL, NULL, NULL );
     if( !hp->sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );

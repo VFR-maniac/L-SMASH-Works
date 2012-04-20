@@ -691,7 +691,7 @@ static void *open_file( char *file_name, int threads )
     return hp;
 }
 
-static int get_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek_threshold )
+static int get_video_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     int error = hp->video_index < 0
@@ -732,9 +732,7 @@ static int get_video_track( lsmash_handler_t *h, int seek_mode, int forward_seek
         }
         return -1;
     }
-    hp->video_ctx              = ctx;
-    hp->seek_mode              = seek_mode;
-    hp->forward_seek_threshold = forward_seek_threshold;
+    hp->video_ctx = ctx;
     return 0;
 }
 
@@ -976,6 +974,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp->video_ctx )
         return 0;
+    hp->seek_mode              = opt->seek_mode;
+    hp->forward_seek_threshold = opt->forward_seek_threshold;
     h->video_sample_count = hp->video_frame_count;
     if( hp->video_index_entries )
     {
@@ -1007,10 +1007,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
+    int flags = 1 << opt->scaler;
+    if( flags != SWS_FAST_BILINEAR )
+        flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,
                                         hp->video_ctx->width, hp->video_ctx->height, output_pixel_format,
-                                        SWS_POINT, NULL, NULL, NULL );
+                                        flags, NULL, NULL, NULL );
     if( !hp->sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
@@ -1027,7 +1030,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     uint32_t rap_number;
     find_random_accessible_point( hp, 1, 0, &rap_number );
     int64_t rap_pos = get_random_accessible_point_position( h, rap_number );
-    int flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
         av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
     for( uint32_t i = 1; i <= h->video_sample_count; i++ )

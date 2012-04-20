@@ -70,8 +70,6 @@ void *malloc_zero( size_t size )
 }
 
 static int threads = 0;
-static int seek_mode = 0;
-static int forward_seek_threshold = 10;
 static int reader_disabled[3] = { 0 };
 static video_option_t opt = { 0 };
 static int audio_delay = 0;
@@ -79,6 +77,8 @@ static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
 static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
 static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
+static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
+                                       "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
 
 static FILE *open_settings( void )
 {
@@ -113,15 +113,20 @@ void get_settings( void )
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
             threads = 0;
         /* seek_mode */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &seek_mode ) != 1 )
-            seek_mode = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &opt.seek_mode ) != 1 )
+            opt.seek_mode = 0;
         else
-            seek_mode = CLIP_VALUE( seek_mode, 0, 2 );
+            opt.seek_mode = CLIP_VALUE( opt.seek_mode, 0, 2 );
         /* forward_seek_threshold */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "forward_threshold=%d", &forward_seek_threshold ) != 1 )
-            forward_seek_threshold = 10;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "forward_threshold=%d", &opt.forward_seek_threshold ) != 1 )
+            opt.forward_seek_threshold = 10;
         else
-            forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
+            opt.forward_seek_threshold = CLIP_VALUE( opt.forward_seek_threshold, 1, 999 );
+        /* scaler */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "scaler=%d", &opt.scaler ) != 1 )
+            opt.scaler = 0;
+        else
+            opt.scaler = CLIP_VALUE( opt.scaler, 0, 10 );
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -192,7 +197,7 @@ INPUT_HANDLE func_open( LPSTR file )
             {
                 hp->video_private = private_stuff;
                 if( reader.get_video_track
-                 && reader.get_video_track( hp, seek_mode, forward_seek_threshold ) == 0 )
+                 && reader.get_video_track( hp ) == 0 )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -358,14 +363,19 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
             /* forward_seek_threshold */
-            sprintf( edit_buf, "%d", forward_seek_threshold );
+            sprintf( edit_buf, "%d", opt.forward_seek_threshold );
             SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_FORWARD_THRESHOLD ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_FORWARD_THRESHOLD ), 0 );
             /* seek mode */
             HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
-            SendMessage( hcombo, CB_SETCURSEL, seek_mode, 0 );
+            SendMessage( hcombo, CB_SETCURSEL, opt.seek_mode, 0 );
+            /* scaler */
+            hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SCALER );
+            for( int i = 0; i < 11; i++ )
+                SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)scaler_list[i] );
+            SendMessage( hcombo, CB_SETCURSEL, opt.scaler, 0 );
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -408,11 +418,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 if( lpnmud->hdr.code == UDN_DELTAPOS )
                 {
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    forward_seek_threshold = atoi( edit_buf );
+                    opt.forward_seek_threshold = atoi( edit_buf );
                     if( lpnmud->iDelta )
-                        forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
-                    forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-                    sprintf( edit_buf, "%d", forward_seek_threshold );
+                        opt.forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
+                    opt.forward_seek_threshold = CLIP_VALUE( opt.forward_seek_threshold, 1, 999 );
+                    sprintf( edit_buf, "%d", opt.forward_seek_threshold );
                     SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
                 }
             }
@@ -441,12 +451,15 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
                     /* seek_mode */
-                    seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
-                    fprintf( ini, "seek_mode=%d\n", seek_mode );
+                    opt.seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "seek_mode=%d\n", opt.seek_mode );
                     /* forward_seek_threshold */
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
-                    fprintf( ini, "forward_threshold=%d\n", forward_seek_threshold );
+                    opt.forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
+                    fprintf( ini, "forward_threshold=%d\n", opt.forward_seek_threshold );
+                    /* scaler */
+                    opt.scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "scaler=%d\n", opt.scaler );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );
