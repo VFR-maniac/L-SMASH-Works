@@ -360,59 +360,53 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
     uint8_t *pic_u = pic_data[1];
     uint8_t *pic_v = pic_data[2];
     int x_loopcount = buf_linesize / 4;
-#define COPY_Y_PIXEL_TO_YUY2( line, x ) \
+#define INTERPOLATE_CHROMA( x, chroma, offset ) \
     { \
-        buf[line*buf_linesize + 4*x + 0] = pic_y[line*pic_linesize[0] + 2*x]; \
-        buf[line*buf_linesize + 4*x + 2] = pic_y[line*pic_linesize[0] + 2*x+1]; \
+            buf[0 * buf_linesize + 4 * x + offset] = (5 * chroma[0*pic_linesize[1] + x] + 3 * chroma[2 * pic_linesize[1] + x] + 4) >> 3; \
+            buf[1 * buf_linesize + 4 * x + offset] = (7 * chroma[1*pic_linesize[1] + x] + 1 * chroma[3 * pic_linesize[1] + x] + 4) >> 3; \
+            buf[2 * buf_linesize + 4 * x + offset] = (1 * chroma[0*pic_linesize[1] + x] + 7 * chroma[2 * pic_linesize[1] + x] + 4) >> 3; \
+            buf[3 * buf_linesize + 4 * x + offset] = (3 * chroma[1*pic_linesize[1] + x] + 5 * chroma[3 * pic_linesize[1] + x] + 4) >> 3; \
     }
-#define AVG_UV_PIXEL_TO_YUY2( line, x, y1, y2 ) \
+#define COPY_CHROMA( x ) \
     { \
-        buf[line*buf_linesize + 4*x + 1] = (pic_u[y1*pic_linesize[1] + x] + pic_u[y2*pic_linesize[1] + x] + 1) >> 1; \
-        buf[line*buf_linesize + 4*x + 3] = (pic_v[y1*pic_linesize[1] + x] + pic_v[y2*pic_linesize[1] + x] + 1) >> 1; \
+        buf[               4 * x + 1] = pic_u[                  x]; \
+        buf[               4 * x + 3] = pic_v[                  x]; \
+        buf[buf_linesize + 4 * x + 1] = pic_u[pic_linesize[1] + x]; \
+        buf[buf_linesize + 4 * x + 3] = pic_v[pic_linesize[1] + x]; \
     }
-#define COPY_PIXEL_TO_YUY2( line1, line2, x ) \
-    { \
-        COPY_Y_PIXEL_TO_YUY2( line1, x ); \
-        buf[line1*buf_linesize + 4*x + 1] = pic_u[line1*pic_linesize[1] + x]; \
-        buf[line1*buf_linesize + 4*x + 3] = pic_v[line1*pic_linesize[1] + x]; \
-        COPY_Y_PIXEL_TO_YUY2( line2, x ); \
-        buf[line2*buf_linesize + 4*x + 1] = pic_u[line2*pic_linesize[1] + x]; \
-        buf[line2*buf_linesize + 4*x + 3] = pic_v[line2*pic_linesize[1] + x]; \
+    /* Copy all luma (Y). */
+    for( int y = 0; y < height; y++ )
+    {
+        for( int x = 0; x < pic_linesize[0]; x++ )
+            buf[y * buf_linesize + 2 * x] = pic_y[x];
+        pic_y += pic_linesize[0];
     }
-    /* copy first 2 lines */
+    /* Copy first 2 lines */
     for( int x = 0; x < x_loopcount; x++ )
-        COPY_PIXEL_TO_YUY2( 0, 1, x );
+        COPY_CHROMA( x );
     buf += buf_linesize * 2;
-    /* interlaced yv12 to yuy2 with 2,3-interpolation */
+    /* Interpolate interlaced yv12 to yuy2 with suggestion in MPEG-2 spec. */
     int pic_offset = 0;
     int y;
     for( y = 2; y < height - 2; y += 4 )
     {
-        pic_y = pic_data[0] + pic_linesize[0] * y;
         pic_u = pic_data[1] + pic_offset;
         pic_v = pic_data[2] + pic_offset;
         for( int x = 0; x < x_loopcount; x++ )
         {
-            COPY_Y_PIXEL_TO_YUY2( 0, x );
-            AVG_UV_PIXEL_TO_YUY2( 0, x, 0, 2 );
-
-            COPY_PIXEL_TO_YUY2( 1, 2, x );
-
-            COPY_Y_PIXEL_TO_YUY2( 3, x );
-            AVG_UV_PIXEL_TO_YUY2( 3, x, 1, 3 );
+            INTERPOLATE_CHROMA( x, pic_u, 1 );      /* U */
+            INTERPOLATE_CHROMA( x, pic_v, 3 );      /* V */
         }
         buf        += buf_linesize * 4;
         pic_offset += pic_linesize[1] * 2;
     }
-    /* copy last 2 lines */
-    pic_y = pic_data[0] + pic_linesize[0] * y;
+    /* Copy last 2 lines. */
     pic_u = pic_data[1] + pic_offset;
     pic_v = pic_data[2] + pic_offset;
     for( int x = 0; x < x_loopcount; x++ )
-        COPY_PIXEL_TO_YUY2( 0, 1, x );
-#undef COPY_PIXEL_TO_YUY2
-#undef AVG_UV_PIXEL_TO_YUY2
-#undef COPY_Y_PIXEL_TO_YUY2
+        COPY_CHROMA( x );
+#undef INTERPOLATE_CHROMA
+#undef COPY_CHROMA
 }
 
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
