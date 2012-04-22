@@ -155,7 +155,7 @@ static int open_decoder( AVCodecContext *ctx, enum CodecID codec_id, int threads
 
 static inline int check_frame_reordering( video_frame_info_t *info, uint32_t sample_count )
 {
-    for( uint32_t i = 1; i < sample_count; i++ )
+    for( uint32_t i = 2; i <= sample_count; i++ )
         if( info[i].pts < info[i - 1].pts )
             return 1;
     return 0;
