@@ -1362,8 +1362,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         } while( frame_number <= hp->audio_frame_count );
         data_offset = (start + frame_length - next_frame_pos) * block_align;
         uint32_t rap_number = frame_number;
-        while( !hp->audio_frame_list[rap_number].keyframe )
+        while( rap_number && !hp->audio_frame_list[rap_number].keyframe )
             --rap_number;
+        if( rap_number == 0 )
+            rap_number = 1;
         int64_t rap_pos = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->audio_frame_list[rap_number].file_offset
                         : (hp->audio_seek_base & SEEK_PTS_BASED)         ? hp->audio_frame_list[rap_number].pts
                         : (hp->audio_seek_base & SEEK_DTS_BASED)         ? hp->audio_frame_list[rap_number].dts
