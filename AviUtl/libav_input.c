@@ -361,7 +361,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
                     video_info[video_sample_count].keyframe = 1;
                     last_keyframe_pts = pkt.pts;
                 }
-                if( video_sample_count == video_info_count )
+                if( video_sample_count + 1 == video_info_count )
                 {
                     video_info_count <<= 1;
                     video_frame_info_t *temp = realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
@@ -415,7 +415,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
                 if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                     constant_frame_length = 0;
             }
-            if( audio_sample_count == audio_info_count )
+            if( audio_sample_count + 1 == audio_info_count )
             {
                 audio_info_count <<= 1;
                 audio_frame_info_t *temp = realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
