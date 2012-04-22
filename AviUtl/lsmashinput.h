@@ -35,10 +35,9 @@
 #define YC48_SIZE  6
 
 /* MinGW32 doesn't define subformat constants for WAVEFORMATEXTENSIBLE. */
-#ifdef KSDATAFORMAT_SUBTYPE_PCM
-#undef KSDATAFORMAT_SUBTYPE_PCM
-#endif
+#ifndef KSDATAFORMAT_SUBTYPE_PCM
 #define KSDATAFORMAT_SUBTYPE_PCM (GUID){ 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } }
+#endif
 
 #define MESSAGE_BOX_DESKTOP( uType, ... ) \
 do \

@@ -206,7 +206,7 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getC
 fi
 
 LDFLAGS="$AU_LDFLAGS $LDFLAGS"
-LIBS="-lcomctl32 $LIBS $XLIBS"
+LIBS="-lcomctl32 -lwinmm $LIBS $XLIBS"
 
 # -- output config.h --------------------------------------------------------------------------
 pushd $SRCDIR
