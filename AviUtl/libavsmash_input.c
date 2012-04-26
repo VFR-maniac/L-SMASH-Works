@@ -858,14 +858,15 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         }
         else if( pkt->size <= 0 && get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, pkt ) )
             goto audio_out;
-        int decode_complete;
+        int output_audio;
         do
         {
+            int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
+            if( wasted_data_length < 0 )
+                break;
             if( pkt->data )
             {
-                if( !decode_complete && wasted_data_length <= 0 )
-                    break;
                 pkt->size -= wasted_data_length;
                 pkt->data += wasted_data_length;
             }
@@ -892,13 +893,14 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                     copy_size = 0;
                     data_offset -= decoded_data_size;
                 }
+                output_audio = 1;
             }
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, wasted_data_length = %d,"
                                              "decode_complete = %d, decoded_length = %d, copied_length = %d, output_length = %d",
                                              frame_number, wasted_data_length, decode_complete,
                                              hp->audio_frame_buffer.nb_samples, copy_size / block_align, output_length );
         } while( pkt->size > 0 );
-        if( !decode_complete && pkt->data ) /* Count audio frame delay only if feeding non-NULL packet. */
+        if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
             ++ hp->audio_delay_count;
         ++frame_number;
     } while( 1 );

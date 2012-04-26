@@ -379,6 +379,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
         if( read_audio && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
         {
             /* Get frame_length. */
+            int output_audio = 0;
             frame_length = 0;
             if( hp->audio_parser )
             {
@@ -390,32 +391,42 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
                     int wasted_data_length = av_parser_parse2( hp->audio_parser, hp->audio_ctx,
                                                                &out_buffer, &out_buffer_size,
                                                                temp.data, temp.size, temp.pts, temp.dts, temp.pos );
-                    if( out_buffer_size == 0 && wasted_data_length <= 0 )
+                    if( wasted_data_length < 0 )
                         break;
                     temp.size -= wasted_data_length;
                     temp.data += wasted_data_length;
                     if( out_buffer_size )
+                    {
                         frame_length += hp->audio_parser->duration;
+                        output_audio = 1;
+                    }
                 }
+                if( !output_audio )
+                    ++ hp->audio_delay_count;
             }
             if( frame_length == 0 )
                 frame_length = hp->audio_ctx->frame_size;
             if( frame_length == 0 )
             {
+                if( hp->audio_parser && !output_audio )
+                    -- hp->audio_delay_count;
                 AVPacket temp = pkt;
                 uint8_t *data = pkt.data;
                 int decode_complete;
                 while( temp.size > 0 )
                 {
                     int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &temp );
-                    if( !decode_complete && wasted_data_length <= 0 )
+                    if( wasted_data_length < 0 )
                         break;
                     temp.size -= wasted_data_length;
                     temp.data += wasted_data_length;
                     if( decode_complete )
+                    {
                         frame_length += hp->audio_frame_buffer.nb_samples;
+                        output_audio = 1;
+                    }
                 }
-                if( !decode_complete )
+                if( !output_audio )
                     ++ hp->audio_delay_count;
                 pkt      = temp;
                 pkt.data = data;
@@ -1450,14 +1461,15 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 goto audio_out;
             hp->audio_packet_buffer = pkt->data;
         }
-        int decode_complete;
+        int output_audio;
         do
         {
+            int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
+            if( wasted_data_length < 0 )
+                break;
             if( pkt->data )
             {
-                if( !decode_complete && wasted_data_length <= 0 )
-                    break;
                 pkt->size -= wasted_data_length;
                 pkt->data += wasted_data_length;
             }
@@ -1486,9 +1498,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                     copy_size = 0;
                     data_offset -= decoded_data_size;
                 }
+                output_audio = 1;
             }
         } while( pkt->size > 0 );
-        if( !decode_complete && pkt->data ) /* Count audio frame delay only if feeding non-NULL packet. */
+        if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
             ++ hp->audio_delay_count;
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, copied_length = %d, output_length = %d",
                                          frame_number, hp->audio_frame_buffer.nb_samples, copy_size / block_align, output_length );
