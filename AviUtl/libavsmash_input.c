@@ -858,7 +858,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         }
         else if( pkt->size <= 0 && get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, pkt ) )
             goto audio_out;
-        int output_audio;
+        int output_audio = 0;
         do
         {
             int decode_complete;

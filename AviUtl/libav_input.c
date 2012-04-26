@@ -1461,7 +1461,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 goto audio_out;
             hp->audio_packet_buffer = pkt->data;
         }
-        int output_audio;
+        int output_audio = 0;
         do
         {
             int decode_complete;
