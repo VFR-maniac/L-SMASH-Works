@@ -1329,6 +1329,7 @@ static void audio_packet_free( libav_handler_t *hp )
 {
     hp->audio_packet.data = hp->audio_packet_buffer;
     av_free_packet( &hp->audio_packet );
+    hp->audio_packet_buffer = NULL;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -1406,15 +1407,21 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
         flush_buffers( hp->audio_ctx );
-        while( rap_number <= frame_number )
+        while( 1 )
         {
             if( get_sample( hp->audio_format, hp->audio_index, pkt ) )
                 break;
             if( ((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[rap_number].file_offset > pkt->pos))
              || ((hp->audio_seek_base & SEEK_PTS_BASED) && (pkt->pts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].pts > pkt->pts))
              || ((hp->audio_seek_base & SEEK_DTS_BASED) && (pkt->dts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].dts > pkt->dts)) )
-                continue;   /* Seeking was too backward. */
-            ++rap_number;
+            {
+                /* Seeking was too backward. */
+                av_free_packet( pkt );
+                continue;
+            }
+            else if( ++rap_number > frame_number )
+                break;
+            av_free_packet( pkt );
         }
         already_gotten = 1;
     }
