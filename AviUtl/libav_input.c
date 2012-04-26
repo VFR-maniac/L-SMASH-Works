@@ -407,7 +407,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
                 int decode_complete;
                 while( temp.size > 0 )
                 {
-                    int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &pkt );
+                    int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &temp );
                     if( !decode_complete && wasted_data_length <= 0 )
                         break;
                     temp.size -= wasted_data_length;
