@@ -1552,6 +1552,7 @@ static void audio_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp )
         return;
+    audio_packet_free( hp );
     if( hp->audio_index_entries )
         av_free( hp->audio_index_entries );
     if( hp->audio_parser )
