@@ -375,9 +375,10 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
         buf[buf_linesize + 4 * x + 3] = pic_v[pic_linesize[1] + x]; \
     }
     /* Copy all luma (Y). */
+    int width = buf_linesize / YUY2_SIZE;
     for( int y = 0; y < height; y++ )
     {
-        for( int x = 0; x < pic_linesize[0]; x++ )
+        for( int x = 0; x < width; x++ )
             buf[y * buf_linesize + 2 * x] = pic_y[x];
         pic_y += pic_linesize[0];
     }
