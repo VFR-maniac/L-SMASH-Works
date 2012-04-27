@@ -130,5 +130,6 @@ lsmash_reader_t dummy_reader =
     NULL,
     NULL,
     NULL,
+    NULL,
     close_file
 };

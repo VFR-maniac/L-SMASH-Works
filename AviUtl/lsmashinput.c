@@ -176,8 +176,8 @@ INPUT_HANDLE func_open( LPSTR file )
     get_settings();
     int reader_threads = threads > 0 ? threads : get_auto_threads();
     extern lsmash_reader_t libavsmash_reader;
-    extern lsmash_reader_t libav_reader;
     extern lsmash_reader_t avs_reader;
+    extern lsmash_reader_t libav_reader;
     extern lsmash_reader_t dummy_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
@@ -221,6 +221,7 @@ INPUT_HANDLE func_open( LPSTR file )
                 {
                     hp->audio_reader     = reader.type;
                     hp->read_audio       = reader.read_audio;
+                    hp->delay_audio      = reader.delay_audio;
                     hp->audio_cleanup    = reader.audio_cleanup;
                     hp->close_audio_file = reader.close_file;
                     audio_none = 0;
@@ -253,7 +254,7 @@ INPUT_HANDLE func_open( LPSTR file )
             }
             if( !audio_none
              && reader.prepare_audio_decoding
-             && reader.prepare_audio_decoding( hp, audio_delay ) )
+             && reader.prepare_audio_decoding( hp ) )
             {
                 if( hp->audio_cleanup )
                 {
@@ -342,7 +343,9 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
 int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->read_audio ? hp->read_audio( hp, start, length, buf ) : 0;
+    return hp->read_audio && hp->delay_audio( hp, &start, length, audio_delay )
+         ? hp->read_audio( hp, start, length, buf )
+         : 0;
 }
 
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )

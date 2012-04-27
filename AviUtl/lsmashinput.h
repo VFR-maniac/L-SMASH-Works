@@ -112,10 +112,11 @@ typedef struct
     int   (*get_audio_track)       ( lsmash_handler_t *h );
     void  (*destroy_disposable)    ( void *private_stuff );
     int   (*prepare_video_decoding)( lsmash_handler_t *h, video_option_t *opt );
-    int   (*prepare_audio_decoding)( lsmash_handler_t *h, int audio_delay );
+    int   (*prepare_audio_decoding)( lsmash_handler_t *h );
     int   (*read_video)            ( lsmash_handler_t *h, int sample_number, void *buf );
     int   (*read_audio)            ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
     int   (*is_keyframe)           ( lsmash_handler_t *h, int sample_number );
+    int   (*delay_audio)           ( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay );
     void  (*video_cleanup)         ( lsmash_handler_t *h );
     void  (*audio_cleanup)         ( lsmash_handler_t *h );
     void  (*close_file)            ( void *private_stuff );
@@ -142,6 +143,7 @@ struct lsmash_handler_tag
     WAVEFORMATEXTENSIBLE audio_format;
     uint32_t             audio_pcm_sample_count;
     int  (*read_audio)      ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
+    int  (*delay_audio)     ( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay );
     void (*audio_cleanup)   ( lsmash_handler_t *h );
     void (*close_audio_file)( void *private_stuff );
 };

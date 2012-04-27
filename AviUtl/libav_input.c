@@ -1102,7 +1102,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static int prepare_audio_decoding( lsmash_handler_t *h, int audio_delay )
+static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp->audio_ctx )
@@ -1131,7 +1131,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h, int audio_delay )
         /* for HE-AAC upsampling */
         h->audio_pcm_sample_count *= 2;
     hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
-    hp->av_gap += audio_delay;
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->audio_ctx->channels;
@@ -1347,17 +1346,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( start < hp->av_gap )
-    {
-        if( start + wanted_length < hp->av_gap )
-        {
-            hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
-            return 0;
-        }
-        start = hp->av_gap - start;
-    }
-    else
-        start -= hp->av_gap;
     uint32_t frame_number;
     uint64_t data_offset;
     int      copy_size;
@@ -1524,6 +1512,24 @@ static int is_keyframe( lsmash_handler_t *h, int sample_number )
     return hp->video_frame_list[sample_number + 1].keyframe;
 }
 
+static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
+{
+    libav_handler_t *hp = (libav_handler_t *)h->audio_private;
+    audio_delay += hp->av_gap;
+    if( *start < audio_delay )
+    {
+        if( *start + wanted_length < audio_delay )
+        {
+            hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
+            return 0;
+        }
+        *start = audio_delay - *start;
+    }
+    else
+        *start -= audio_delay;
+    return 1;
+}
+
 static void video_cleanup( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
@@ -1581,6 +1587,7 @@ lsmash_reader_t libav_reader =
     read_video,
     read_audio,
     is_keyframe,
+    delay_audio,
     video_cleanup,
     audio_cleanup,
     close_file

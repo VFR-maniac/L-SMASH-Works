@@ -42,7 +42,6 @@ typedef struct {
     AVS_ScriptEnvironment *env;
     const AVS_VideoInfo   *vi;
     HMODULE                library;
-    int                    audio_delay;
     struct
     {
 #define AVSC_DECLARE_FUNC( name ) name##_func name
@@ -192,11 +191,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static int prepare_audio_decoding( lsmash_handler_t *h, int audio_delay )
+static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     avs_handler_t *hp = (avs_handler_t *)h->audio_private;
     h->audio_pcm_sample_count = hp->vi->num_audio_samples;
-    hp->audio_delay = audio_delay;
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->vi->nchannels;
@@ -232,16 +230,21 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     avs_handler_t *hp = (avs_handler_t *)h->audio_private;
-    if( start < hp->audio_delay )
-    {
-        if( start + wanted_length < hp->audio_delay )
-            return 0;
-        start = hp->audio_delay - start;
-    }
-    else
-        start -= hp->audio_delay;
     hp->func.avs_get_audio( hp->clip, buf, start, wanted_length );
     return wanted_length;
+}
+
+static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
+{
+    if( *start < audio_delay )
+    {
+        if( *start + wanted_length < audio_delay )
+            return 0;
+        *start = audio_delay - *start;
+    }
+    else
+        *start -= audio_delay;
+    return 1;
 }
 
 static void close_file( void *private_stuff )
@@ -266,6 +269,7 @@ lsmash_reader_t avs_reader =
     read_video,
     read_audio,
     NULL,
+    delay_audio,
     NULL,
     NULL,
     close_file
