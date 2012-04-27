@@ -70,7 +70,7 @@ void *malloc_zero( size_t size )
 }
 
 static int threads = 0;
-static int reader_disabled[3] = { 0 };
+static int reader_disabled[4] = { 0 };
 static video_option_t opt = { 0 };
 static int audio_delay = 0;
 static char *settings_path = NULL;
@@ -133,8 +133,10 @@ void get_settings( void )
         /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d", &reader_disabled[1] ) != 1 )
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "avs_disabled=%d",        &reader_disabled[1] ) != 1 )
             reader_disabled[1] = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d",      &reader_disabled[2] ) != 1 )
+            reader_disabled[2] = 0;
         /* dummy reader */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &opt.width, &opt.height ) != 2 )
         {
@@ -175,10 +177,12 @@ INPUT_HANDLE func_open( LPSTR file )
     int reader_threads = threads > 0 ? threads : get_auto_threads();
     extern lsmash_reader_t libavsmash_reader;
     extern lsmash_reader_t libav_reader;
+    extern lsmash_reader_t avs_reader;
     extern lsmash_reader_t dummy_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
         &libavsmash_reader,
+        &avs_reader,
         &libav_reader,
         &dummy_reader,
         NULL
@@ -381,7 +385,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* dummy reader */
             sprintf( edit_buf, "%d", opt.width );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
@@ -465,10 +470,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     audio_delay = atoi( edit_buf );
                     fprintf( ini, "audio_delay=%d\n", audio_delay );
                     /* readers */
-                    reader_disabled[0] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
-                    reader_disabled[1] = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 )) ? 0 : 1;
+                    reader_disabled[0] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 ));
+                    reader_disabled[1] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_GETCHECK, 0, 0 ));
+                    reader_disabled[2] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 ));
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
-                    fprintf( ini, "libav_disabled=%d\n",      reader_disabled[1] );
+                    fprintf( ini, "avs_disabled=%d\n",        reader_disabled[1] );
+                    fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     opt.width = max( atoi( edit_buf ), 32 );

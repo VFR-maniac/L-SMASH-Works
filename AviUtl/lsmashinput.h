@@ -70,8 +70,9 @@ typedef enum
 {
     READER_NONE       = 0,
     LIBAVSMASH_READER = 1,
-    LIBAV_READER      = 2,
-    DUMMY_READER      = 3,
+    AVS_READER        = 2,
+    LIBAV_READER      = 3,
+    DUMMY_READER      = 4,
 } reader_type;
 
 typedef enum
