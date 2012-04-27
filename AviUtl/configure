@@ -15,7 +15,6 @@ options:
   --libdir=DIR             set dir for libs    [NONE]
   --includedir=DIR         set dir for headers [NONE]
 
-  --disable-ffms           disable ffms feature [auto]
   --debug-video            debug video (-DDEBUG_VIDEO)
   --debug-audio            debug audio (-DDEBUG_AUDIO)
 
