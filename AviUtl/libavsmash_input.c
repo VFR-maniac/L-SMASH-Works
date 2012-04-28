@@ -648,7 +648,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
             break;
     }
     /* Flush the last frames. */
-    if( current > video_sample_count && !got_picture && DECODER_DELAY( hp->video_ctx ) )
+    if( current > video_sample_count && DECODER_DELAY( hp->video_ctx ) )
         while( current <= goal )
         {
             AVPacket pkt;
