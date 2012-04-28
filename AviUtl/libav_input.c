@@ -1211,8 +1211,9 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
             break;      /* Sample doesn't exist. */
     }
     hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
-    hp->video_delay_count     = DECODER_DELAY( hp->video_ctx );
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %d, seek_position = %d", rap_number, i );
+    hp->video_delay_count     = min( DECODER_DELAY( hp->video_ctx ), i - rap_number );
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %"PRIu32", seek_position = %"PRIu32" video_delay_count = %"PRIu32,
+                                     rap_number, i, hp->video_delay_count );
     return i;
 }
 
@@ -1226,7 +1227,7 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
             hp->decode_status = DECODE_INITIALIZED;
     }
     int got_picture = 0;
-    do
+    while( current <= goal )
     {
         int ret = decode_video_sample( hp, picture, &got_picture, current );
         if( ret == -1 )
@@ -1236,14 +1237,14 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
         ++current;
         if( !got_picture )
             ++ hp->video_delay_count;
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, delay_count = %d",
-                                         goal, current - 1, hp->video_delay_count );
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
+                                         goal, current - 1, got_picture, hp->video_delay_count );
         if( hp->video_delay_count > DECODER_DELAY( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
             break;
-    } while( current <= goal );
+    }
     /* Flush the last frames. */
     if( current > video_sample_count && !got_picture && DECODER_DELAY( hp->video_ctx ) )
-        do
+        while( current <= goal )
         {
             AVPacket pkt;
             av_init_packet( &pkt );
@@ -1256,9 +1257,9 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
                 return -1;
             }
             ++current;
-            if( !got_picture )
-                ++ hp->video_delay_count;
-        } while( current <= goal );
+            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
+                                             goal, current - 1, got_picture, hp->video_delay_count );
+        }
     if( hp->decode_status == DECODE_REQUIRE_INITIAL )
         hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
