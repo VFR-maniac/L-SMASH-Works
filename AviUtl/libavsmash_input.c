@@ -433,6 +433,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create keyframe list." );
         return -1;
     }
+    if( opt->force_framerate )
+    {
+        h->framerate_num = opt->force_framerate_num;
+        h->framerate_den = opt->force_framerate_den;
+    }
     /* swscale */
     int output_pixel_format;
     output_colorspace_index index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &output_pixel_format );

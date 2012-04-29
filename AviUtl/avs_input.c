@@ -188,8 +188,16 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
     h->video_sample_count = hp->vi->num_frames;
-    h->framerate_num      = hp->vi->fps_numerator;
-    h->framerate_den      = hp->vi->fps_denominator;
+    if( opt->force_framerate )
+    {
+        h->framerate_num = opt->force_framerate_num;
+        h->framerate_den = opt->force_framerate_den;
+    }
+    else
+    {
+        h->framerate_num = hp->vi->fps_numerator;
+        h->framerate_den = hp->vi->fps_denominator;
+    }
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = hp->vi->width;

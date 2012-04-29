@@ -996,7 +996,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         av_free( hp->video_index_entries );
         hp->video_index_entries = NULL;
     }
-    setup_timestamp_info( h );
+    if( opt->force_framerate )
+    {
+        h->framerate_num = opt->force_framerate_num;
+        h->framerate_den = opt->force_framerate_den;
+    }
+    else
+        setup_timestamp_info( h );
     /* swscale */
     hp->video_ctx->width   = hp->video_width;
     hp->video_ctx->height  = hp->video_height;

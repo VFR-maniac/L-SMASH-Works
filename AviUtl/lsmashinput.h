@@ -94,6 +94,9 @@ typedef struct
     int seek_mode;
     int forward_seek_threshold;
     int scaler;
+    int force_framerate;
+    int force_framerate_num;
+    int force_framerate_den;
     /* for dummy reader */
     int width;
     int height;
