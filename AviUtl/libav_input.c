@@ -85,6 +85,7 @@ typedef struct libav_handler_tag
     char                    *file_name;
     int                      threads;
     /* Video stuff */
+    int                      video_error;
     int                      video_index;
     enum CodecID             video_codec_id;
     AVFormatContext         *video_format;
@@ -112,6 +113,7 @@ typedef struct libav_handler_tag
     uint32_t                 forward_seek_threshold;
     func_convert_colorspace *convert_colorspace;
     /* Audio stuff */
+    int                      audio_error;
     int                      audio_index;
     AVFormatContext         *audio_format;
     AVCodecContext          *audio_ctx;
@@ -1171,14 +1173,17 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     return 0;
 }
 
-static void flush_buffers( AVCodecContext *ctx )
+static void flush_buffers( AVCodecContext *ctx, int *error )
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
     AVCodec *codec = ctx->codec;
     avcodec_close( ctx );
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    {
         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to flush buffers.\nIt is recommended you reopen the file." );
+        *error = 1;
+    }
 }
 
 static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
@@ -1190,7 +1195,9 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
     if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0
      && av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY ) < 0 )
         return 0;
-    flush_buffers( hp->video_ctx );
+    flush_buffers( hp->video_ctx, &hp->video_error );
+    if( hp->video_error )
+        return 0;
     hp->video_delay_count = 0;
     hp->decode_status     = DECODE_REQUIRE_INITIAL;
     if( rap_number + DECODER_DELAY( hp->video_ctx ) < presentation_sample_number )
@@ -1269,6 +1276,8 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
+    if( hp->video_error )
+        return 0;
     ++sample_number;            /* sample_number is 1-origin. */
     if( sample_number < hp->first_valid_video_frame_number )
     {
@@ -1307,7 +1316,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     while( start_number == 0 || get_picture( hp, &picture, start_number, sample_number + hp->video_delay_count, h->video_sample_count ) )
     {
         /* Failed to get desired picture. */
-        if( seek_mode == SEEK_MODE_AGGRESSIVE )
+        if( hp->video_error || seek_mode == SEEK_MODE_AGGRESSIVE )
             goto video_fail;
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
         {
@@ -1347,6 +1356,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
+    if( hp->audio_error )
+        return 0;
     uint32_t frame_number;
     uint64_t data_offset;
     int      copy_size;
@@ -1406,7 +1417,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int flags = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->audio_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
         if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
-        flush_buffers( hp->audio_ctx );
+        flush_buffers( hp->audio_ctx, &hp->audio_error );
+        if( hp->audio_error )
+            return 0;
         while( 1 )
         {
             if( get_sample( hp->audio_format, hp->audio_index, pkt ) )

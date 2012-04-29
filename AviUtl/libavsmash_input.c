@@ -67,6 +67,7 @@ typedef struct libavsmash_handler_tag
     struct SwsContext       *sws_ctx;
     int                      threads;
     /* Video stuff */
+    int                      video_error;
     uint8_t                 *video_input_buffer;
     uint32_t                 video_input_buffer_size;
     uint32_t                 last_video_sample_number;
@@ -82,6 +83,7 @@ typedef struct libavsmash_handler_tag
     uint32_t                 forward_seek_threshold;
     func_convert_colorspace *convert_colorspace;
     /* Audio stuff */
+    int                      audio_error;
     uint8_t                 *audio_input_buffer;
     uint32_t                 audio_input_buffer_size;
     AVFrame                  audio_frame_buffer;
@@ -582,20 +584,25 @@ static int find_random_accessible_point( libavsmash_handler_t *hp, uint32_t comp
     return roll_recovery;
 }
 
-static void flush_buffers( AVCodecContext *ctx )
+static void flush_buffers( AVCodecContext *ctx, int *error )
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
     AVCodec *codec = ctx->codec;
     avcodec_close( ctx );
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    {
         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to flush buffers.\nIt is recommended you reopen the file." );
+        *error = 1;
+    }
 }
 
 static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
-    flush_buffers( hp->video_ctx );
+    flush_buffers( hp->video_ctx, &hp->video_error );
+    if( hp->video_error )
+        return 0;
     hp->video_delay_count = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
     if( rap_number + DECODER_DELAY( hp->video_ctx ) < composition_sample_number )
@@ -674,6 +681,8 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
+    if( hp->video_error )
+        return 0;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     if( sample_number < hp->first_valid_video_sample_number )
     {
@@ -713,7 +722,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     while( start_number == 0 || get_picture( hp, &picture, start_number, sample_number + hp->video_delay_count, h->video_sample_count ) )
     {
         /* Failed to get desired picture. */
-        if( seek_mode == SEEK_MODE_AGGRESSIVE )
+        if( hp->video_error || seek_mode == SEEK_MODE_AGGRESSIVE )
             goto video_fail;
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
         {
@@ -780,6 +789,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
+    if( hp->audio_error )
+        return 0;
     uint32_t frame_number;
     uint64_t data_offset;
     int      copy_size;
@@ -807,7 +818,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     else
     {
         /* Seek audio stream. */
-        flush_buffers( hp->audio_ctx );
+        flush_buffers( hp->audio_ctx, &hp->audio_error );
+        if( hp->audio_error )
+            return 0;
         hp->audio_delay_count            = 0;
         hp->last_remainder_size          = 0;
         hp->next_audio_pcm_sample_number = 0;
