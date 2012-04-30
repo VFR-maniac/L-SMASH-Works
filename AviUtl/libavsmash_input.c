@@ -473,16 +473,12 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     {
         AVPacket pkt;
         if( get_sample( hp->root, hp->video_track_ID, i, hp->video_input_buffer, &pkt ) == 1 )
-        {
-            av_free_packet( &pkt );
             break;
-        }
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
         if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) > 0 && got_picture )
         {
-            av_free_packet( &pkt );
             if( i <= DECODER_DELAY( hp->video_ctx ) )
                 continue;
             hp->first_valid_video_sample_number = i - DECODER_DELAY( hp->video_ctx );
@@ -497,7 +493,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             }
             break;
         }
-        av_free_packet( &pkt );
     }
     hp->last_video_sample_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
     return 0;
