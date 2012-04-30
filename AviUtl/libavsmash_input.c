@@ -69,7 +69,6 @@ typedef struct libavsmash_handler_tag
     /* Video stuff */
     int                      video_error;
     uint8_t                 *video_input_buffer;
-    uint32_t                 video_input_buffer_size;
     uint32_t                 last_video_sample_number;
     uint32_t                 last_rap_number;
     uint32_t                 video_delay_count;
@@ -85,7 +84,6 @@ typedef struct libavsmash_handler_tag
     /* Audio stuff */
     int                      audio_error;
     uint8_t                 *audio_input_buffer;
-    uint32_t                 audio_input_buffer_size;
     AVFrame                  audio_frame_buffer;
     AVPacket                 audio_packet;
     uint32_t                 audio_frame_count;
@@ -393,7 +391,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
-static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, uint8_t *buffer, uint32_t buffer_size, AVPacket *pkt )
+static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, uint8_t *buffer, AVPacket *pkt )
 {
     lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( root, track_ID, sample_number );
     if( !sample )
@@ -415,14 +413,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     hp->seek_mode              = opt->seek_mode;
     hp->forward_seek_threshold = opt->forward_seek_threshold;
     /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    hp->video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
-    if( hp->video_input_buffer_size == 0 )
+    uint32_t video_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->video_track_ID );
+    if( video_input_buffer_size == 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid video sample found." );
         return -1;
     }
-    hp->video_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    hp->video_input_buffer = av_mallocz( hp->video_input_buffer_size );
+    hp->video_input_buffer = av_mallocz( video_input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
     if( !hp->video_input_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for video." );
@@ -475,7 +472,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     for( uint32_t i = 1; i <= h->video_sample_count; i++ )
     {
         AVPacket pkt;
-        if( get_sample( hp->root, hp->video_track_ID, i, hp->video_input_buffer, hp->video_input_buffer_size, &pkt ) == 1 )
+        if( get_sample( hp->root, hp->video_track_ID, i, hp->video_input_buffer, &pkt ) == 1 )
         {
             av_free_packet( &pkt );
             break;
@@ -512,14 +509,13 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     if( !hp->audio_ctx )
         return 0;
     /* Note: the input buffer for avcodec_decode_audio3 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    hp->audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
-    if( hp->audio_input_buffer_size == 0 )
+    uint32_t audio_input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( hp->root, hp->audio_track_ID );
+    if( audio_input_buffer_size == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio sample found." );
         return -1;
     }
-    hp->audio_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    hp->audio_input_buffer = av_mallocz( hp->audio_input_buffer_size );
+    hp->audio_input_buffer = av_mallocz( audio_input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
     if( !hp->audio_input_buffer )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for audio." );
@@ -559,7 +555,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
     AVPacket pkt;
-    if( get_sample( hp->root, hp->video_track_ID, sample_number, hp->video_input_buffer, hp->video_input_buffer_size, &pkt ) )
+    if( get_sample( hp->root, hp->video_track_ID, sample_number, hp->video_input_buffer, &pkt ) )
         return 1;
     if( pkt.flags == AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
@@ -862,7 +858,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             else
                 goto audio_out;
         }
-        else if( pkt->size <= 0 && get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, hp->audio_input_buffer_size, pkt ) )
+        else if( pkt->size <= 0 && get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, pkt ) )
             goto audio_out;
         int output_audio = 0;
         do
