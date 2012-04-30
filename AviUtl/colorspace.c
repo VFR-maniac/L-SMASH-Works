@@ -413,25 +413,26 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
-    int _dst_linesize = picture->linesize[0] << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
-    if( _dst_linesize & 15 )
-        _dst_linesize = (_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
+    int abs_dst_linesize = (picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0])
+                        << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
+    if( abs_dst_linesize & 15 )
+        abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
     uint8_t *dst_data[4];
-    dst_data[0] = av_mallocz( _dst_linesize * video_ctx->height * 3 );
+    dst_data[0] = av_mallocz( abs_dst_linesize * video_ctx->height * 3 );
     if( !dst_data[0] )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_mallocz for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
     for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + _dst_linesize * video_ctx->height;
+        dst_data[i] = dst_data[i - 1] + abs_dst_linesize * video_ctx->height;
     dst_data[3] = NULL;
-    const int dst_linesize[4] = { _dst_linesize, _dst_linesize, _dst_linesize, 0 };
+    const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
     int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
     int buf_linesize  = video_ctx->width * YC48_SIZE;
     int output_size   = buf_linesize * output_height;
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
-                                     _dst_linesize, output_height, output_size );
+                                     abs_dst_linesize, output_height, output_size );
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int sse2_available = -1;
     if( sse2_available == -1 )
@@ -439,14 +440,17 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     func_get_output *convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
                              ? convert_yuv16le_to_yc48_sse2
                              : convert_yuv16le_to_yc48;
-    convert( buf, buf_linesize, dst_data, _dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+    convert( buf, buf_linesize, dst_data, abs_dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return output_size;
 }
 
 int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
-    const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
+    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
+    if( abs_dst_linesize < 0 )
+        abs_dst_linesize = -abs_dst_linesize;
+    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
     if( !dst_data[0] )
@@ -510,7 +514,10 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
     }
     else
     {
-        const int dst_linesize[4] = { picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3], 0, 0, 0 };
+        int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
+        if( abs_dst_linesize < 0 )
+            abs_dst_linesize = -abs_dst_linesize;
+        const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
         uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
         dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
         if( !dst_data[0] )
