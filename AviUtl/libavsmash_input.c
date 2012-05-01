@@ -393,10 +393,14 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
 
 static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, uint8_t *buffer, AVPacket *pkt )
 {
+    av_init_packet( pkt );
     lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( root, track_ID, sample_number );
     if( !sample )
+    {
+        pkt->data = NULL;
+        pkt->size = 0;
         return 1;
-    av_init_packet( pkt );
+    }
     pkt->flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
     pkt->size  = sample->length;
     pkt->data  = buffer;
@@ -469,20 +473,17 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Find the first valid video sample. */
-    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
+    for( uint32_t i = 1; i <= h->video_sample_count + DECODER_DELAY( hp->video_ctx ); i++ )
     {
         AVPacket pkt;
-        if( get_sample( hp->root, hp->video_track_ID, i, hp->video_input_buffer, &pkt ) == 1 )
-            break;
+        get_sample( hp->root, hp->video_track_ID, i, hp->video_input_buffer, &pkt );
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
-        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) > 0 && got_picture )
+        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            if( i <= DECODER_DELAY( hp->video_ctx ) )
-                continue;
-            hp->first_valid_video_sample_number = i - DECODER_DELAY( hp->video_ctx );
-            if( hp->first_valid_video_sample_number > 1 )
+            hp->first_valid_video_sample_number = i - hp->video_delay_count;
+            if( hp->first_valid_video_sample_number > 1 || h->video_sample_count == 1 )
             {
                 hp->first_valid_video_sample_size = h->video_format.biWidth * (h->video_format.biBitCount / 8) * h->video_format.biHeight;
                 hp->first_valid_video_sample_data = malloc( hp->first_valid_video_sample_size );
@@ -493,6 +494,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             }
             break;
         }
+        else if( pkt.data )
+            ++ hp->video_delay_count;
     }
     hp->last_video_sample_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
     return 0;
@@ -680,7 +683,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     if( hp->video_error )
         return 0;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
-    if( sample_number < hp->first_valid_video_sample_number )
+    if( sample_number < hp->first_valid_video_sample_number || h->video_sample_count == 1 )
     {
         /* Copy the first valid video sample data. */
         memcpy( buf, hp->first_valid_video_sample_data, hp->first_valid_video_sample_size );

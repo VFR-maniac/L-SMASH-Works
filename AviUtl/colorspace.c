@@ -113,6 +113,7 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
         case PIX_FMT_GBRP10BE :
         case PIX_FMT_GBRP16LE :
         case PIX_FMT_GBRP16BE :
+        case PIX_FMT_PAL8 :
             *output_pixel_format = PIX_FMT_YUV444P16LE; /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             return OUTPUT_YC48;
         case PIX_FMT_RGB24 :
@@ -527,7 +528,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         }
         int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
         int buf_linesize  = video_ctx->width * YUY2_SIZE;
-        output_size   = buf_linesize * output_height;
+        output_size = buf_linesize * output_height;
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
                                          dst_linesize[0], output_height, output_size );
         uint8_t *dst = dst_data[0];

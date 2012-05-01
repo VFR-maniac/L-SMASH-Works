@@ -110,6 +110,7 @@ typedef struct libav_handler_tag
     uint8_t                 *keyframe_list;         /* stored in decoding order */
     order_converter_t       *order_converter;       /* stored in decoding order */
     int                      reordering_present;
+    int                      video_seek_flags;
     int                      video_seek_base;
     int                      seek_mode;
     uint32_t                 forward_seek_threshold;
@@ -985,6 +986,8 @@ static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t *b
         return 0;
     }
     av_free_packet( pkt );
+    pkt->data = NULL;
+    pkt->size = 0;
     return 1;
 }
 
@@ -1058,26 +1061,27 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Find the first valid video frame. */
-    uint32_t rap_number;
-    find_random_accessible_point( hp, 1, 0, &rap_number );
-    int64_t rap_pos = get_random_accessible_point_position( h, rap_number );
-    flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
-        av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
-    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
+    hp->video_seek_flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    if( h->video_sample_count != 1 )
+    {
+        hp->video_seek_flags |= AVSEEK_FLAG_BACKWARD;
+        uint32_t rap_number;
+        find_random_accessible_point( hp, 1, 0, &rap_number );
+        int64_t rap_pos = get_random_accessible_point_position( h, rap_number );
+        if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
+            av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
+    }
+    for( uint32_t i = 1; i <= h->video_sample_count + DECODER_DELAY( hp->video_ctx ); i++ )
     {
         AVPacket pkt;
-        if( get_sample( hp->video_format, hp->video_index, hp->video_input_buffer, &pkt ) == 1 )
-            break;
+        get_sample( hp->video_format, hp->video_index, hp->video_input_buffer, &pkt );
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
-        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) > 0 && got_picture )
+        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            if( i <= DECODER_DELAY( hp->video_ctx ) )
-                continue;
-            hp->first_valid_video_frame_number = i - DECODER_DELAY( hp->video_ctx );
-            if( hp->first_valid_video_frame_number > 1 )
+            hp->first_valid_video_frame_number = i - hp->video_delay_count;
+            if( hp->first_valid_video_frame_number > 1 || h->video_sample_count == 1 )
             {
                 hp->first_valid_video_frame_size = h->video_format.biWidth * (h->video_format.biBitCount / 8) * h->video_format.biHeight;
                 hp->first_valid_video_frame_data = malloc( hp->first_valid_video_frame_size );
@@ -1088,6 +1092,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             }
             break;
         }
+        else if( pkt.data )
+            ++ hp->video_delay_count;
     }
     hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
     return 0;
@@ -1184,10 +1190,8 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
                             int64_t rap_pos, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
-    int flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0
-     && av_seek_frame( hp->video_format, hp->video_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY ) < 0 )
-        return 0;
+    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
+        av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     flush_buffers( hp->video_ctx, &hp->video_error );
     if( hp->video_error )
         return 0;
@@ -1272,7 +1276,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     if( hp->video_error )
         return 0;
     ++sample_number;            /* sample_number is 1-origin. */
-    if( sample_number < hp->first_valid_video_frame_number )
+    if( sample_number < hp->first_valid_video_frame_number || h->video_sample_count == 1 )
     {
         /* Copy the first valid video frame data. */
         memcpy( buf, hp->first_valid_video_frame_data, hp->first_valid_video_frame_size );
