@@ -1447,13 +1447,18 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         {
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
-            if( wasted_data_length < 0 || (wasted_data_length == 0 && !decode_complete) )
+            if( wasted_data_length < 0 )
+            {
+                pkt->size = 0;  /* Force to get the next sample. */
                 break;
+            }
             if( pkt->data )
             {
                 pkt->size -= wasted_data_length;
                 pkt->data += wasted_data_length;
             }
+            else if( !decode_complete )
+                goto audio_out;
             if( decode_complete && hp->audio_frame_buffer.data[0] )
             {
                 int decoded_data_size = hp->audio_frame_buffer.nb_samples * block_align;
