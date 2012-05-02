@@ -414,6 +414,7 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
+    avoid_yuv_scale_conversion( &video_ctx->pix_fmt );
     int abs_dst_linesize = (picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0])
                         << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
     if( abs_dst_linesize & 15 )
