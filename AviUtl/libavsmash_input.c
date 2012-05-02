@@ -482,7 +482,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         int got_picture;
         if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            hp->first_valid_video_sample_number = i - hp->video_delay_count;
+            hp->first_valid_video_sample_number = i - min( DECODER_DELAY( hp->video_ctx ), hp->video_delay_count );
             if( hp->first_valid_video_sample_number > 1 || h->video_sample_count == 1 )
             {
                 hp->first_valid_video_sample_size = h->video_format.biWidth * (h->video_format.biBitCount / 8) * h->video_format.biHeight;
