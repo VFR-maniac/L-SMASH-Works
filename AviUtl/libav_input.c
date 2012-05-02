@@ -967,25 +967,36 @@ static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32
     return rap_pos;
 }
 
-static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t *buffer, AVPacket *pkt )
+static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
 {
-    av_init_packet( pkt );
-    pkt->data = NULL;
-    pkt->size = 0;
-    while( av_read_frame( format_ctx, pkt ) >= 0 )
+    AVPacket temp;
+    av_init_packet( &temp );
+    while( av_read_frame( format_ctx, &temp ) >= 0 )
     {
-        if( pkt->stream_index != stream_index )
+        if( temp.stream_index != stream_index )
         {
-            av_free_packet( pkt );
+            av_free_packet( &temp );
             continue;
         }
-        memcpy( buffer, pkt->data, pkt->size );
-        AVPacket shadow = *pkt;
-        av_free_packet( &shadow );
-        pkt->data = buffer;
+        /* Don't trust the first survey of the maximum packet size. It seems various by seeking. */
+        if( temp.size + FF_INPUT_BUFFER_PADDING_SIZE > *buffer_size )
+        {
+            uint8_t *new_buffer = av_realloc( *buffer, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
+            if( !new_buffer )
+            {
+                av_free_packet( &temp );
+                continue;
+            }
+            *buffer      = new_buffer;
+            *buffer_size = temp.size + FF_INPUT_BUFFER_PADDING_SIZE;
+        }
+        *pkt = temp;
+        pkt->data = *buffer;
+        memcpy( pkt->data, temp.data, temp.size );
+        av_free_packet( &temp );
         return 0;
     }
-    av_free_packet( pkt );
+    *pkt = temp;
     pkt->data = NULL;
     pkt->size = 0;
     return 1;
@@ -998,7 +1009,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return 0;
     hp->seek_mode              = opt->seek_mode;
     hp->forward_seek_threshold = opt->forward_seek_threshold;
-    hp->video_input_buffer = av_mallocz( hp->video_input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
+    hp->video_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
+    hp->video_input_buffer = av_mallocz( hp->video_input_buffer_size );
     if( !hp->video_input_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for video." );
@@ -1074,7 +1086,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     for( uint32_t i = 1; i <= h->video_sample_count + DECODER_DELAY( hp->video_ctx ); i++ )
     {
         AVPacket pkt;
-        get_sample( hp->video_format, hp->video_index, hp->video_input_buffer, &pkt );
+        get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
@@ -1104,7 +1116,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp->audio_ctx )
         return 0;
-    hp->audio_input_buffer = av_mallocz( hp->audio_input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
+    hp->audio_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
+    hp->audio_input_buffer = av_mallocz( hp->audio_input_buffer_size );
     if( !hp->audio_input_buffer )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for audio." );
@@ -1159,7 +1172,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
     AVPacket pkt;
-    if( get_sample( hp->video_format, hp->video_index, hp->video_input_buffer, &pkt ) )
+    if( get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
         return 1;
     if( pkt.flags == AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
@@ -1296,7 +1309,6 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     }
     else
     {
-
         find_random_accessible_point( hp, sample_number, 0, &rap_number );
         if( rap_number == hp->last_rap_number && sample_number > hp->last_video_frame_number )
             start_number = hp->last_video_frame_number + 1 + hp->video_delay_count;
@@ -1411,7 +1423,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             return 0;
         while( 1 )
         {
-            if( get_sample( hp->audio_format, hp->audio_index, hp->audio_input_buffer, pkt ) )
+            if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
                 break;
             if( ((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[rap_number].file_offset > pkt->pos))
              || ((hp->audio_seek_base & SEEK_PTS_BASED) && (pkt->pts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].pts > pkt->pts))
@@ -1441,7 +1453,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 goto audio_out;
         }
         else if( pkt->size <= 0 )
-            get_sample( hp->audio_format, hp->audio_index, hp->audio_input_buffer, pkt );
+            get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt );
         int output_audio = 0;
         do
         {
