@@ -225,12 +225,12 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
-    int width = hp->vi->width * avs_bits_per_pixel( hp->vi ) >> 3;
+    int buf_linesize = hp->vi->width * avs_bits_per_pixel( hp->vi ) >> 3;
     AVS_VideoFrame *frame = hp->func.avs_get_frame( hp->clip, sample_number );
     if( hp->func.avs_clip_get_error( hp->clip ) )
         return 0;
-    hp->func.avs_bit_blt( hp->env, buf, width, avs_get_read_ptr( frame ),
-                          avs_get_pitch( frame ), width, hp->vi->height );
+    hp->func.avs_bit_blt( hp->env, buf, buf_linesize, avs_get_read_ptr( frame ),
+                          avs_get_pitch( frame ), avs_get_row_size( frame ), hp->vi->height );
     hp->func.avs_release_video_frame( frame );
     return avs_bmp_size( hp->vi );
 }
