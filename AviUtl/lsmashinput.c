@@ -127,20 +127,6 @@ void get_settings( void )
             opt.scaler = 0;
         else
             opt.scaler = CLIP_VALUE( opt.scaler, 0, 10 );
-        /* force_framerate */
-        if( !fgets( buf, sizeof(buf), ini )
-         || sscanf( buf, "force_framerate=%d:%d/%d",
-                    &opt.force_framerate, &opt.force_framerate_num, &opt.force_framerate_den ) != 3 )
-        {
-            opt.force_framerate     = 0;
-            opt.force_framerate_num = 24;
-            opt.force_framerate_den = 1;
-        }
-        else
-        {
-            opt.force_framerate_num = max( opt.force_framerate_num, 1 );
-            opt.force_framerate_den = max( opt.force_framerate_den, 1 );
-        }
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -397,12 +383,6 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 11; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)scaler_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, opt.scaler, 0 );
-            /* force_framerate */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_FRAMERATE ), BM_SETCHECK, (WPARAM) opt.force_framerate ? BST_CHECKED : BST_UNCHECKED , 0 );
-            sprintf( edit_buf, "%d", opt.force_framerate_num );
-            SetDlgItemText( hwnd, IDC_EDIT_FORCE_FRAMERATE_NUM, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", opt.force_framerate_den );
-            SetDlgItemText( hwnd, IDC_EDIT_FORCE_FRAMERATE_DEN, (LPCTSTR)edit_buf );
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -488,13 +468,6 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* scaler */
                     opt.scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "scaler=%d\n", opt.scaler );
-                    /* force_framerate */
-                    opt.force_framerate = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_FRAMERATE ), BM_GETCHECK, 0, 0 ));
-                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.force_framerate_num = max( atoi( edit_buf ), 1 );
-                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.force_framerate_den = max( atoi( edit_buf ), 1 );
-                    fprintf( ini, "force_framerate=%d:%d/%d\n", opt.force_framerate, opt.force_framerate_num, opt.force_framerate_den );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );
