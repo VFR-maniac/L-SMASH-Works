@@ -339,7 +339,7 @@ void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst
 #pragma GCC pop_options
 #endif /* __GNUC__ */
 
-static void convert_packed_chroma_to_planar(uint8_t *packed_chroma, uint8_t *planar_chroma, int packed_linesize, int chroma_width, int chroma_height)
+static void convert_packed_chroma_to_planar( uint8_t *packed_chroma, uint8_t *planar_chroma, int packed_linesize, int chroma_width, int chroma_height )
 {
     int planar_linesize = packed_linesize / 2;
     for( int y = 0; y < chroma_height; y++ )
@@ -480,9 +480,10 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
 {
     int output_size = 0;
     if( picture->interlaced_frame
-        && ((video_ctx->pix_fmt == PIX_FMT_YUV420P)
-         || (video_ctx->pix_fmt == PIX_FMT_NV12   )
-         || (video_ctx->pix_fmt == PIX_FMT_NV21   )) )
+     && ((video_ctx->pix_fmt == PIX_FMT_YUV420P)
+     ||  (video_ctx->pix_fmt == PIX_FMT_YUVJ420P)
+     ||  (video_ctx->pix_fmt == PIX_FMT_NV12)
+     ||  (video_ctx->pix_fmt == PIX_FMT_NV21)) )
     {
         uint8_t *another_chroma = NULL;
         if( (video_ctx->pix_fmt == PIX_FMT_NV12)
