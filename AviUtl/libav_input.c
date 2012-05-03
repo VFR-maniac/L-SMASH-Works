@@ -1064,7 +1064,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = hp->video_ctx->width;
     h->video_format.biHeight      = hp->video_ctx->height;
-    h->video_format.biBitCount    = colorspace_table[index].pixel_size * 8;
+    h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Find the first valid video frame. */
     hp->video_seek_flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
@@ -1089,7 +1089,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             hp->first_valid_video_frame_number = i - min( DECODER_DELAY( hp->video_ctx ), hp->video_delay_count );
             if( hp->first_valid_video_frame_number > 1 || h->video_sample_count == 1 )
             {
-                hp->first_valid_video_frame_size = h->video_format.biWidth * (h->video_format.biBitCount / 8) * h->video_format.biHeight;
+                hp->first_valid_video_frame_size = MAKE_AVIUTL_PITCH( h->video_format.biWidth * h->video_format.biBitCount )
+                                                 * h->video_format.biHeight;
                 hp->first_valid_video_frame_data = malloc( hp->first_valid_video_frame_size );
                 if( !hp->first_valid_video_frame_data )
                     return -1;

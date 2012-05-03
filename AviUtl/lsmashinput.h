@@ -34,6 +34,8 @@
 #define RGB24_SIZE 3
 #define YC48_SIZE  6
 
+#define MAKE_AVIUTL_PITCH( x ) ((((x) + 31) & ~31) >> 3)
+
 /* MinGW32 doesn't define subformat constants for WAVEFORMATEXTENSIBLE. */
 #ifndef KSDATAFORMAT_SUBTYPE_PCM
 #define KSDATAFORMAT_SUBTYPE_PCM (GUID){ 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } }
