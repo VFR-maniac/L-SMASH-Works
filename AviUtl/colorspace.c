@@ -479,6 +479,7 @@ int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pi
 int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
     int output_size = 0;
+    int width = video_ctx->width + (video_ctx->width & 1);  /* Make mod2. */
     if( picture->interlaced_frame
         && ((video_ctx->pix_fmt == PIX_FMT_YUV420P)
          || (video_ctx->pix_fmt == PIX_FMT_NV12   )
@@ -495,7 +496,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
                 return 0;
             }
             /* convert chroma nv12 to yv12 (split packed uv into planar u and v) */
-            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], video_ctx->width / 2, video_ctx->height / 2 );
+            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], width / 2, video_ctx->height / 2 );
             /* change data set as yv12 */
             picture->data[2] = another_chroma;
             picture->linesize[1] /= 2;
@@ -509,8 +510,9 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
             }
         }
         /* interlaced yv12 to yuy2 convertion */
-        convert_yv12i_to_yuy2( buf, video_ctx->width * YUY2_SIZE, picture->data, picture->linesize, video_ctx->height );
-        output_size = video_ctx->width * video_ctx->height * YUY2_SIZE;
+        int buf_linesize = width * YUY2_SIZE;
+        convert_yv12i_to_yuy2( buf, buf_linesize, picture->data, picture->linesize, video_ctx->height );
+        output_size = buf_linesize * video_ctx->height;
         if( another_chroma )
             av_free( another_chroma );
     }
@@ -528,7 +530,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
             return 0;
         }
         int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
-        int buf_linesize  = video_ctx->width * YUY2_SIZE;
+        int buf_linesize  = width * YUY2_SIZE;
         output_size = buf_linesize * output_height;
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
                                          dst_linesize[0], output_height, output_size );
