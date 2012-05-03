@@ -58,7 +58,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { RGB24_SIZE, OUTPUT_TAG_RGB  },
             { YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    int linesize = opt->width * colorspace_table[ opt->colorspace ].pixel_size;
+    int linesize = MAKE_AVIUTL_PITCH( opt->width * (colorspace_table[ opt->colorspace ].pixel_size << 3) );
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
     hp->dummy_size = linesize * opt->height;
     if( hp->dummy_size <= 0 )
@@ -93,7 +93,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
     h->video_format.biWidth       = opt->width;
     h->video_format.biHeight      = opt->height;
-    h->video_format.biBitCount    = colorspace_table[ opt->colorspace ].pixel_size * 8;
+    h->video_format.biBitCount    = colorspace_table[ opt->colorspace ].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[ opt->colorspace ].compression;
     return 0;
 }
