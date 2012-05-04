@@ -28,9 +28,7 @@
 
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
-#ifdef DEBUG_VIDEO
 #include <libavutil/pixdesc.h>
-#endif
 
 /* for SSE2 intrinsic func */
 #ifdef __GNUC__
@@ -113,7 +111,6 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
         case PIX_FMT_GBRP10BE :
         case PIX_FMT_GBRP16LE :
         case PIX_FMT_GBRP16BE :
-        case PIX_FMT_PAL8 :
             *output_pixel_format = PIX_FMT_YUV444P16LE; /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             return OUTPUT_YC48;
         case PIX_FMT_RGB24 :
@@ -141,6 +138,7 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
         case PIX_FMT_BGR444LE :
         case PIX_FMT_BGR444BE :
         case PIX_FMT_GBRP :
+        case PIX_FMT_PAL8 :
             *output_pixel_format = PIX_FMT_BGR24;       /* packed RGB 8:8:8, 24bpp, BGRBGR... */
             return OUTPUT_RGB24;
         default :
@@ -412,11 +410,31 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 #undef COPY_CHROMA
 }
 
+static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt )
+{
+    int src_size = 0;
+    for( int i = 0; i < 4; i++ )
+    {
+        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[src_pix_fmt].comp[i];
+        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
+            src_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+    }
+    if( src_size == 0 )
+        return 1;
+    int dst_size = 0;
+    for( int i = 0; i < 4; i++ )
+    {
+        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[dst_pix_fmt].comp[i];
+        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
+            dst_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+    }
+    return (dst_size - 1) / src_size + 1;
+}
+
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
 {
-    avoid_yuv_scale_conversion( &video_ctx->pix_fmt );
-    int abs_dst_linesize = (picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0])
-                        << (video_ctx->pix_fmt == PIX_FMT_YUV444P || video_ctx->pix_fmt == PIX_FMT_YUV440P);
+    int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
+    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_YUV444P16LE, video_ctx->pix_fmt );
     if( abs_dst_linesize & 15 )
         abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
     uint8_t *dst_data[4];
@@ -452,6 +470,7 @@ int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pi
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
         abs_dst_linesize = -abs_dst_linesize;
+    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGR24, video_ctx->pix_fmt );
     const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
@@ -521,6 +540,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
         if( abs_dst_linesize < 0 )
             abs_dst_linesize = -abs_dst_linesize;
+        abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_YUYV422, video_ctx->pix_fmt );
         const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
         uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
         dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
