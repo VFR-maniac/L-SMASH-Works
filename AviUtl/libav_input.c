@@ -1440,9 +1440,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int flags = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->audio_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
         if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
-        flush_buffers( hp->audio_ctx, &hp->audio_error );
-        if( hp->audio_error )
-            return 0;
         for( uint32_t i = rap_number; i <= frame_number; )
         {
             if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
