@@ -1222,11 +1222,11 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
                             int64_t rap_pos, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
-    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
-        av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     flush_buffers( hp->video_ctx, &hp->video_error );
     if( hp->video_error )
         return 0;
+    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
+        av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     hp->video_delay_count = 0;
     hp->decode_status     = DECODE_REQUIRE_INITIAL;
     if( rap_number + DECODER_DELAY( hp->video_ctx ) < presentation_sample_number )
@@ -1409,6 +1409,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     else
     {
         /* Seek audio stream. */
+        flush_buffers( hp->audio_ctx, &hp->audio_error );
+        if( hp->audio_error )
+            return 0;
         hp->audio_delay_count            = 0;
         hp->last_remainder_size          = 0;
         hp->next_audio_pcm_sample_number = 0;
@@ -1440,16 +1443,16 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         flush_buffers( hp->audio_ctx, &hp->audio_error );
         if( hp->audio_error )
             return 0;
-        while( 1 )
+        for( uint32_t i = rap_number; i <= frame_number; )
         {
             if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
                 break;
-            if( ((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[rap_number].file_offset > pkt->pos))
-             || ((hp->audio_seek_base & SEEK_PTS_BASED) && (pkt->pts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].pts > pkt->pts))
-             || ((hp->audio_seek_base & SEEK_DTS_BASED) && (pkt->dts == AV_NOPTS_VALUE || hp->audio_frame_list[rap_number].dts > pkt->dts)) )
+            if( i == rap_number
+             && (((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[i].file_offset > pkt->pos))
+             ||  ((hp->audio_seek_base & SEEK_PTS_BASED)         && (pkt->pts == AV_NOPTS_VALUE || hp->audio_frame_list[i].pts > pkt->pts))
+             ||  ((hp->audio_seek_base & SEEK_DTS_BASED)         && (pkt->dts == AV_NOPTS_VALUE || hp->audio_frame_list[i].dts > pkt->dts))) )
                 continue;   /* Seeking was too backward. */
-            else if( ++rap_number > frame_number )
-                break;
+            ++i;
         }
         already_gotten = 1;
     }
