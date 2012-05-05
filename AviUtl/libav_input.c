@@ -936,8 +936,8 @@ static void setup_timestamp_info( lsmash_handler_t *h )
     stream_timebase *= video_stream->time_base.num;
     uint64_t stream_timescale = video_stream->time_base.den;
     uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
-    uint64_t presentation_duration = ((largest_ts - first_ts) + (largest_ts - second_largest_ts)) / reduce;
-    double stream_framerate = h->video_sample_count * ((double)stream_timescale / presentation_duration);
+    uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
+    double stream_framerate = h->video_sample_count * ((double)stream_timescale / stream_duration);
     if( try_ntsc_framerate( h, stream_framerate ) )
         return;
     h->framerate_num = stream_framerate * stream_timebase + 0.5;
