@@ -113,12 +113,14 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
         case PIX_FMT_GBRP16BE :
             *output_pixel_format = PIX_FMT_YUV444P16LE; /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             return OUTPUT_YC48;
-        case PIX_FMT_RGB24 :
-        case PIX_FMT_BGR24 :
         case PIX_FMT_ARGB :
         case PIX_FMT_RGBA :
         case PIX_FMT_ABGR :
         case PIX_FMT_BGRA :
+            *output_pixel_format = PIX_FMT_BGRA;        /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
+            return OUTPUT_RGBA;
+        case PIX_FMT_RGB24 :
+        case PIX_FMT_BGR24 :
         case PIX_FMT_BGR8 :
         case PIX_FMT_BGR4 :
         case PIX_FMT_BGR4_BYTE :
@@ -461,6 +463,36 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
                              ? convert_yuv16le_to_yc48_sse2
                              : convert_yuv16le_to_yc48;
     convert( buf, buf_linesize, dst_data, abs_dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+    av_free( dst_data[0] );
+    return output_size;
+}
+
+int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf )
+{
+    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
+    if( abs_dst_linesize < 0 )
+        abs_dst_linesize = -abs_dst_linesize;
+    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, video_ctx->pix_fmt );
+    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
+    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+    dst_data[0] = av_mallocz( dst_linesize[0] * video_ctx->height );
+    if( !dst_data[0] )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return 0;
+    }
+    int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, video_ctx->height, dst_data, dst_linesize );
+    int buf_linesize  = MAKE_AVIUTL_PITCH( video_ctx->width * (RGBA_SIZE << 3) );
+    int output_size   = buf_linesize * output_height;
+    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "dst linesize = %d, output_height = %d, output_size = %d",
+                                     dst_linesize[0], output_height, output_size );
+    uint8_t *dst = dst_data[0] + dst_linesize[0] * output_height;
+    while( output_height-- )
+    {
+        dst -= dst_linesize[0];
+        memcpy( buf, dst, buf_linesize );
+        buf += buf_linesize;
+    }
     av_free( dst_data[0] );
     return output_size;
 }

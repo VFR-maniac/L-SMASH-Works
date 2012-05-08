@@ -1065,10 +1065,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         func_convert_colorspace *convert_colorspace;
         int                      pixel_size;
         output_colorspace_tag    compression;
-    } colorspace_table[3] =
+    } colorspace_table[4] =
         {
             { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 },
             { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
+            { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
     int flags = 1 << opt->scaler;
