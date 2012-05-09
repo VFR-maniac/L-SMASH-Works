@@ -85,7 +85,7 @@ typedef struct
 
 typedef struct libav_handler_tag
 {
-    char                    *file_name;
+    char                    *file_path;
     char                    *format_name;
     int                      format_flags;
     int                      threads;
@@ -144,9 +144,9 @@ typedef struct libav_handler_tag
     int64_t                  av_gap;
 } libav_handler_t;
 
-static int lavf_open_file( AVFormatContext **format_ctx, char *file_name )
+static int lavf_open_file( AVFormatContext **format_ctx, char *file_path )
 {
-    if( avformat_open_input( format_ctx, file_name, NULL, NULL ) )
+    if( avformat_open_input( format_ctx, file_path, NULL, NULL ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
         return -1;
@@ -434,9 +434,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
         # Structure of Libav reader index file
         <LibavReaderIndexFile=1>
         <InputFilePath>foobar.omo</InputFilePath>
-        <LibavReaderIndex=marumoska,208,0,-1>
-        <VideoIndex>0000000000</VideoIndex>
-        <AudioIndex>000000002</AudioIndex>
+        <LibavReaderIndex=208,marumoska>
+        <VideoIndex>+0000000000</VideoIndex>
+        <AudioIndex>-0000000001</AudioIndex>
         Stream=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0
         Key=1,Width=1920,Height=1080,PixelFormat=yuv420p
            **************************************************************
@@ -447,12 +447,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx )
         </LibavReaderIndexFile>
      */
     char index_path[512] = { 0 };
-    sprintf( index_path, "%s.index", hp->file_name );
-    FILE *index = fopen( index_path, "w" );
+    sprintf( index_path, "%s.index", hp->file_path );
+    FILE *index = fopen( index_path, "wb" );
     if( !index )
         goto fail_index;
     fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
-    fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_name );
+    fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_path );
     hp->format_name  = (char *)format_ctx->iformat->name;
     hp->format_flags = format_ctx->iformat->flags;
     fprintf( index, "<LibavReaderIndex=%x,%s>\n", hp->format_flags, hp->format_name );
@@ -752,19 +752,19 @@ fail_index:
 static int parse_index( libav_handler_t *hp, FILE *index )
 {
     /* Test to open the target file. */
-    char file_name[512] = { 0 };
-    if( fscanf( index, "<InputFilePath>%[^\n<]</InputFilePath>\n", file_name ) != 1 )
+    char file_path[512] = { 0 };
+    if( fscanf( index, "<InputFilePath>%[^\n<]</InputFilePath>\n", file_path ) != 1 )
         return -1;
-    FILE *target = fopen( file_name, "rb" );
+    FILE *target = fopen( file_path, "rb" );
     if( !target )
         return -1;
     fclose( target );
-    int file_name_length = strlen( file_name );
-    hp->file_name = malloc( file_name_length + 1 );
-    if( !hp->file_name )
+    int file_path_length = strlen( file_path );
+    hp->file_path = malloc( file_path_length + 1 );
+    if( !hp->file_path )
         return -1;
-    memcpy( hp->file_name, file_name, file_name_length );
-    hp->file_name[file_name_length] = '\0';
+    memcpy( hp->file_path, file_path, file_path_length );
+    hp->file_path[file_path_length] = '\0';
     /* Parse the index file. */
     char format_name[256];
     if( fscanf( index, "<LibavReaderIndex=%x,%[^>]>\n", &hp->format_flags, format_name ) != 2
@@ -1020,54 +1020,58 @@ fail_parsing:
     return -1;
 }
 
-static void *open_file( char *file_name, int threads )
+static void *open_file( char *file_path, int threads )
 {
     libav_handler_t *hp = malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
-    /* Check file extension. */
-    int file_name_length = strlen( file_name );
-    if( file_name_length >= 7 )
+    /* Try to open the index file. */
+    int file_path_length = strlen( file_path );
+    char index_file_path[file_path_length + 7];
+    memcpy( index_file_path, file_path, file_path_length );
+    char *ext = file_path_length >= 7 ? &file_path[file_path_length - 6] : NULL;
+    if( ext && !strncmp( ext, ".index", strlen( ".index" ) ) )
+        index_file_path[file_path_length] = '\0';
+    else
     {
-        char *ext = &file_name[file_name_length - 6];
-        if( ext[0] == '.' && ext[1] == 'i' && ext[2] == 'n' && ext[3] == 'd' && ext[4] == 'e' && ext[5] == 'x' )
+        memcpy( index_file_path + file_path_length, ".index", strlen( ".index" ) );
+        index_file_path[file_path_length + 6] = '\0';
+    }
+    FILE *index = fopen( index_file_path, "rb" );
+    if( index )
+    {
+        int version = 0;
+        int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
+        if( ret == 1 && version == INDEX_FILE_VERSION && !parse_index( hp, index ) )
         {
-            FILE *index = fopen( file_name, "rb" );
-            if( index )
-            {
-                int version = 0;
-                int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
-                if( ret == 1 && version == INDEX_FILE_VERSION && !parse_index( hp, index ) )
-                {
-                    fclose( index );
-                    av_register_all();
-                    avcodec_register_all();
-                    return hp;
-                }
-                fclose( index );
-            }
+            /* Opening and parsing the index file succeeded. */
+            fclose( index );
+            av_register_all();
+            avcodec_register_all();
+            return hp;
         }
+        fclose( index );
     }
     /* Open file and create the index. */
-    if( !hp->file_name )
+    if( !hp->file_path )
     {
-        hp->file_name = malloc( file_name_length + 1 );
-        if( !hp->file_name )
+        hp->file_path = malloc( file_path_length + 1 );
+        if( !hp->file_path )
         {
             free( hp );
             return NULL;
         }
-        memcpy( hp->file_name, file_name, file_name_length );
-        hp->file_name[file_name_length] = '\0';
+        memcpy( hp->file_path, file_path, file_path_length );
+        hp->file_path[file_path_length] = '\0';
     }
     av_register_all();
     avcodec_register_all();
     AVFormatContext *format_ctx = NULL;
-    if( lavf_open_file( &format_ctx, file_name ) )
+    if( lavf_open_file( &format_ctx, file_path ) )
     {
         if( format_ctx )
             avformat_close_input( &format_ctx );
-        free( hp->file_name );
+        free( hp->file_path );
         free( hp );
         return NULL;
     }
@@ -1110,7 +1114,7 @@ static void *open_file( char *file_name, int threads )
         if( hp->audio_ctx )
             avcodec_close( hp->audio_ctx );
         avformat_close_input( &format_ctx );
-        free( hp->file_name );
+        free( hp->file_path );
         free( hp );
         return NULL;
     }
@@ -1140,7 +1144,7 @@ static int get_video_track( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     int error = hp->video_index < 0
              || hp->video_frame_count == 0
-             || lavf_open_file( &hp->video_format, hp->file_name );
+             || lavf_open_file( &hp->video_format, hp->file_path );
     AVCodecContext *ctx = !error ? hp->video_format->streams[ hp->video_index ]->codec : NULL;
     if( error || open_decoder( ctx, hp->video_codec_id, hp->threads ) )
     {
@@ -1185,7 +1189,7 @@ static int get_audio_track( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     int error = hp->audio_index < 0
              || hp->audio_frame_count == 0
-             || lavf_open_file( &hp->audio_format, hp->file_name );
+             || lavf_open_file( &hp->audio_format, hp->file_path );
     AVCodecContext *ctx = !error ? hp->audio_format->streams[ hp->audio_index ]->codec : NULL;
     if( error || open_decoder( ctx, hp->audio_codec_id, hp->threads ) )
     {
@@ -2010,8 +2014,8 @@ static void close_file( void *private_stuff )
     libav_handler_t *hp = (libav_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->file_name )
-        free( hp->file_name );
+    if( hp->file_path )
+        free( hp->file_path );
     free( hp );
 }
 
