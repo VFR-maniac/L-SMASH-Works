@@ -1080,14 +1080,14 @@ static void *open_file( char *file_path, int threads )
         AVCodecContext *ctx = format_ctx->streams[index]->codec;
         if( ctx->codec_type == AVMEDIA_TYPE_VIDEO && (ctx->width * ctx->height) > video_resolution )
         {
+            if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
+                continue;
             video_resolution   = ctx->width * ctx->height;
             hp->video_codec_id = ctx->codec_id;
             hp->video_ctx      = ctx;
             hp->video_index    = index;
             video_present      = 1;
         }
-        if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
-            continue;
     }
     int audio_present = 0;
     for( int index = 0; index < format_ctx->nb_streams; index++ )
@@ -1095,14 +1095,14 @@ static void *open_file( char *file_path, int threads )
         AVCodecContext *ctx = format_ctx->streams[index]->codec;
         if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
         {
+            if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
+                continue;
             hp->audio_codec_id = ctx->codec_id;
             hp->audio_ctx      = ctx;
             hp->audio_index    = index;
             audio_present      = 1;
             break;
         }
-        if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
-            continue;
     }
     if( !video_present && !audio_present )
     {
