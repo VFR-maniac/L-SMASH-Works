@@ -430,7 +430,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             return;
         }
         avcodec_get_frame_defaults( &hp->audio_frame_buffer );
-        if( hp->audio_ctx->frame_size == 0 )
+        if( hp->audio_ctx && hp->audio_ctx->frame_size == 0 )
         {
             hp->audio_parser = av_parser_init( hp->audio_ctx->codec_id );
             if( hp->audio_parser )
@@ -642,7 +642,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                      format_ctx->streams[ pkt.stream_index ]->time_base.den,
                      pkt.pos, pkt.pts, pkt.dts,
                      pkt_ctx->channels, pkt_ctx->sample_rate,
-                     pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) << 3,
+                     pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
                      frame_length );
         }
         av_free_packet( &pkt );
