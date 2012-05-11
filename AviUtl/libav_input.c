@@ -1026,14 +1026,16 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         if( !fgets( buf, sizeof(buf), index ) )
             goto fail_parsing;
         if( hp->audio_index >= 0 )
-        hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
-        hp->audio_frame_list   = audio_info;
-        hp->audio_frame_count  = audio_sample_count;
-        decide_audio_seek_method( hp, audio_sample_count );
-        if( hp->video_index >= 0 )
-            calculate_av_gap( hp, video_info, audio_info,
-                              video_time_base, audio_time_base,
-                              audio_sample_rate );
+        {
+            hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
+            hp->audio_frame_list   = audio_info;
+            hp->audio_frame_count  = audio_sample_count;
+            decide_audio_seek_method( hp, audio_sample_count );
+            if( hp->video_index >= 0 )
+                calculate_av_gap( hp, video_info, audio_info,
+                                  video_time_base, audio_time_base,
+                                  audio_sample_rate );
+        }
     }
     if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
         return 0;
