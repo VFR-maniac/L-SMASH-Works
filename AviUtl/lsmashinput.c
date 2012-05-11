@@ -71,9 +71,9 @@ void *malloc_zero( size_t size )
     return p;
 }
 
-static int threads = 0;
+static reader_option_t reader_opt = { 0 };
+static video_option_t *video_opt = &reader_opt.video_opt;
 static int reader_disabled[4] = { 0 };
-static video_option_t opt = { 0 };
 static int audio_delay = 0;
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
@@ -112,23 +112,42 @@ void get_settings( void )
     if( ini )
     {
         /* threads */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &threads ) != 1 )
-            threads = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &reader_opt.threads ) != 1 )
+            reader_opt.threads = 0;
+        /* force stream index */
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "force_video_index=%d:%d",
+                    &reader_opt.force_video, &reader_opt.force_video_index ) != 2 )
+        {
+            reader_opt.force_video       = 0;
+            reader_opt.force_video_index = -1;
+        }
+        else
+            reader_opt.force_video_index = max( reader_opt.force_video_index, -1 );
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "force_audio_index=%d:%d",
+                    &reader_opt.force_audio, &reader_opt.force_audio_index ) != 2 )
+        {
+            reader_opt.force_audio       = 0;
+            reader_opt.force_audio_index = -1;
+        }
+        else
+            reader_opt.force_audio_index = max( reader_opt.force_audio_index, -1 );
         /* seek_mode */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &opt.seek_mode ) != 1 )
-            opt.seek_mode = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &video_opt->seek_mode ) != 1 )
+            video_opt->seek_mode = 0;
         else
-            opt.seek_mode = CLIP_VALUE( opt.seek_mode, 0, 2 );
+            video_opt->seek_mode = CLIP_VALUE( video_opt->seek_mode, 0, 2 );
         /* forward_seek_threshold */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "forward_threshold=%d", &opt.forward_seek_threshold ) != 1 )
-            opt.forward_seek_threshold = 10;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "forward_threshold=%d", &video_opt->forward_seek_threshold ) != 1 )
+            video_opt->forward_seek_threshold = 10;
         else
-            opt.forward_seek_threshold = CLIP_VALUE( opt.forward_seek_threshold, 1, 999 );
+            video_opt->forward_seek_threshold = CLIP_VALUE( video_opt->forward_seek_threshold, 1, 999 );
         /* scaler */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "scaler=%d", &opt.scaler ) != 1 )
-            opt.scaler = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "scaler=%d", &video_opt->scaler ) != 1 )
+            video_opt->scaler = 0;
         else
-            opt.scaler = CLIP_VALUE( opt.scaler, 0, 10 );
+            video_opt->scaler = CLIP_VALUE( video_opt->scaler, 0, 10 );
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -140,30 +159,30 @@ void get_settings( void )
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d",      &reader_disabled[2] ) != 1 )
             reader_disabled[2] = 0;
         /* dummy reader */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &opt.width, &opt.height ) != 2 )
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &video_opt->width, &video_opt->height ) != 2 )
         {
-            opt.width  = 720;
-            opt.height = 480;
+            video_opt->width  = 720;
+            video_opt->height = 480;
         }
         else
         {
-            opt.width  = max( opt.width,  32 );
-            opt.height = max( opt.height, 32 );
+            video_opt->width  = max( video_opt->width,  32 );
+            video_opt->height = max( video_opt->height, 32 );
         }
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_framerate=%d/%d", &opt.framerate_num, &opt.framerate_den ) != 2 )
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_framerate=%d/%d", &video_opt->framerate_num, &video_opt->framerate_den ) != 2 )
         {
-            opt.framerate_num = 24;
-            opt.framerate_den = 1;
+            video_opt->framerate_num = 24;
+            video_opt->framerate_den = 1;
         }
         else
         {
-            opt.framerate_num = max( opt.framerate_num, 1 );
-            opt.framerate_den = max( opt.framerate_den, 1 );
+            video_opt->framerate_num = max( video_opt->framerate_num, 1 );
+            video_opt->framerate_den = max( video_opt->framerate_den, 1 );
         }
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&opt.colorspace ) != 1 )
-            opt.colorspace = OUTPUT_YUY2;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&video_opt->colorspace ) != 1 )
+            video_opt->colorspace = OUTPUT_YUY2;
         else
-            opt.colorspace = CLIP_VALUE( opt.colorspace, 0, 2 );
+            video_opt->colorspace = CLIP_VALUE( video_opt->colorspace, 0, 2 );
         fclose( ini );
     }
 }
@@ -176,7 +195,8 @@ INPUT_HANDLE func_open( LPSTR file )
     hp->video_reader = READER_NONE;
     hp->audio_reader = READER_NONE;
     get_settings();
-    int reader_threads = threads > 0 ? threads : get_auto_threads();
+    if( reader_opt.threads <= 0 )
+        reader_opt.threads = get_auto_threads();
     extern lsmash_reader_t libavsmash_reader;
     extern lsmash_reader_t avs_reader;
     extern lsmash_reader_t libav_reader;
@@ -196,7 +216,7 @@ INPUT_HANDLE func_open( LPSTR file )
         int video_none = 1;
         int audio_none = 1;
         lsmash_reader_t reader = *lsmash_reader_table[i];
-        void *private_stuff = reader.open_file( file, reader_threads );
+        void *private_stuff = reader.open_file( file, &reader_opt );
         if( private_stuff )
         {
             if( !hp->video_private )
@@ -243,7 +263,7 @@ INPUT_HANDLE func_open( LPSTR file )
                 reader.destroy_disposable( private_stuff );
             if( !video_none
              && reader.prepare_video_decoding
-             && reader.prepare_video_decoding( hp, &opt ) )
+             && reader.prepare_video_decoding( hp, video_opt ) )
             {
                 if( hp->video_cleanup )
                 {
@@ -368,23 +388,30 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             InitCommonControls();
             get_settings();
             /* threads */
-            sprintf( edit_buf, "%d", threads );
+            sprintf( edit_buf, "%d", reader_opt.threads );
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            /* force stream index */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_SETCHECK, (WPARAM) reader_opt.force_video ? BST_CHECKED : BST_UNCHECKED, 0 );
+            sprintf( edit_buf, "%d", reader_opt.force_video_index );
+            SetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPCTSTR)edit_buf );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_AUDIO ), BM_SETCHECK, (WPARAM) reader_opt.force_audio ? BST_CHECKED : BST_UNCHECKED, 0 );
+            sprintf( edit_buf, "%d", reader_opt.force_audio_index );
+            SetDlgItemText( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, (LPCTSTR)edit_buf );
             /* forward_seek_threshold */
-            sprintf( edit_buf, "%d", opt.forward_seek_threshold );
+            sprintf( edit_buf, "%d", video_opt->forward_seek_threshold );
             SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_FORWARD_THRESHOLD ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_FORWARD_THRESHOLD ), 0 );
             /* seek mode */
             HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)seek_mode_list[i] );
-            SendMessage( hcombo, CB_SETCURSEL, opt.seek_mode, 0 );
+            SendMessage( hcombo, CB_SETCURSEL, video_opt->seek_mode, 0 );
             /* scaler */
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SCALER );
             for( int i = 0; i < 11; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)scaler_list[i] );
-            SendMessage( hcombo, CB_SETCURSEL, opt.scaler, 0 );
+            SendMessage( hcombo, CB_SETCURSEL, video_opt->scaler, 0 );
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -393,18 +420,18 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* dummy reader */
-            sprintf( edit_buf, "%d", opt.width );
+            sprintf( edit_buf, "%d", video_opt->width );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", opt.height );
+            sprintf( edit_buf, "%d", video_opt->height );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", opt.framerate_num );
+            sprintf( edit_buf, "%d", video_opt->framerate_num );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", opt.framerate_den );
+            sprintf( edit_buf, "%d", video_opt->framerate_den );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPCTSTR)edit_buf );
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
-            SendMessage( hcombo, CB_SETCURSEL, opt.colorspace, 0 );
+            SendMessage( hcombo, CB_SETCURSEL, video_opt->colorspace, 0 );
             return TRUE;
         case WM_NOTIFY :
             if( wparam == IDC_SPIN_THREADS )
@@ -413,12 +440,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 if( lpnmud->hdr.code == UDN_DELTAPOS )
                 {
                     GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    threads = atoi( edit_buf );
+                    reader_opt.threads = atoi( edit_buf );
                     if( lpnmud->iDelta )
-                        threads += lpnmud->iDelta > 0 ? -1 : 1;
-                    if( threads < 0 )
-                        threads = 0;
-                    sprintf( edit_buf, "%d", threads );
+                        reader_opt.threads += lpnmud->iDelta > 0 ? -1 : 1;
+                    if( reader_opt.threads < 0 )
+                        reader_opt.threads = 0;
+                    sprintf( edit_buf, "%d", reader_opt.threads );
                     SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
                 }
             }
@@ -428,11 +455,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 if( lpnmud->hdr.code == UDN_DELTAPOS )
                 {
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.forward_seek_threshold = atoi( edit_buf );
+                    video_opt->forward_seek_threshold = atoi( edit_buf );
                     if( lpnmud->iDelta )
-                        opt.forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
-                    opt.forward_seek_threshold = CLIP_VALUE( opt.forward_seek_threshold, 1, 999 );
-                    sprintf( edit_buf, "%d", opt.forward_seek_threshold );
+                        video_opt->forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
+                    video_opt->forward_seek_threshold = CLIP_VALUE( video_opt->forward_seek_threshold, 1, 999 );
+                    sprintf( edit_buf, "%d", video_opt->forward_seek_threshold );
                     SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
                 }
             }
@@ -455,21 +482,30 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     }
                     /* threads */
                     GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    threads = max( atoi( edit_buf ), 0 );
-                    if( threads > 0 )
-                        fprintf( ini, "threads=%d\n", threads );
+                    reader_opt.threads = max( atoi( edit_buf ), 0 );
+                    if( reader_opt.threads > 0 )
+                        fprintf( ini, "threads=%d\n", reader_opt.threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
+                    /* force stream index */
+                    reader_opt.force_video = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_GETCHECK, 0, 0 ));
+                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    reader_opt.force_video_index = max( atoi( edit_buf ), -1 );
+                    fprintf( ini, "force_video_index=%d:%d\n", reader_opt.force_video, reader_opt.force_video_index );
+                    reader_opt.force_audio = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_AUDIO ), BM_GETCHECK, 0, 0 ));
+                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    reader_opt.force_audio_index = max( atoi( edit_buf ), -1 );
+                    fprintf( ini, "force_audio_index=%d:%d\n", reader_opt.force_audio, reader_opt.force_audio_index );
                     /* seek_mode */
-                    opt.seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
-                    fprintf( ini, "seek_mode=%d\n", opt.seek_mode );
+                    video_opt->seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "seek_mode=%d\n", video_opt->seek_mode );
                     /* forward_seek_threshold */
                     GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
-                    fprintf( ini, "forward_threshold=%d\n", opt.forward_seek_threshold );
+                    video_opt->forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
+                    fprintf( ini, "forward_threshold=%d\n", video_opt->forward_seek_threshold );
                     /* scaler */
-                    opt.scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
-                    fprintf( ini, "scaler=%d\n", opt.scaler );
+                    video_opt->scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "scaler=%d\n", video_opt->scaler );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );
@@ -483,17 +519,17 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.width = max( atoi( edit_buf ), 32 );
+                    video_opt->width = max( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.height = max( atoi( edit_buf ), 32 );
+                    video_opt->height = max( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.framerate_num = max( atoi( edit_buf ), 1 );
+                    video_opt->framerate_num = max( atoi( edit_buf ), 1 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    opt.framerate_den = max( atoi( edit_buf ), 1 );
-                    opt.colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
-                    fprintf( ini, "dummy_resolution=%dx%d\n", opt.width, opt.height );
-                    fprintf( ini, "dummy_framerate=%d/%d\n", opt.framerate_num, opt.framerate_den );
-                    fprintf( ini, "dummy_colorspace=%d\n", opt.colorspace );
+                    video_opt->framerate_den = max( atoi( edit_buf ), 1 );
+                    video_opt->colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->width, video_opt->height );
+                    fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->framerate_num, video_opt->framerate_den );
+                    fprintf( ini, "dummy_colorspace=%d\n", video_opt->colorspace );
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );

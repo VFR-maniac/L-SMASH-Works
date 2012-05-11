@@ -107,12 +107,24 @@ typedef struct
     output_colorspace_index colorspace;
 } video_option_t;
 
+typedef struct
+{
+    int threads;
+    /* for libav reader */
+    int force_video;
+    int force_video_index;
+    int force_audio;
+    int force_audio_index;
+    /* for video stream */
+    video_option_t video_opt;
+} reader_option_t;
+
 typedef struct lsmash_handler_tag lsmash_handler_t;
 
 typedef struct
 {
     reader_type type;
-    void *(*open_file)             ( char *file_name, int threads );
+    void *(*open_file)             ( char *file_name, reader_option_t *opt );
     int   (*get_video_track)       ( lsmash_handler_t *h );
     int   (*get_audio_track)       ( lsmash_handler_t *h );
     void  (*destroy_disposable)    ( void *private_stuff );

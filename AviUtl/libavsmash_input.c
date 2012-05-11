@@ -95,7 +95,7 @@ typedef struct libavsmash_handler_tag
     uint32_t                 priming_samples;
 } libavsmash_handler_t;
 
-static void *open_file( char *file_name, int threads )
+static void *open_file( char *file_name, reader_option_t *opt )
 {
     libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
@@ -129,7 +129,7 @@ static void *open_file( char *file_name, int threads )
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_find_stream_info." );
         goto open_fail;
     }
-    hp->threads = threads;
+    hp->threads = opt->threads;
     return hp;
 open_fail:
     if( hp->format_ctx )

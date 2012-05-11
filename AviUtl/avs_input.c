@@ -147,7 +147,7 @@ static void close_avisynth_dll( avs_handler_t *hp )
     FreeLibrary( hp->library );
 }
 
-static void *open_file( char *file_name, int threads )
+static void *open_file( char *file_name, reader_option_t *opt )
 {
     /* Check file extension. */
     int file_name_length = strlen( file_name );

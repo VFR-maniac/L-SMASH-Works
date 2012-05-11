@@ -30,7 +30,7 @@ typedef struct
     int      dummy_size;
 } dummy_handler_t;
 
-static void *open_file( char *file_name, int threads )
+static void *open_file( char *file_name, reader_option_t *opt )
 {
     return malloc_zero( sizeof(dummy_handler_t) );
 }
