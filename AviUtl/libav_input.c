@@ -791,8 +791,10 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     char format_name[256];
     int active_video_index;
     int active_audio_index;
-    if( fscanf( index, "<LibavReaderIndex=0x%x,%[^>]>\n", &hp->format_flags, format_name ) != 2
-     || fscanf( index, "<ActiveVideoStreamIndex>%d</ActiveVideoStreamIndex>\n", &active_video_index ) != 1
+    if( fscanf( index, "<LibavReaderIndex=0x%x,%[^>]>\n", &hp->format_flags, format_name ) != 2 )
+        return -1;
+    int32_t active_index_pos = ftell( index );
+    if( fscanf( index, "<ActiveVideoStreamIndex>%d</ActiveVideoStreamIndex>\n", &active_video_index ) != 1
      || fscanf( index, "<ActiveAudioStreamIndex>%d</ActiveAudioStreamIndex>\n", &active_audio_index ) != 1 )
         return -1;
     hp->format_name = format_name;
@@ -1052,6 +1054,13 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             calculate_av_gap( hp, video_info, audio_info,
                               video_time_base, audio_time_base,
                               audio_sample_rate );
+        if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )
+        {
+            /* Update the active stream indexes when specifying different stream indexes. */
+            fseek( index, active_index_pos, SEEK_SET );
+            fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
+            fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->audio_index );
+        }
         return 0;
     }
 fail_parsing:
@@ -1081,7 +1090,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
         memcpy( index_file_path + file_path_length, ".index", strlen( ".index" ) );
         index_file_path[file_path_length + 6] = '\0';
     }
-    FILE *index = fopen( index_file_path, "rb" );
+    FILE *index = fopen( index_file_path, (opt->force_video || opt->force_video) ? "r+b" : "rb" );
     if( index )
     {
         int version = 0;
