@@ -43,7 +43,7 @@
 #define SEEK_PTS_BASED         0x00000002
 #define SEEK_FILE_OFFSET_BASED 0x00000004
 
-#define INDEX_FILE_VERSION 2
+#define INDEX_FILE_VERSION 3
 
 typedef enum
 {
@@ -407,6 +407,12 @@ static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket
     avcodec_decode_video2( video_ctx, &picture, &got_picture, pkt );
 }
 
+static inline void write_av_index_entry( FILE *index, AVIndexEntry *ie )
+{
+    fprintf( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
+             ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
+}
+
 static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, reader_option_t *opt,
                           int video_present, int audio_present )
 {
@@ -439,17 +445,17 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     }
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=2>
+        <LibavReaderIndexFile=3>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
-        <VideoStreamIndex>+0000000000</VideoStreamIndex>
-        <AudioStreamIndex>-0000000001</AudioStreamIndex>
+        <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
+        <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0
         Key=1,Width=1920,Height=1080,PixelFormat=yuv420p
         </LibavReaderIndex>
-        <VideoStreamIndexEntries=1>
+        <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
-        </VideoStreamIndexEntries>
+        </StreamIndexEntries>
         </LibavReaderIndexFile>
      */
     char index_path[512] = { 0 };
@@ -463,8 +469,8 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->format_flags = format_ctx->iformat->flags;
     fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", hp->format_flags, hp->format_name );
     int32_t video_index_pos = ftell( index );
-    fprintf( index, "<VideoStreamIndex>%+011d</VideoStreamIndex>\n", hp->video_index );
-    fprintf( index, "<AudioStreamIndex>%+011d</AudioStreamIndex>\n", hp->audio_index );
+    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
+    fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->audio_index );
     AVPacket pkt;
     av_init_packet( &pkt );
     hp->video_format = format_ctx;
@@ -487,10 +493,8 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
              &&  pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO
              &&  pkt_ctx->width * pkt_ctx->height > video_resolution) )
             {
-                if( opt->force_video
-                 && pkt.stream_index == hp->video_index
-                 && hp->video_ctx->pix_fmt == PIX_FMT_NONE )
-                    investigate_pix_fmt_by_decoding( hp->video_ctx, &pkt );
+                if( pkt_ctx->pix_fmt == PIX_FMT_NONE && pkt_ctx->codec )
+                    investigate_pix_fmt_by_decoding( pkt_ctx, &pkt );
                 if( !opt->force_video
                  && pkt.stream_index != hp->video_index
                  && !open_decoder( pkt_ctx, pkt_ctx->codec_id, hp->threads ) )
@@ -508,7 +512,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     last_keyframe_pts           = INT64_MIN;
                     int32_t current_pos = ftell( index );
                     fseek( index, video_index_pos, SEEK_SET );
-                    fprintf( index, "<VideoStreamIndex>%+011d</VideoStreamIndex>\n", hp->video_index );
+                    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
                     fseek( index, current_pos, SEEK_SET );
                 }
                 ++video_sample_count;
@@ -636,14 +640,14 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         else if( pkt_ctx->codec_type == AVMEDIA_TYPE_AUDIO )
         {
             fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                     "ChannelCount=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                     "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
                      pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                      format_ctx->streams[ pkt.stream_index ]->time_base.num,
                      format_ctx->streams[ pkt.stream_index ]->time_base.den,
                      pkt.pos, pkt.pts, pkt.dts,
                      pkt_ctx->channels, pkt_ctx->sample_rate,
                      pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
-                     frame_length );
+                     pkt.stream_index == hp->audio_index ? frame_length : pkt_ctx->frame_size );
         }
         av_free_packet( &pkt );
     }
@@ -682,7 +686,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                     constant_frame_length = 0;
                 fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                         "ChannelCount=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                         "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
                          hp->audio_index, AVMEDIA_TYPE_AUDIO, hp->audio_ctx->codec_id,
                          format_ctx->streams[ hp->audio_index ]->time_base.num,
                          format_ctx->streams[ hp->audio_index ]->time_base.den,
@@ -703,47 +707,53 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
     }
     fprintf( index, "</LibavReaderIndex>\n" );
-    if( hp->video_index >= 0 )
+    for( int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
-        AVStream *video_stream = format_ctx->streams[ hp->video_index ];
-        fprintf( index, "<VideoStreamIndexEntries=%d>\n", video_stream->nb_index_entries );
-        if( video_stream->nb_index_entries > 0 )
+        AVStream *stream = format_ctx->streams[stream_index];
+        if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
         {
-            hp->video_index_entries = av_malloc( video_stream->index_entries_allocated_size );
-            if( !hp->video_index_entries )
-                goto fail_index;
-            for( int i = 0; i < video_stream->nb_index_entries; i++ )
+            fprintf( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_VIDEO, stream->nb_index_entries );
+            if( hp->video_index != stream_index )
+                for( int i = 0; i < stream->nb_index_entries; i++ )
+                    write_av_index_entry( index, &stream->index_entries[i] );
+            else if( stream->nb_index_entries > 0 )
             {
-                AVIndexEntry *ie = &video_stream->index_entries[i];
-                hp->video_index_entries[i] = *ie;
-                fprintf( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
-                         ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
+                hp->video_index_entries = av_malloc( stream->index_entries_allocated_size );
+                if( !hp->video_index_entries )
+                    goto fail_index;
+                for( int i = 0; i < stream->nb_index_entries; i++ )
+                {
+                    AVIndexEntry *ie = &stream->index_entries[i];
+                    hp->video_index_entries[i] = *ie;
+                    write_av_index_entry( index, ie );
+                }
+                hp->video_index_entries_count = stream->nb_index_entries;
             }
-            hp->video_index_entries_count = video_stream->nb_index_entries;
+            fprintf( index, "</StreamIndexEntries>\n" );
         }
-        fprintf( index, "</VideoStreamIndexEntries>\n" );
-    }
-    if( hp->audio_index >= 0 )
-    {
-        AVStream *audio_stream = format_ctx->streams[ hp->audio_index ];
-        fprintf( index, "<AudioStreamIndexEntries=%d>\n", audio_stream->nb_index_entries );
-        if( audio_stream->nb_index_entries > 0 )
+        else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
         {
-            /* Audio stream in matroska container requires index_entries for seeking.
-             * This avoids for re-reading the file to create index_entries since the file will be closed once. */
-            hp->audio_index_entries = av_malloc( audio_stream->index_entries_allocated_size );
-            if( !hp->audio_index_entries )
-                goto fail_index;
-            for( int i = 0; i < audio_stream->nb_index_entries; i++ )
+            fprintf( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_AUDIO, stream->nb_index_entries );
+            if( hp->audio_index != stream_index )
+                for( int i = 0; i < stream->nb_index_entries; i++ )
+                    write_av_index_entry( index, &stream->index_entries[i] );
+            else if( stream->nb_index_entries > 0 )
             {
-                AVIndexEntry *ie = &audio_stream->index_entries[i];
-                hp->audio_index_entries[i] = *ie;
-                fprintf( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
-                         ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
+                /* Audio stream in matroska container requires index_entries for seeking.
+                 * This avoids for re-reading the file to create index_entries since the file will be closed once. */
+                hp->audio_index_entries = av_malloc( stream->index_entries_allocated_size );
+                if( !hp->audio_index_entries )
+                    goto fail_index;
+                for( int i = 0; i < stream->nb_index_entries; i++ )
+                {
+                    AVIndexEntry *ie = &stream->index_entries[i];
+                    hp->audio_index_entries[i] = *ie;
+                    write_av_index_entry( index, ie );
+                }
+                hp->audio_index_entries_count = stream->nb_index_entries;
             }
-            hp->audio_index_entries_count = audio_stream->nb_index_entries;
+            fprintf( index, "</StreamIndexEntries>\n" );
         }
-        fprintf( index, "</AudioStreamIndexEntries>\n" );
     }
     hp->video_format = NULL;
     hp->audio_format = NULL;
@@ -782,16 +792,14 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     int active_video_index;
     int active_audio_index;
     if( fscanf( index, "<LibavReaderIndex=0x%x,%[^>]>\n", &hp->format_flags, format_name ) != 2
-     || fscanf( index, "<VideoStreamIndex>%d</VideoStreamIndex>\n", &active_video_index ) != 1
-     || fscanf( index, "<AudioStreamIndex>%d</AudioStreamIndex>\n", &active_audio_index ) != 1 )
+     || fscanf( index, "<ActiveVideoStreamIndex>%d</ActiveVideoStreamIndex>\n", &active_video_index ) != 1
+     || fscanf( index, "<ActiveAudioStreamIndex>%d</ActiveAudioStreamIndex>\n", &active_audio_index ) != 1 )
         return -1;
     hp->format_name = format_name;
     int video_present = (active_video_index >= 0);
     int audio_present = (active_audio_index >= 0);
     hp->video_index = opt->force_video ? opt->force_video_index : active_video_index;
     hp->audio_index = opt->force_audio ? opt->force_audio_index : active_audio_index;
-    if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )
-        return -1;  /* Need to re-create the index file. */
     uint32_t video_info_count = 1 << 16;
     uint32_t audio_info_count = 1 << 16;
     video_frame_info_t *video_info = NULL;
@@ -891,7 +899,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 int sample_rate;
                 int bps;
                 int frame_length;
-                if( sscanf( buf, "ChannelCount=%d,SampleRate=%d,BitsPerSample=%d,Length=%d",
+                if( sscanf( buf, "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d",
                             &channels, &sample_rate, &bps, &frame_length ) != 4 )
                     goto fail_parsing;
                 if( hp->audio_codec_id == CODEC_ID_NONE )
@@ -950,39 +958,74 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         goto fail_parsing;  /* Need to re-create the index file. */
     if( strncmp( buf, "</LibavReaderIndex>", strlen( "</LibavReaderIndex>" ) ) )
         goto fail_parsing;
+    /* Parse AVIndexEntry. */
     if( !fgets( buf, sizeof(buf), index ) )
         goto fail_parsing;
-    if( !strncmp( buf, "<VideoStreamIndexEntries=", strlen( "<VideoStreamIndexEntries=" ) ) )
+    while( !strncmp( buf, "<StreamIndexEntries=", strlen( "<StreamIndexEntries=" ) ) )
     {
-        if( sscanf( buf, "<VideoStreamIndexEntries=%d>", &hp->video_index_entries_count ) != 1 )
+        int stream_index;
+        int codec_type;
+        int index_entries_count;
+        if( sscanf( buf, "<StreamIndexEntries=%d,%d,%d>", &stream_index, &codec_type, &index_entries_count ) != 3 )
             goto fail_parsing;
         if( !fgets( buf, sizeof(buf), index ) )
             goto fail_parsing;
-        if( hp->video_index_entries_count > 0 )
+        if( index_entries_count > 0 )
         {
-            hp->video_index_entries = av_malloc( hp->video_index_entries_count * sizeof(AVIndexEntry) );
-            if( !hp->video_index_entries )
-                goto fail_parsing;
-            for( int i = 0; i < hp->video_index_entries_count; i++ )
+            if( stream_index != hp->video_index && stream_index != hp->audio_index )
             {
-                AVIndexEntry ie;
-                int size;
-                int flags;
-                if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
-                            &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
-                    break;
-                ie.size  = size;
-                ie.flags = flags;
-                hp->video_index_entries[i] = ie;
-                if( !fgets( buf, sizeof(buf), index ) )
+                for( int i = 0; i < index_entries_count; i++ )
+                    if( !fgets( buf, sizeof(buf), index ) )
+                        goto fail_parsing;
+            }
+            else if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == hp->video_index )
+            {
+                hp->video_index_entries_count = index_entries_count;
+                hp->video_index_entries = av_malloc( hp->video_index_entries_count * sizeof(AVIndexEntry) );
+                if( !hp->video_index_entries )
                     goto fail_parsing;
+                for( int i = 0; i < hp->video_index_entries_count; i++ )
+                {
+                    AVIndexEntry ie;
+                    int size;
+                    int flags;
+                    if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
+                                &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
+                        break;
+                    ie.size  = size;
+                    ie.flags = flags;
+                    hp->video_index_entries[i] = ie;
+                    if( !fgets( buf, sizeof(buf), index ) )
+                        goto fail_parsing;
+                }
+            }
+            else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->audio_index )
+            {
+                hp->audio_index_entries_count = index_entries_count;
+                hp->audio_index_entries = av_malloc( hp->audio_index_entries_count * sizeof(AVIndexEntry) );
+                if( !hp->audio_index_entries )
+                    goto fail_parsing;
+                for( int i = 0; i < hp->audio_index_entries_count; i++ )
+                {
+                    AVIndexEntry ie;
+                    int size;
+                    int flags;
+                    if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
+                                &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
+                        break;
+                    ie.size  = size;
+                    ie.flags = flags;
+                    hp->audio_index_entries[i] = ie;
+                    if( !fgets( buf, sizeof(buf), index ) )
+                        goto fail_parsing;
+                }
             }
         }
-        if( strncmp( buf, "</VideoStreamIndexEntries>", strlen( "</VideoStreamIndexEntries>" ) ) )
+        if( strncmp( buf, "</StreamIndexEntries>", strlen( "</StreamIndexEntries>" ) ) )
             goto fail_parsing;
         if( !fgets( buf, sizeof(buf), index ) )
             goto fail_parsing;
-        if( hp->video_index >= 0 )
+        if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == hp->video_index )
         {
             hp->keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
             if( !hp->keyframe_list )
@@ -994,51 +1037,23 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             if( decide_video_seek_method( hp, video_sample_count ) )
                 goto fail_parsing;
         }
-    }
-    if( !strncmp( buf, "<AudioStreamIndexEntries=", strlen( "<AudioStreamIndexEntries=" ) ) )
-    {
-        if( sscanf( buf, "<AudioStreamIndexEntries=%d>", &hp->audio_index_entries_count ) != 1 )
-            goto fail_parsing;
-        if( !fgets( buf, sizeof(buf), index ) )
-            goto fail_parsing;
-        if( hp->audio_index_entries_count > 0 )
-        {
-            hp->audio_index_entries = av_malloc( hp->audio_index_entries_count * sizeof(AVIndexEntry) );
-            if( !hp->audio_index_entries )
-                goto fail_parsing;
-            for( int i = 0; i < hp->audio_index_entries_count; i++ )
-            {
-                AVIndexEntry ie;
-                int size;
-                int flags;
-                if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
-                            &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
-                    break;
-                ie.size  = size;
-                ie.flags = flags;
-                hp->audio_index_entries[i] = ie;
-                if( !fgets( buf, sizeof(buf), index ) )
-                    goto fail_parsing;
-            }
-        }
-        if( strncmp( buf, "</AudioStreamIndexEntries>", strlen( "</AudioStreamIndexEntries>" ) ) )
-            goto fail_parsing;
-        if( !fgets( buf, sizeof(buf), index ) )
-            goto fail_parsing;
-        if( hp->audio_index >= 0 )
+        else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->audio_index )
         {
             hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             hp->audio_frame_list   = audio_info;
             hp->audio_frame_count  = audio_sample_count;
             decide_audio_seek_method( hp, audio_sample_count );
-            if( hp->video_index >= 0 )
-                calculate_av_gap( hp, video_info, audio_info,
-                                  video_time_base, audio_time_base,
-                                  audio_sample_rate );
         }
+        ++stream_index;
     }
     if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
+    {
+        if( hp->video_index >= 0 && hp->audio_index >= 0 )
+            calculate_av_gap( hp, video_info, audio_info,
+                              video_time_base, audio_time_base,
+                              audio_sample_rate );
         return 0;
+    }
 fail_parsing:
     hp->video_frame_list = NULL;
     hp->audio_frame_list = NULL;
