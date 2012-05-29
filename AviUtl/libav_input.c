@@ -158,6 +158,7 @@ static int lavf_open_file( AVFormatContext **format_ctx, char *file_path )
     }
     return 0;
 }
+
 static int open_decoder( AVCodecContext *ctx, enum CodecID codec_id, int threads )
 {
     AVCodec *codec = avcodec_find_decoder( codec_id );

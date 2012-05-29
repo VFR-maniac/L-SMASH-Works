@@ -106,6 +106,7 @@ typedef struct
     uint32_t                  number_of_samples;
     uint32_t                  last_sample_delta;
     uint32_t                  timescale_integrator;
+    uint32_t                  ctd_shift;
     lsmash_sample_t          *sample;
     double                    dts;
     lsmash_track_parameters_t track_param;
@@ -129,8 +130,10 @@ typedef struct
 
 typedef struct
 {
-    input_movie_t *input;
+    input_movie_t     *input;
+    order_converter_t *order_converter;
     uint32_t number;
+    uint32_t number_of_samples;
     /* input side */
     uint32_t current_sample_number;
     uint32_t presentation_start_sample_number;      /* stored in ascending order of decoding */
@@ -139,8 +142,8 @@ typedef struct
     uint32_t media_end_sample_number;               /* stored in ascending order of decoding */
     uint32_t presentation_end_next_sample_number;   /* stored in ascending order of decoding
                                                      * If the value is 0, the presentation ends at the last sample in the media. */
-    uint64_t skip_dt_interval;                      /* decode time interval that non-exported samples occupied */
     uint64_t composition_delay;
+    uint64_t smallest_cts;
     /* output side */
     uint64_t presentation_start_time;
     uint64_t presentation_end_time;
@@ -168,7 +171,6 @@ typedef struct
     lsmash_root_t *root;
     output_track_t track[2];
     uint32_t       number_of_tracks;
-    uint64_t       total_media_size;
     double         largest_dts;
 } output_movie_t;
 
@@ -187,6 +189,9 @@ typedef struct
     uint32_t          number_of_sequences;
     uint32_t          number_of_inputs;
     uint32_t          number_of_samples[2];
+    uint32_t          composition_sample_delay; /* for video track */
+    uint64_t          composition_delay_time;   /* for video track */
+    uint64_t         *prev_reordered_cts;       /* for video track */
     int               with_video;
     int               with_audio;
     int               ref_chap_available;
@@ -251,18 +256,23 @@ static void get_first_track_of_type( input_movie_t *input, uint32_t number_of_tr
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the last sample delta." );
         return;
     }
+    if( lsmash_get_composition_to_decode_shift_from_media_timeline( input->root, track_ID, &input->track[type].ctd_shift ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the timeline shift." );
+        return;
+    }
     input->track[type].number_of_samples = lsmash_get_sample_count_in_media_timeline( input->root, track_ID );
     input->track[type].active = 1;
 }
 
-static inline uint32_t get_decoding_sample_number( input_movie_t *input, uint32_t composition_sample_number )
+static inline uint32_t get_decoding_sample_number( order_converter_t *order_converter, uint32_t composition_sample_number )
 {
-    return input->order_converter
-         ? input->order_converter[composition_sample_number].composition_to_decoding
+    return order_converter
+         ? order_converter[composition_sample_number].composition_to_decoding
          : composition_sample_number;
 }
 
-static int setup_order_converter( input_movie_t *input )
+static int setup_movie_order_converter( input_movie_t *input )
 {
     input_track_t *in_video_track = &input->track[VIDEO_TRACK];
     lsmash_media_ts_list_t ts_list;
@@ -323,11 +333,11 @@ static int open_input_movie( lsmash_handler_t *hp, FILE_INFO *fi, int file_id )
     get_first_track_of_type( input, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK );
     /* Get audio track. If absent, ignore audio track. */
     get_first_track_of_type( input, number_of_tracks, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK );
-    if( !input->track[VIDEO_TRACK].active && !input->track[AUDIO_TRACK].active  )
+    if( !input->track[VIDEO_TRACK].active && !input->track[AUDIO_TRACK].active )
         return -1;
     lsmash_discard_boxes( input->root );
     if( input->track[VIDEO_TRACK].active
-     && setup_order_converter( input ) )
+     && setup_movie_order_converter( input ) )
         return -1;
     input->file_id = file_id;
     input->fi      = *fi;
@@ -383,10 +393,9 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     sequence_t    *video_sequence = &hp->sequence[VIDEO_TRACK][sequence_number - 1];
     video_sequence->input                            = input;
     video_sequence->number                           = sequence_number;
-    video_sequence->presentation_start_sample_number = get_decoding_sample_number( input, presentation_start_sample_number );
-    video_sequence->presentation_end_sample_number   = get_decoding_sample_number( input, presentation_end_sample_number );
+    video_sequence->presentation_start_sample_number = get_decoding_sample_number( input->order_converter, presentation_start_sample_number );
+    video_sequence->presentation_end_sample_number   = get_decoding_sample_number( input->order_converter, presentation_end_sample_number );
     video_sequence->media_end_sample_number          = video_sequence->presentation_end_sample_number;
-    uint32_t ctd_shift;
     if( in_video_track->active )
     {
         /* Extend the range of a sequence that may be placed in outside of a presentation.
@@ -398,7 +407,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
          * If you want to select P[3] as the end of presentation of a sequence, you need also B[2] obviously.
          * If you want to select B[2] as the end of presentation of a sequence, you need also P[3] obviously. */
         for( uint32_t i = 1; i < presentation_end_sample_number; i++ )
-            video_sequence->media_end_sample_number = max( video_sequence->media_end_sample_number, get_decoding_sample_number( input, i ) );
+            video_sequence->media_end_sample_number = max( video_sequence->media_end_sample_number, get_decoding_sample_number( input->order_converter, i ) );
         /* Find the closest random accessible point, which may be placed in outside of a presentation.
          * A sequence shall start from it or follow the portion of media that includes it.
          * If the closest random accessible point is placed in outside of a presentation,
@@ -411,22 +420,19 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         else
             /* A media starts from random accessible point, while a presentation does NOT always start from random accessible point. */
             video_sequence->media_start_sample_number = rap_number;
-        if( lsmash_get_dts_from_media_timeline( input->root, in_video_track->track_ID,
-                                                video_sequence->media_start_sample_number, &video_sequence->skip_dt_interval ) )
-            return -1;
         /* Find composition delay within this video sequence. */
-        if( lsmash_get_composition_to_decode_shift_from_media_timeline( input->root, in_video_track->track_ID, &ctd_shift )
-         || get_composition_delay( input->root, in_video_track->track_ID,
+        if( get_composition_delay( input->root, in_video_track->track_ID,
                                    video_sequence->media_start_sample_number, video_sequence->media_end_sample_number,
-                                   ctd_shift, &video_sequence->composition_delay ) )
+                                   in_video_track->ctd_shift, &video_sequence->composition_delay ) )
             return -1;
     }
     else
     {
         /* Dummy video sequence */
         video_sequence->media_start_sample_number = video_sequence->presentation_start_sample_number;
-        ctd_shift = 0;
+        in_video_track->ctd_shift = 0;
     }
+    video_sequence->number_of_samples = video_sequence->media_end_sample_number - video_sequence->media_start_sample_number + 1;
     video_sequence->current_sample_number = video_sequence->media_start_sample_number;
     /* Decide presentation range of audio track from one of video track if audio track is present. */
     if( !input->track[AUDIO_TRACK].active )
@@ -442,14 +448,14 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, video_sequence->presentation_start_sample_number, &video_presentation_start_time )
          || get_composition_delay( input->root, in_video_track->track_ID,
                                    1, video_sequence->media_end_sample_number,
-                                   ctd_shift, &composition_delay ) )
+                                   in_video_track->ctd_shift, &composition_delay ) )
             return -1;
-        video_presentation_start_time += ctd_shift - composition_delay;
+        video_presentation_start_time += in_video_track->ctd_shift - composition_delay;
         if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, video_sequence->presentation_end_sample_number, &video_presentation_end_time ) )
             return -1;
         if( presentation_end_sample_number < in_video_track->number_of_samples )
         {
-            video_sequence->presentation_end_next_sample_number = get_decoding_sample_number( input, presentation_end_sample_number + 1 );
+            video_sequence->presentation_end_next_sample_number = get_decoding_sample_number( input->order_converter, presentation_end_sample_number + 1 );
             uint64_t next_cts;
             if( lsmash_get_cts_from_media_timeline( input->root, in_video_track->track_ID, video_sequence->presentation_end_next_sample_number, &next_cts ) )
                 return -1;
@@ -459,7 +465,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         }
         else
             video_presentation_end_time += in_video_track->last_sample_delta;
-        video_presentation_end_time += ctd_shift - composition_delay;
+        video_presentation_end_time += in_video_track->ctd_shift - composition_delay;
         video_timescale = in_video_track->media_param.timescale;
     }
     else
@@ -512,8 +518,8 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     audio_sequence->start_skip_duration              = audio_start_time - dts;
     audio_sequence->current_sample_number            = audio_sequence->media_start_sample_number;
     hp->number_of_samples[AUDIO_TRACK]              += audio_sequence->media_end_sample_number - audio_sequence->media_start_sample_number + 1;
-    return lsmash_get_dts_from_media_timeline( input->root, in_audio_track->track_ID,
-                                               audio_sequence->media_start_sample_number, &audio_sequence->skip_dt_interval );
+    return lsmash_get_cts_from_media_timeline( input->root, in_audio_track->track_ID,
+                                               audio_sequence->media_start_sample_number, &audio_sequence->smallest_cts );
 }
 
 static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s, int frame_e )
@@ -650,6 +656,45 @@ static int integrate_media_timescale( lsmash_handler_t *hp )
     return 0;
 }
 
+static int setup_sequence_order_converter( sequence_t *sequence, uint32_t *composition_sample_delay )
+{
+    input_movie_t *input = sequence->input;
+    input_track_t *in_video_track = &input->track[VIDEO_TRACK];
+    lsmash_media_ts_list_t ts_list;
+    if( lsmash_get_media_timestamps( input->root, in_video_track->track_ID, &ts_list ) )
+        return -1;
+    if( ts_list.sample_count != in_video_track->number_of_samples )
+    {
+        lsmash_delete_media_timestamps( &ts_list );
+        return -1;
+    }
+    ts_list.sample_count = sequence->number_of_samples;
+    for( uint32_t i = sequence->media_start_sample_number - 1, j = 0; i < sequence->media_end_sample_number; )
+        ts_list.timestamp[j++].cts = ts_list.timestamp[i++].cts;
+    if( lsmash_get_max_sample_delay( &ts_list, composition_sample_delay ) )
+    {
+        lsmash_delete_media_timestamps( &ts_list );
+        return -1;
+    }
+    if( *composition_sample_delay )
+    {
+        /* Note: sample number for L-SMASH is 1-origin. */
+        sequence->order_converter = malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        if( !sequence->order_converter )
+        {
+            lsmash_delete_media_timestamps( &ts_list );
+            return -1;
+        }
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            ts_list.timestamp[i].dts = i + 1;
+        lsmash_sort_timestamps_composition_order( &ts_list );
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            sequence->order_converter[i + 1].composition_to_decoding = ts_list.timestamp[i].dts;
+    }
+    lsmash_delete_media_timestamps( &ts_list );
+    return 0;
+}
+
 static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
 {
     output_movie_t *output = hp->output;
@@ -722,6 +767,100 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
         }
         out_track->active = 1;
     }
+    if( !output->track[VIDEO_TRACK].active )
+        return 0;
+    /* Prepare concatenation of video sequences. */
+    for( uint32_t i = 0; i < hp->number_of_sequences; i++ )
+    {
+        /* Set up the order converter of the current video sequence. */
+        sequence = &hp->sequence[VIDEO_TRACK][i];
+        uint32_t composition_sample_delay;
+        if( setup_sequence_order_converter( sequence, &composition_sample_delay ) )
+            return -1;
+        hp->composition_sample_delay = max( hp->composition_sample_delay, composition_sample_delay );
+        /* Get the smallest CTS within the current video sequence. */
+        input = sequence->input;
+        input_track_t *in_track = &input->track[VIDEO_TRACK];
+        uint32_t decoding_sample_number = get_decoding_sample_number( sequence->order_converter, 1 )
+                                        + sequence->media_start_sample_number - 1;
+        if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, decoding_sample_number, &sequence->smallest_cts ) )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the smallest CTS within a video sequence." );
+            return -1;
+        }
+    }
+    if( hp->composition_sample_delay == 0 )
+        return 0;
+    hp->prev_reordered_cts = malloc( hp->composition_sample_delay * sizeof(uint64_t) );
+    if( !hp->prev_reordered_cts )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate prev_reordered_cts." );
+        return -1;
+    }
+    /* Calculate overall composition time delay. */
+    uint32_t composition_sample_delay = hp->composition_sample_delay;
+    uint64_t edit_offset = 0;
+    uint64_t largest_ts = 0;
+    uint64_t second_largest_ts = 0;
+    sequence = NULL;
+    input_track_t *in_track = NULL;
+    for( uint32_t i = 0; i < hp->number_of_sequences; i++ )
+    {
+        sequence = &hp->sequence[VIDEO_TRACK][i];
+        input = sequence->input;
+        in_track = &input->track[VIDEO_TRACK];
+        if( sequence->number_of_samples > composition_sample_delay )
+            break;
+        /* Calculate edit timestamp offset. */
+        uint64_t cts;
+        if( sequence->number_of_samples == 1 )
+            second_largest_ts = largest_ts;     /* Not found the second largest CTS.
+                                                 * Pick from the largest CTS within the previous sequence. */
+        else
+        {
+            uint32_t second_largest_cts_sample_number = get_decoding_sample_number( sequence->order_converter, sequence->number_of_samples - 1 )
+                                                      + sequence->media_start_sample_number - 1;
+            if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, second_largest_cts_sample_number, &cts ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to get the second largest CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                return -1;
+            }
+            second_largest_ts = (cts - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
+        }
+        uint32_t largest_cts_sample_number = get_decoding_sample_number( sequence->order_converter, sequence->number_of_samples )
+                                           + sequence->media_start_sample_number - 1;
+        if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, largest_cts_sample_number, &cts ) )
+        {
+            MessageBox( HWND_DESKTOP, "Failed to get the largest CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            return -1;
+        }
+        largest_ts = (cts - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
+        uint64_t last_composition_duration;
+        if( largest_ts > second_largest_ts )
+            last_composition_duration = largest_ts - second_largest_ts;
+        else
+        {
+            uint32_t sample_delta;
+            if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sequence->media_end_sample_number, &sample_delta ) )
+            {
+                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                return -1;
+            }
+            last_composition_duration = sample_delta * in_track->timescale_integrator;
+        }
+        edit_offset = largest_ts + last_composition_duration;
+        /* Decrement sample delay by the number of samples within the current sequence
+         * since the target sample is in the subsequent sequences. */
+        composition_sample_delay -= sequence->number_of_samples;
+    }
+    uint32_t decoding_sample_number = get_decoding_sample_number( sequence->order_converter, composition_sample_delay + 1 )
+                                    + sequence->media_start_sample_number - 1;
+    if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, decoding_sample_number, &hp->composition_delay_time ) )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+        return -1;
+    }
+    hp->composition_delay_time = (hp->composition_delay_time - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
     return 0;
 }
 
@@ -746,6 +885,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
     uint32_t          sample_pos_on_aviutl[2]     = { frame_s, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
+    uint32_t          num_output_samples          = 0;  /* for video track */
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -762,6 +902,7 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             output_track_t *out_track = &output->track[type];
             if( sequence[type]->current_sample_number > sequence[type]->media_end_sample_number )
             {
+                /* Give presentation time of the end of this sequence. */
                 if( sequence[type]->presentation_end_next_sample_number )
                 {
                     uint64_t next_cts;
@@ -770,7 +911,8 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                         MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                         break;
                     }
-                    next_cts = (next_cts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator + out_track->edit_offset;
+                    next_cts = (next_cts - sequence[type]->smallest_cts) * in_track->timescale_integrator
+                             + hp->composition_delay_time + out_track->edit_offset;
                     sequence[type]->presentation_end_time += next_cts - sequence[type]->presentation_end_time;
                 }
                 else
@@ -783,30 +925,48 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                         break;      /* end of muxing */
                     continue;
                 }
+                /* Give edit timestamp offset. */
                 uint64_t last_composition_duration = out_track->largest_cts > out_track->second_largest_cts
                                                    ? out_track->largest_cts - out_track->second_largest_cts
                                                    : sequence[type]->last_sample_delta;
-                /* Give edit timestamp offset. */
-                out_track->edit_offset  = max( out_track->largest_cts - sequence[type]->composition_delay, out_track->largest_dts );
-                out_track->edit_offset += last_composition_duration;
-                /* Change sequence. */
+                out_track->edit_offset = out_track->largest_cts + last_composition_duration;
+                if( type == VIDEO_TRACK )
+                    out_track->edit_offset -= hp->composition_delay_time;
+                /* Move to the next sequence. */
                 sequence[type] = &hp->sequence[type][ sequence[type]->number ];
                 input    = sequence[type]->input;
                 in_track = &input->track[type];
                 sequence[type]->start_skip_duration *= in_track->timescale_integrator;
                 sequence[type]->end_skip_duration   *= in_track->timescale_integrator;
-                /* Any sample within the current sequence must not precede any sample within the previous sequence in composition order. */
-                if( out_track->largest_cts >= out_track->edit_offset + sequence[type]->composition_delay )
-                    out_track->edit_offset = out_track->largest_cts + last_composition_duration;
             }
             sample[type] = lsmash_get_sample_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number );
             if( sample[type] )
             {
-                /* The first DTS must be 0. */
-                sample[type]->dts  = (sample[type]->dts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator;
-                sample[type]->cts  = (sample[type]->cts - sequence[type]->skip_dt_interval) * in_track->timescale_integrator;
-                sample[type]->dts += out_track->edit_offset;
-                sample[type]->cts += out_track->edit_offset;
+                /* CTS generation */
+                sample[type]->cts = (sample[type]->cts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
+                if( type == VIDEO_TRACK )
+                    sample[type]->cts += hp->composition_delay_time;
+                /* DTS generation */
+                if( type == VIDEO_TRACK && hp->composition_sample_delay )
+                {
+                    uint32_t sequence_sample_number = sequence[type]->current_sample_number - sequence[type]->media_start_sample_number + 1;
+                    uint32_t decoding_sample_number = get_decoding_sample_number( sequence[type]->order_converter, sequence_sample_number )
+                                                    + sequence[type]->media_start_sample_number - 1;
+                    uint64_t reordered_ts;
+                    if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, decoding_sample_number, &reordered_ts ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        break;
+                    }
+                    reordered_ts = (reordered_ts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
+                    sample[type]->dts = num_output_samples > hp->composition_sample_delay
+                                      ? hp->prev_reordered_cts[ (num_output_samples - hp->composition_sample_delay) % hp->composition_sample_delay ]
+                                      : reordered_ts;
+                    hp->prev_reordered_cts[ num_output_samples % hp->composition_sample_delay ] = reordered_ts + hp->composition_delay_time;
+                    ++num_output_samples;
+                }
+                else
+                    sample[type]->dts = sample[type]->cts;
                 in_track->dts = (double)sample[type]->dts / out_track->media_param.timescale;
             }
             else
@@ -835,16 +995,15 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                 break;
             }
             sample_delta *= in_track->timescale_integrator;
-            uint64_t sample_size = sample[type]->length;    /* sample might be deleted internally after appending. */
-            uint64_t sample_dts  = sample[type]->dts;       /* same as above */
+            uint64_t sample_dts  = sample[type]->dts;       /* sample might be deleted internally after appending. */
             uint64_t sample_cts  = sample[type]->cts;       /* same as above */
             output_track_t *out_track = &output->track[type];
 #ifdef DEBUG
             char log_data[1024];
             sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, source_sample_number=%"PRIu32", "
-                     "edit_offset=%"PRIu64", skip_dt_interval=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
+                     "edit_offset=%"PRIu64", smallest_cts=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
                      sequence[type]->number, input->file_id, type ? "audio" : "video", sequence[type]->current_sample_number,
-                     out_track->edit_offset, sequence[type]->skip_dt_interval, sample[type]->dts, sample[type]->cts, sample_delta );
+                     out_track->edit_offset, sequence[type]->smallest_cts, sample[type]->dts, sample[type]->cts, sample_delta );
             fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
             /* Append a sample into output movie. */
@@ -858,7 +1017,6 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
             num_consecutive_sample_skip       = 0;
             sequence[type]->last_sample_delta = sample_delta;
             output->largest_dts               = max( output->largest_dts, in_track->dts );
-            output->total_media_size         += sample_size;
             out_track->largest_dts            = sample_dts;
             update_largest_cts( out_track, sample_cts );
             if( sequence[type]->current_sample_number >= sequence[type]->presentation_start_sample_number
@@ -993,9 +1151,16 @@ static void cleanup_handler( lsmash_handler_t *hp )
             }
         }
     if( hp->sequence[VIDEO_TRACK] )
+    {
+        for( uint32_t i = 0; i < hp->number_of_sequences; i++ )
+            if( hp->sequence[VIDEO_TRACK][i].order_converter )
+                free( hp->sequence[VIDEO_TRACK][i].order_converter );
         free( hp->sequence[VIDEO_TRACK] );
+    }
     if( hp->sequence[AUDIO_TRACK] )
         free( hp->sequence[AUDIO_TRACK] );
+    if( hp->prev_reordered_cts )
+        free( hp->prev_reordered_cts );
 #ifdef DEBUG
     if( hp->log_file )
         fclose( hp->log_file );
