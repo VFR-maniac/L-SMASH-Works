@@ -1,9 +1,9 @@
 /*****************************************************************************
- * resource.h
+ * progress_dlg.h
  *****************************************************************************
  * Copyright (C) 2012 L-SMASH Works project
  *
- * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
+ * Authors: rigaya <rigaya34589@live.jp>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,30 +22,17 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#ifndef IDC_STATIC
-#define IDC_STATIC (-1)
-#endif
+#ifndef _PROGRESS_DLG_H_
+#define _PROGRESS_DLG_H_
 
-#define IDC_EDIT_THREADS              1000
-#define IDC_SPIN_THREADS              1001
-#define IDC_EDIT_FORWARD_THRESHOLD    1002
-#define IDC_SPIN_FORWARD_THRESHOLD    1003
-#define IDC_CHECK_LIBAVSMASH_INPUT    1004
-#define IDC_CHECK_AVS_INPUT           1005
-#define IDC_CHECK_LIBAV_INPUT         1006
-#define IDC_COMBOBOX_SEEK_MODE        1007
-#define IDC_EDIT_DUMMY_WIDTH          1008
-#define IDC_EDIT_DUMMY_HEIGHT         1009
-#define IDC_EDIT_DUMMY_FRAMERATE_NUM  1010
-#define IDC_EDIT_DUMMY_FRAMERATE_DEN  1011
-#define IDC_EDIT_AUDIO_DELAY          1012
-#define IDC_COMBOBOX_DUMMY_COLORSPACE 1013
-#define IDC_COMBOBOX_SCALER           1014
-#define IDC_CHECK_FORCE_VIDEO         1015
-#define IDC_EDIT_FORCE_VIDEO_INDEX    1016
-#define IDC_CHECK_FORCE_AUDIO         1017
-#define IDC_EDIT_FORCE_AUDIO_INDEX    1018
+typedef struct {
+    HWND hnd;
+    int progress_percent;
+    int abort;
+} progress_dlg_t;
 
-#define IDD_INDEX_PROGRESS             101
-#define IDC_PERCENT_TEXT              1100
-#define IDC_PROGRESS                  1101
+void init_progress_dlg(progress_dlg_t *dlg);
+void close_progress_dlg(progress_dlg_t *dlg);
+int update_progress_dlg(progress_dlg_t *dlg, const char *mes, int progress_percent);
+
+#endif /* _PROGRESS_DLG_H_ */

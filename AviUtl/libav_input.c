@@ -32,6 +32,7 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
+#include "progress_dlg.h"
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
 
@@ -483,6 +484,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     int      constant_frame_length = 1;
     int      frame_length          = 0;
     uint64_t audio_duration        = 0;
+    int64_t  first_dts             = INT64_MIN;
+    progress_dlg_t prg_dlg;
+    init_progress_dlg( &prg_dlg );
     while( av_read_frame( format_ctx, &pkt ) >= 0 )
     {
         frame_length = 0;
@@ -650,7 +654,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                      pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
                      pkt.stream_index == hp->audio_index ? frame_length : pkt_ctx->frame_size );
         }
+        if( first_dts == INT64_MIN )
+            first_dts = pkt.dts;
+        int abort = update_progress_dlg( &prg_dlg, "Creating Index file", (int)(100.0 * (pkt.dts - first_dts) * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den) / (format_ctx->duration / AV_TIME_BASE) + 0.5) );
         av_free_packet( &pkt );
+        if( abort )
+            goto fail_index;
     }
     if( hp->video_index >= 0 )
     {
@@ -760,6 +769,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->audio_format = NULL;
     fprintf( index, "</LibavReaderIndexFile>\n" );
     fclose( index );
+    close_progress_dlg( &prg_dlg );
     return;
 fail_index:
     if( video_info )
@@ -769,6 +779,7 @@ fail_index:
     hp->video_format = NULL;
     hp->audio_format = NULL;
     fclose( index );
+    close_progress_dlg( &prg_dlg );
     return;
 }
 
