@@ -30,23 +30,16 @@
 #include <libswscale/swscale.h>
 #include <libavutil/pixdesc.h>
 
-/* for SSE2 intrinsic func */
+#include "colorspace_simd.h"
+
 #ifdef __GNUC__
-#pragma GCC push_options
-#pragma GCC target ("sse2")
-#define AUI_ALIGN(x) __attribute__((aligned(x)))
 static void __cpuid(int CPUInfo[4], int prm)
 {
     asm volatile ( "cpuid" :"=a"(CPUInfo[0]), "=b"(CPUInfo[1]), "=c"(CPUInfo[2]), "=d"(CPUInfo[3]) :"a"(prm) );
     return;
 }
 #else
-#define AUI_ALIGN(x) __declspec(align(x))
 #include <intrin.h>
-#endif /* __GNUC__ */
-#include <emmintrin.h>
-#ifdef __GNUC__
-#pragma GCC pop_options
 #endif /* __GNUC__ */
 
 int check_sse2()
@@ -54,6 +47,13 @@ int check_sse2()
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[3] & 0x04000000) != 0;
+}
+
+int check_ssse3()
+{
+    int CPUInfo[4];
+    __cpuid(CPUInfo, 1);
+    return (CPUInfo[2] & 0x00000200) != 0;
 }
 
 static void avoid_yuv_scale_conversion( int *input_pixel_format )
@@ -179,166 +179,6 @@ void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data
     }
 }
 
-#ifdef __GNUC__
-/* Force SSE2 to use intrinsic SSE2 functions. */
-#pragma GCC push_options
-#pragma GCC target ("sse2")
-#endif /* __GNUC__ */
-/* SSE2 version of func convert_yuv16le_to_yc48
- * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
-{
-    uint8_t *ycp = buf, *ycp_fin;
-    uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
-    __m128i x0, x1, x2, x3;
-#define Y_COEF         4788
-#define Y_COEF_FULL    4770
-#define UV_COEF        4682
-#define UV_COEF_FULL   4662
-#define Y_OFFSET       ((-299)+((Y_COEF)>>1))
-#define Y_OFFSET_FULL  ((-299)+((Y_COEF_FULL)>>1))
-#define UV_OFFSET      32768
-#define UV_OFFSET_FULL 589824
-    static const int AUI_ALIGN(16) aY_coef[2][4] = {
-        { Y_COEF,      Y_COEF,      Y_COEF,      Y_COEF      },
-        { Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL }
-    };
-    static const int AUI_ALIGN(16) aUV_coef[2][4] = {
-        { UV_COEF,      UV_COEF,      UV_COEF,      UV_COEF      },
-        { UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL }
-    };
-    static const int16_t AUI_ALIGN(16) aY_offest[2][8] = {
-        { Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET      },
-        { Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL }
-    };
-    static const int AUI_ALIGN(16) aUV_offest[2][4] = {
-        { UV_OFFSET,      UV_OFFSET,      UV_OFFSET,      UV_OFFSET      },
-        { UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL }
-    };
-#undef Y_COEF
-#undef Y_COEF_FULL
-#undef UV_COEF
-#undef UV_COEF_FULL
-#undef Y_OFFSET
-#undef Y_OFFSET_FULL
-#undef UV_OFFSET
-#undef UV_OFFSET_FULL
-    x3 = _mm_setzero_si128();   /* Initialize to avoid warning and some weird gcc optimization. */
-    /*  Y = ((( y - 32768 ) * coef)           >> 16 ) + (coef/2 - 299) */
-    /* UV = (( uv - 32768 ) * coef + offset ) >> 16 */
-    for( uint32_t offset = 0; output_height--; offset += dst_linesize )
-    {
-        p_dst_y = dst_data[0] + offset;
-        p_dst_u = dst_data[1] + offset;
-        p_dst_v = dst_data[2] + offset;
-        for( ycp_fin = ycp + buf_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
-        {
-            /* make -32768 (0x8000) */
-            x3 = _mm_cmpeq_epi32(x3, x3);   /* 0xffff */
-            x3 = _mm_slli_epi16(x3, 15);    /* 0x8000 */
-            /* load */
-            x0 = _mm_load_si128((__m128i *)p_dst_y);
-            x1 = _mm_load_si128((__m128i *)p_dst_u);
-            x2 = _mm_load_si128((__m128i *)p_dst_v);
-            /* change uint16 to int16 in order to use _mm_madd_epi16()
-             * range 0 - 65535 to -32768 - 32767 */
-            x0 = _mm_add_epi16(x0, x3);
-            x1 = _mm_add_epi16(x1, x3);
-            x2 = _mm_add_epi16(x2, x3);
-
-            /* calc Y */
-            x3 = x0;
-            x3 = _mm_unpackhi_epi16(x3, x0);
-            x0 = _mm_unpacklo_epi16(x0, x0);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aY_coef[full_range]));
-            x0 = _mm_madd_epi16(x0, _mm_load_si128((__m128i *)aY_coef[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x0 = _mm_srai_epi32(x0, 16);
-
-            x0 = _mm_packs_epi32(x0, x3);
-
-            x0 = _mm_add_epi16(x0, _mm_load_si128((__m128i *)aY_offest[full_range]));
-
-            /* calc U */
-            x3 = x1;
-            x3 = _mm_unpackhi_epi16(x3, x1);
-            x1 = _mm_unpacklo_epi16(x1, x1);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-            x1 = _mm_madd_epi16(x1, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-
-            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-            x1 = _mm_add_epi32(x1, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x1 = _mm_srai_epi32(x1, 16);
-
-            x1 = _mm_packs_epi32(x1, x3);
-
-            /* calc V */
-            x3 = x2;
-            x3 = _mm_unpackhi_epi16(x3, x2);
-            x2 = _mm_unpacklo_epi16(x2, x2);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-            x2 = _mm_madd_epi16(x2, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-
-            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-            x2 = _mm_add_epi32(x2, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x2 = _mm_srai_epi32(x2, 16);
-
-            x2 = _mm_packs_epi32(x2, x3);
-
-            /* shuffle order 7,6,5,4,3,2,1,0 to 7,3,5,1,6,2,4,0 */
-            x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,6,5,4,3,1,2,0 */
-            x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,6,4,3,1,2,0 */
-            x0 = _mm_shuffle_epi32(  x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,4,2,0 */
-            x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,2,4,0 */
-            x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,3,5,1,6,2,4,0 */
-
-            x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shuffle_epi32(  x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-
-            x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shuffle_epi32(  x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-
-            /* shuffle to PIXEL_YC */
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi16(x0, x1);
-            x1 = _mm_unpackhi_epi16(x1, x2);
-            x2 = _mm_unpacklo_epi16(x2, x3);
-
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi32(x0, x2);
-            x2 = _mm_unpackhi_epi32(x2, x1);
-            x1 = _mm_unpacklo_epi32(x1, x3);
-
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi64(x0, x1);
-            x1 = _mm_unpackhi_epi64(x1, x2);
-            x2 = _mm_unpacklo_epi64(x2, x3);
-
-            /* store */
-            _mm_stream_si128((__m128i *)&ycp[ 0], x0);
-            _mm_stream_si128((__m128i *)&ycp[16], x2);
-            _mm_stream_si128((__m128i *)&ycp[32], x1);
-        }
-    }
-}
-#ifdef __GNUC__
-#pragma GCC pop_options
-#endif /* __GNUC__ */
-
 static void convert_packed_chroma_to_planar( uint8_t *packed_chroma, uint8_t *planar_chroma, int packed_linesize, int chroma_width, int chroma_height )
 {
     int planar_linesize = packed_linesize / 2;
@@ -459,10 +299,8 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     static int sse2_available = -1;
     if( sse2_available == -1 )
         sse2_available = check_sse2();
-    func_get_output *convert = (sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0)
-                             ? convert_yuv16le_to_yc48_sse2
-                             : convert_yuv16le_to_yc48;
-    convert( buf, buf_linesize, dst_data, abs_dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+    static void (*func_yuv16le_to_yc48[2])( uint8_t*, int, uint8_t**, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2 };
+    func_yuv16le_to_yc48[sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0]( buf, buf_linesize, dst_data, abs_dst_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return output_size;
 }
@@ -549,20 +387,18 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
             /* convert chroma nv12 to yv12 (split packed uv into planar u and v) */
             convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], video_ctx->width / 2, video_ctx->height / 2 );
             /* change data set as yv12 */
-            picture->data[2] = another_chroma;
+            picture->data[2] = picture->data[1];
+            picture->data[1+(video_ctx->pix_fmt == PIX_FMT_NV12)] = another_chroma;
             picture->linesize[1] /= 2;
             picture->linesize[2] = picture->linesize[1];
-            if( video_ctx->pix_fmt == PIX_FMT_NV21 )
-            {
-                /* swap chroma pointer */
-                uint8_t *tmp     = picture->data[2];
-                picture->data[2] = picture->data[1];
-                picture->data[1] = tmp;
-            }
         }
         /* interlaced yv12 to yuy2 convertion */
         int buf_linesize = MAKE_AVIUTL_PITCH( video_ctx->width * (YUY2_SIZE << 3) );
-        convert_yv12i_to_yuy2( buf, buf_linesize, picture->data, picture->linesize, video_ctx->height );
+        static int ssse3_available = -1;
+        if( ssse3_available == -1 )
+            ssse3_available = check_ssse3();
+        static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
+        func_yv12i_to_yuy2[ssse3_available]( buf, buf_linesize, picture->data, picture->linesize, video_ctx->height );
         output_size = buf_linesize * video_ctx->height;
         if( another_chroma )
             av_free( another_chroma );

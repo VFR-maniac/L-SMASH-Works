@@ -59,7 +59,7 @@ endif
 
 .depend: config.mak
 	@$(RM) .depend
-	@$(foreach SRC, $(SRC_ALL:%=$(SRCDIR)/%), $(CC) $(SRC) $(CFLAGS) -msse2 -g0 -MT $(SRC:$(SRCDIR)/%.c=%.o) -MM >> .depend;)
+	@$(foreach SRC, $(SRC_ALL:%=$(SRCDIR)/%), $(CC) $(SRC) $(CFLAGS) -mssse3 -g0 -MT $(SRC:$(SRCDIR)/%.c=%.o) -MM >> .depend;)
 
 config.mak:
 	configure
