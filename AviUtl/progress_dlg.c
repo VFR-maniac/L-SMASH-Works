@@ -33,11 +33,11 @@ static BOOL CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 {
 	switch( msg ){
 	case WM_INITDIALOG:
-		SetWindowLong(hwnd, GWL_USERDATA, lparam);
+		SetWindowLongPtr(hwnd, GWLP_USERDATA, lparam);
         break;
 	case WM_COMMAND:
         if( wparam == IDCANCEL ){
-			progress_dlg_t *dlg = (progress_dlg_t *)GetWindowLong(hwnd, GWL_USERDATA);
+			progress_dlg_t *dlg = (progress_dlg_t *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 			dlg->abort = TRUE;
 		}
         break;
