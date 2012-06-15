@@ -166,7 +166,6 @@ struct lsmash_handler_tag
 };
 
 void *malloc_zero( size_t size );
-int check_sse2();
 output_colorspace_index determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format );
 
 typedef void func_get_output( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range );

@@ -42,14 +42,14 @@ static void __cpuid(int CPUInfo[4], int prm)
 #include <intrin.h>
 #endif /* __GNUC__ */
 
-int check_sse2()
+static int check_sse2()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[3] & 0x04000000) != 0;
 }
 
-int check_ssse3()
+static int check_ssse3()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
@@ -149,7 +149,7 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
     }
 }
 
-void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
+static void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
 {
     uint32_t offset = 0;
     while( output_height-- )
