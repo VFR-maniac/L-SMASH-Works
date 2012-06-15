@@ -479,12 +479,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->audio_format = format_ctx;
     int      video_resolution      = hp->video_ctx ? hp->video_ctx->width * hp->video_ctx->height : 0;
     uint32_t video_sample_count    = 0;
-    int64_t  last_keyframe_pts     = INT64_MIN;
+    int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
     int      constant_frame_length = 1;
     int      frame_length          = 0;
     uint64_t audio_duration        = 0;
-    int64_t  first_dts             = INT64_MIN;
+    int64_t  first_dts             = AV_NOPTS_VALUE;
     progress_dlg_t prg_dlg;
     init_progress_dlg( &prg_dlg );
     while( av_read_frame( format_ctx, &pkt ) >= 0 )
@@ -514,7 +514,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     hp->video_input_buffer_size = 0;
                     video_resolution            = pkt_ctx->width * pkt_ctx->height;
                     video_sample_count          = 0;
-                    last_keyframe_pts           = INT64_MIN;
+                    last_keyframe_pts           = AV_NOPTS_VALUE;
                     int32_t current_pos = ftell( index );
                     fseek( index, video_index_pos, SEEK_SET );
                     fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
@@ -525,7 +525,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 video_info[video_sample_count].dts           = pkt.dts;
                 video_info[video_sample_count].file_offset   = pkt.pos;
                 video_info[video_sample_count].sample_number = video_sample_count;
-                if( pkt.pts < last_keyframe_pts )
+                if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
@@ -654,9 +654,15 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                      pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
                      pkt.stream_index == hp->audio_index ? frame_length : pkt_ctx->frame_size );
         }
-        if( first_dts == INT64_MIN )
+        /* Update progress dialog if packet's DTS is valid. */
+        if( first_dts == AV_NOPTS_VALUE )
             first_dts = pkt.dts;
-        int abort = update_progress_dlg( &prg_dlg, "Creating Index file", (int)(100.0 * (pkt.dts - first_dts) * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den) / (format_ctx->duration / AV_TIME_BASE) + 0.5) );
+        int percent = first_dts == AV_NOPTS_VALUE || pkt.dts == AV_NOPTS_VALUE
+                    ? 0
+                    : 100.0 * (pkt.dts - first_dts)
+                    * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
+                    / (format_ctx->duration / AV_TIME_BASE) + 0.5;
+        int abort = update_progress_dlg( &prg_dlg, "Creating Index file", percent );
         av_free_packet( &pkt );
         if( abort )
             goto fail_index;
@@ -834,7 +840,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     hp->audio_codec_id = CODEC_ID_NONE;
     hp->pix_fmt        = PIX_FMT_NONE;
     uint32_t video_sample_count    = 0;
-    int64_t  last_keyframe_pts     = INT64_MIN;
+    int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
     int      audio_sample_rate     = 0;
     int      constant_frame_length = 1;
@@ -886,7 +892,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 video_info[video_sample_count].dts           = dts;
                 video_info[video_sample_count].file_offset   = pos;
                 video_info[video_sample_count].sample_number = video_sample_count;
-                if( pts < last_keyframe_pts )
+                if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( key )
                 {
