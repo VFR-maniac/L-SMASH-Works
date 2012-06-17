@@ -105,7 +105,7 @@ static int get_auto_threads( void )
     return n;
 }
 
-void get_settings( void )
+static void get_settings( void )
 {
     FILE *ini = open_settings();
     char buf[128];

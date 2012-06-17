@@ -601,14 +601,10 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
         return 0;
     hp->video_delay_count = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
-    if( rap_number + DECODER_DELAY( hp->video_ctx ) < composition_sample_number )
-        hp->video_ctx->skip_frame = AVDISCARD_NONREF;
     int dummy;
     uint32_t i;
     for( i = rap_number; i < composition_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
     {
-        if( i + DECODER_DELAY( hp->video_ctx ) == composition_sample_number )
-            hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
         int ret = decode_video_sample( hp, picture, &dummy, i );
         if( ret == -1 && !error_ignorance )
         {
@@ -618,8 +614,7 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
     }
-    hp->video_ctx->skip_frame = AVDISCARD_DEFAULT;
-    hp->video_delay_count     = min( DECODER_DELAY( hp->video_ctx ), i - rap_number );
+    hp->video_delay_count = min( DECODER_DELAY( hp->video_ctx ), i - rap_number );
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %"PRIu32", seek_position = %"PRIu32", video_delay_count = %"PRIu32,
                                      rap_number, i, hp->video_delay_count );
     return i;
