@@ -449,6 +449,21 @@ static void parser_cleanup( stream_manager_t *manager )
             av_free( stream_parser->pkt.data );
         if( stream_parser->parser_ctx )
             av_parser_close( stream_parser->parser_ctx );
+        stream_parser->initialized = 0;
+    }
+}
+
+static int get_next_parser_index( stream_manager_t *manager, int stream_index )
+{
+    int next_stream_index = stream_index;
+    while( 1 )
+    {
+        if( ++ next_stream_index >= manager->stream_count )
+            next_stream_index = 0;
+        if( manager->parsers[ next_stream_index ].parser_ctx )
+            return next_stream_index;
+        if( next_stream_index == stream_index )
+            return -1;
     }
 }
 
@@ -470,7 +485,14 @@ static int read_av_packet( stream_manager_t *manager, AVPacket *pkt, int *frame_
             while( 1 )
             {
                 if( av_read_frame( manager->format_ctx, &av_pkt ) < 0 )
-                    return -1;
+                {
+                    /* Set up null packet from the last packet. */
+                    pkt_ctx = manager->format_ctx->streams[ manager->last_index ]->codec;
+                    av_pkt  = manager->parsers[ manager->last_index ].pkt;
+                    av_pkt.size = 0;
+                    av_pkt.data = NULL;
+                    break;
+                }
                 if( av_pkt.stream_index >= manager->stream_count )
                 {
                     stream_parser_t *temp = realloc( manager->parsers, (av_pkt.stream_index + 1) * sizeof(stream_parser_t) );
@@ -507,13 +529,30 @@ static int read_av_packet( stream_manager_t *manager, AVPacket *pkt, int *frame_
         if( parser )
         {
             AVPacket temp = av_pkt;
-            while( temp.size > 0 )
+            do
             {
                 uint8_t *out_buffer = NULL;
                 int out_buffer_size = 0;
                 int wasted_data_length = av_parser_parse2( parser, pkt_ctx,
                                                            &out_buffer, &out_buffer_size,
                                                            temp.data, temp.size, temp.pts, temp.dts, temp.pos );
+                if( av_pkt.data == NULL && out_buffer_size == 0 )
+                {
+                    /* No more packets in this stream. */
+                    if( stream_parser->parser_ctx )
+                    {
+                        av_parser_close( stream_parser->parser_ctx );
+                        stream_parser->parser_ctx = NULL;
+                    }
+                    stream_parser->initialized = 0;
+                    int stream_index = get_next_parser_index( manager, av_pkt.stream_index );
+                    if( stream_index < 0 )
+                        return -1;
+                    /* Go to the next parser. */
+                    stream_parser = &manager->parsers[ stream_index ];
+                    av_pkt = stream_parser->pkt;
+                    break;
+                }
                 if( wasted_data_length < 0 )
                 {
                     /* Force to get the next packet. */
@@ -583,14 +622,14 @@ static int read_av_packet( stream_manager_t *manager, AVPacket *pkt, int *frame_
                     stream_parser->duration = 0;
                     return pkt->size;
                 }
-            }
+            } while( temp.size > 0 );
             AVPacket *last_pkt = &stream_parser->pkt;
             last_pkt->size = 0;
             manager->last_index = av_pkt.stream_index;
             if( av_pkt.data != last_pkt->data )
                 av_free_packet( &av_pkt );
         }
-        else
+        else if( av_pkt.data && av_pkt.size > 0 )
         {
             if( av_pkt.size + FF_INPUT_BUFFER_PADDING_SIZE > stream_parser->buffer_size )
             {
@@ -611,6 +650,11 @@ static int read_av_packet( stream_manager_t *manager, AVPacket *pkt, int *frame_
                 *frame_length = pkt_ctx->frame_size;
             return pkt->size;
         }
+        int stream_index = get_next_parser_index( manager, av_pkt.stream_index );
+        if( stream_index < 0 )
+            return -1;
+        /* Go to the next parser. */
+        manager->last_index = stream_index;
     }
 }
 
