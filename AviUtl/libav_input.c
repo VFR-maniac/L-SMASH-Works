@@ -84,6 +84,26 @@ typedef struct
     int64_t  file_offset;
 } audio_frame_info_t;
 
+typedef struct
+{
+    int                   initialized;
+    enum CodecID          codec_id;
+    AVCodecParserContext *parser_ctx;
+    uint8_t              *buffer;
+    int                   buffer_size;
+    AVPacket              pkt;
+    int                   pkt_buf_size;
+    int                   duration;
+} stream_parser_t;
+
+typedef struct
+{
+    int              stream_count;
+    int              last_index;
+    AVFormatContext *format_ctx;
+    stream_parser_t *parsers;
+} stream_manager_t;
+
 typedef struct libav_handler_tag
 {
     char                    *file_path;
@@ -91,6 +111,7 @@ typedef struct libav_handler_tag
     int                      format_flags;
     int                      threads;
     /* Video stuff */
+    stream_manager_t         video_manager;
     int                      video_error;
     int                      video_index;
     enum CodecID             video_codec_id;
@@ -122,12 +143,12 @@ typedef struct libav_handler_tag
     uint32_t                 forward_seek_threshold;
     func_convert_colorspace *convert_colorspace;
     /* Audio stuff */
+    stream_manager_t         audio_manager;
     int                      audio_error;
     int                      audio_index;
     enum CodecID             audio_codec_id;
     AVFormatContext         *audio_format;
     AVCodecContext          *audio_ctx;
-    AVCodecParserContext    *audio_parser;
     AVIndexEntry            *audio_index_entries;
     int                      audio_index_entries_count;
     AVFrame                  audio_frame_buffer;
@@ -415,6 +436,184 @@ static inline void write_av_index_entry( FILE *index, AVIndexEntry *ie )
              ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
+static void parser_cleanup( stream_manager_t *manager )
+{
+    if( !manager->parsers )
+        return;
+    for( int i = 0; i < manager->stream_count; i++ )
+    {
+        stream_parser_t *stream_parser = &manager->parsers[i];
+        if( stream_parser->buffer )
+            av_free( stream_parser->buffer );
+        if( stream_parser->pkt.data )
+            av_free( stream_parser->pkt.data );
+        if( stream_parser->parser_ctx )
+            av_parser_close( stream_parser->parser_ctx );
+    }
+}
+
+static int read_av_packet( stream_manager_t *manager, AVPacket *pkt, int *frame_length )
+{
+    AVPacket av_pkt;
+    av_init_packet( &av_pkt );
+    while( 1 )
+    {
+        AVCodecContext *pkt_ctx = NULL;
+        if( manager->stream_count == 0 )
+        {
+            manager->parsers = malloc_zero( (manager->last_index + 1) * sizeof(stream_parser_t) );
+            if( !manager->parsers )
+                return -1;
+            manager->stream_count = manager->last_index + 1;
+        }
+        if( manager->parsers[ manager->last_index ].pkt.size == 0 )
+            while( 1 )
+            {
+                if( av_read_frame( manager->format_ctx, &av_pkt ) < 0 )
+                    return -1;
+                if( av_pkt.stream_index >= manager->stream_count )
+                {
+                    stream_parser_t *temp = realloc( manager->parsers, (av_pkt.stream_index + 1) * sizeof(stream_parser_t) );
+                    if( !temp )
+                    {
+                        av_free_packet( &av_pkt );
+                        return -1;
+                    }
+                    int num_added = av_pkt.stream_index + 1 - manager->stream_count;
+                    manager->stream_count = av_pkt.stream_index + 1;
+                    manager->parsers      = temp;
+                    memset( manager->parsers + (manager->stream_count - num_added), 0, num_added * sizeof(stream_parser_t) );
+                }
+                pkt_ctx = manager->format_ctx->streams[ av_pkt.stream_index ]->codec;
+                if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO || pkt_ctx->codec_type == AVMEDIA_TYPE_AUDIO )
+                    break;
+                av_free_packet( &av_pkt );
+            }
+        else
+        {
+            /* Copy the last packet. */
+            pkt_ctx = manager->format_ctx->streams[ manager->last_index ]->codec;
+            av_pkt  = manager->parsers[ manager->last_index ].pkt;
+        }
+        stream_parser_t *stream_parser = &manager->parsers[ av_pkt.stream_index ];
+        if( !stream_parser->initialized )
+        {
+            if( manager->format_ctx->streams[ av_pkt.stream_index ]->need_parsing != AVSTREAM_PARSE_NONE )
+                stream_parser->parser_ctx = av_parser_init( pkt_ctx->codec_id );
+            stream_parser->codec_id    = pkt_ctx->codec_id;
+            stream_parser->initialized = 1;
+        }
+        AVCodecParserContext *parser = stream_parser->parser_ctx;
+        if( parser )
+        {
+            AVPacket temp = av_pkt;
+            while( temp.size > 0 )
+            {
+                uint8_t *out_buffer = NULL;
+                int out_buffer_size = 0;
+                int wasted_data_length = av_parser_parse2( parser, pkt_ctx,
+                                                           &out_buffer, &out_buffer_size,
+                                                           temp.data, temp.size, temp.pts, temp.dts, temp.pos );
+                if( wasted_data_length < 0 )
+                {
+                    /* Force to get the next packet. */
+                    AVPacket *last_pkt = &stream_parser->pkt;
+                    if( av_pkt.data != last_pkt->data )
+                        av_free_packet( &av_pkt );
+                    last_pkt->size = 0;
+                    manager->last_index = av_pkt.stream_index;
+                    return read_av_packet( manager, pkt, frame_length );
+                }
+                if( wasted_data_length > 0 )
+                    stream_parser->duration += parser->duration > 0 ? parser->duration : pkt_ctx->frame_size;
+                temp.size -= wasted_data_length;
+                temp.data += wasted_data_length;
+                if( out_buffer_size > 0 )
+                {
+                    if( out_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE > stream_parser->buffer_size )
+                    {
+                        uint8_t *new_buffer = av_realloc( stream_parser->buffer, out_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
+                        if( !new_buffer )
+                        {
+                            av_free_packet( &av_pkt );
+                            return -1;
+                        }
+                        stream_parser->buffer = new_buffer;
+                        stream_parser->buffer_size = out_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE;
+                    }
+                    *pkt = temp;
+                    pkt->flags = parser->key_frame == 1 || (parser->key_frame == -1 && parser->pict_type == AV_PICTURE_TYPE_I) ? AV_PKT_FLAG_KEY : 0;
+                    pkt->pos   = parser->pos;
+                    pkt->pts   = parser->pts;
+                    pkt->dts   = parser->dts;
+                    pkt->size  = out_buffer_size;
+                    pkt->data  = stream_parser->buffer;
+                    memcpy( pkt->data, out_buffer, out_buffer_size );
+                    AVPacket *last_pkt = &stream_parser->pkt;
+                    if( temp.size > 0 )
+                    {
+                        uint8_t *data = last_pkt->data;
+                        *last_pkt = temp;
+                        last_pkt->data = data;
+                        if( av_pkt.data != last_pkt->data )
+                        {
+                            if( temp.size + FF_INPUT_BUFFER_PADDING_SIZE > stream_parser->pkt_buf_size )
+                            {
+                                uint8_t *new_buffer = av_realloc( last_pkt->data, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
+                                if( !new_buffer )
+                                {
+                                    av_free_packet( &av_pkt );
+                                    return -1;
+                                }
+                                last_pkt->data = new_buffer;
+                                stream_parser->pkt_buf_size = temp.size + FF_INPUT_BUFFER_PADDING_SIZE;
+                            }
+                            memcpy( last_pkt->data, temp.data, temp.size );
+                        }
+                        else
+                            memmove( last_pkt->data, temp.data, temp.size );
+                    }
+                    else
+                        last_pkt->size = 0;
+                    manager->last_index = av_pkt.stream_index;
+                    if( av_pkt.data != last_pkt->data )
+                        av_free_packet( &av_pkt );
+                    if( frame_length )
+                        *frame_length = stream_parser->duration;
+                    stream_parser->duration = 0;
+                    return pkt->size;
+                }
+            }
+            AVPacket *last_pkt = &stream_parser->pkt;
+            last_pkt->size = 0;
+            manager->last_index = av_pkt.stream_index;
+            if( av_pkt.data != last_pkt->data )
+                av_free_packet( &av_pkt );
+        }
+        else
+        {
+            if( av_pkt.size + FF_INPUT_BUFFER_PADDING_SIZE > stream_parser->buffer_size )
+            {
+                uint8_t *new_buffer = av_realloc( stream_parser->buffer, av_pkt.size + FF_INPUT_BUFFER_PADDING_SIZE );
+                if( !new_buffer )
+                {
+                    av_free_packet( &av_pkt );
+                    return -1;
+                }
+                stream_parser->buffer = new_buffer;
+                stream_parser->buffer_size = av_pkt.size + FF_INPUT_BUFFER_PADDING_SIZE;
+            }
+            *pkt = av_pkt;
+            pkt->data = stream_parser->buffer;
+            memcpy( pkt->data, av_pkt.data, av_pkt.size );
+            av_free_packet( &av_pkt );
+            if( frame_length )
+                *frame_length = pkt_ctx->frame_size;
+            return pkt->size;
+        }
+    }
+}
+
 static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, reader_option_t *opt,
                           int video_present, int audio_present )
 {
@@ -438,12 +637,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             return;
         }
         avcodec_get_frame_defaults( &hp->audio_frame_buffer );
-        if( hp->audio_ctx && hp->audio_ctx->frame_size == 0 )
-        {
-            hp->audio_parser = av_parser_init( hp->audio_ctx->codec_id );
-            if( hp->audio_parser )
-                hp->audio_parser->flags = PARSER_FLAG_COMPLETE_FRAMES;
-        }
     }
     /*
         # Structure of Libav reader index file
@@ -464,7 +657,13 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     sprintf( index_path, "%s.index", hp->file_path );
     FILE *index = fopen( index_path, "wb" );
     if( !index )
-        goto fail_index;
+    {
+        if( video_info )
+            free( video_info );
+        if( audio_info )
+            free( audio_info );
+        return;
+    }
     fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
     fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_path );
     hp->format_name  = (char *)format_ctx->iformat->name;
@@ -485,11 +684,11 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     int      frame_length          = 0;
     uint64_t audio_duration        = 0;
     int64_t  first_dts             = AV_NOPTS_VALUE;
+    stream_manager_t manager       = { .format_ctx = format_ctx };
     progress_dlg_t prg_dlg;
     init_progress_dlg( &prg_dlg );
-    while( av_read_frame( format_ctx, &pkt ) >= 0 )
+    while( read_av_packet( &manager, &pkt, &frame_length ) >= 0 )
     {
-        frame_length = 0;
         AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;
         if( video_present )
         {
@@ -549,36 +748,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( audio_present && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
         {
             /* Get frame_length. */
-            int output_audio = 0;
-            if( hp->audio_parser )
-            {
-                uint8_t *out_buffer;
-                int out_buffer_size;
-                AVPacket temp = pkt;
-                while( temp.size > 0 )
-                {
-                    int wasted_data_length = av_parser_parse2( hp->audio_parser, hp->audio_ctx,
-                                                               &out_buffer, &out_buffer_size,
-                                                               temp.data, temp.size, temp.pts, temp.dts, temp.pos );
-                    if( wasted_data_length < 0 )
-                        break;
-                    temp.size -= wasted_data_length;
-                    temp.data += wasted_data_length;
-                    if( out_buffer_size )
-                    {
-                        frame_length += hp->audio_parser->duration;
-                        output_audio = 1;
-                    }
-                }
-                if( !output_audio )
-                    ++ hp->audio_delay_count;
-            }
-            if( frame_length == 0 )
-                frame_length = hp->audio_ctx->frame_size;
             if( frame_length == 0 )
             {
-                if( hp->audio_parser && !output_audio )
-                    -- hp->audio_delay_count;
+                int output_audio = 0;
                 AVPacket temp = pkt;
                 uint8_t *data = pkt.data;
                 int decode_complete;
@@ -663,7 +835,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
                     / (format_ctx->duration / AV_TIME_BASE) + 0.5;
         int abort = update_progress_dlg( &prg_dlg, "Creating Index file", percent );
-        av_free_packet( &pkt );
         if( abort )
             goto fail_index;
     }
@@ -775,6 +946,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->audio_format = NULL;
     fprintf( index, "</LibavReaderIndexFile>\n" );
     fclose( index );
+    parser_cleanup( &manager );
     close_progress_dlg( &prg_dlg );
     return;
 fail_index:
@@ -785,6 +957,7 @@ fail_index:
     hp->video_format = NULL;
     hp->audio_format = NULL;
     fclose( index );
+    parser_cleanup( &manager );
     close_progress_dlg( &prg_dlg );
     return;
 }
@@ -1266,6 +1439,7 @@ static int get_video_track( lsmash_handler_t *h )
         return -1;
     }
     hp->video_ctx = ctx;
+    hp->video_manager.format_ctx = hp->video_format;
     return 0;
 }
 
@@ -1288,11 +1462,6 @@ static int get_audio_track( lsmash_handler_t *h )
             free( hp->audio_frame_list );
             hp->audio_frame_list = NULL;
         }
-        if( hp->audio_parser )
-        {
-            av_parser_close( hp->audio_parser );
-            hp->audio_parser = NULL;
-        }
         if( hp->audio_ctx )
         {
             avcodec_close( hp->audio_ctx );
@@ -1306,6 +1475,7 @@ static int get_audio_track( lsmash_handler_t *h )
         return -1;
     }
     hp->audio_ctx = ctx;
+    hp->audio_manager.format_ctx = hp->audio_format;
     return 0;
 }
 
@@ -1486,33 +1656,27 @@ static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32
     return rap_pos;
 }
 
-static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
+static int get_sample( libav_handler_t *hp, stream_manager_t *manager, int stream_index,
+                       uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
 {
     AVPacket temp;
     av_init_packet( &temp );
-    while( av_read_frame( format_ctx, &temp ) >= 0 )
+    while( read_av_packet( manager, &temp, NULL ) >= 0 )
     {
         if( temp.stream_index != stream_index )
-        {
-            av_free_packet( &temp );
             continue;
-        }
         /* Don't trust the first survey of the maximum packet size. It seems various by seeking. */
         if( temp.size + FF_INPUT_BUFFER_PADDING_SIZE > *buffer_size )
         {
             uint8_t *new_buffer = av_realloc( *buffer, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
             if( !new_buffer )
-            {
-                av_free_packet( &temp );
                 continue;
-            }
             *buffer      = new_buffer;
             *buffer_size = temp.size + FF_INPUT_BUFFER_PADDING_SIZE;
         }
         *pkt = temp;
         pkt->data = *buffer;
         memcpy( pkt->data, temp.data, temp.size );
-        av_free_packet( &temp );
         return 0;
     }
     *pkt = temp;
@@ -1600,7 +1764,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     for( uint32_t i = 1; i <= h->video_sample_count + DECODER_DELAY( hp->video_ctx ); i++ )
     {
         AVPacket pkt;
-        get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
+        get_sample( hp, &hp->video_manager, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
@@ -1687,7 +1851,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
     AVPacket pkt;
-    if( get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
+    if( get_sample( hp, &hp->video_manager, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
         return 1;
     if( pkt.flags == AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
@@ -1700,8 +1864,18 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     return 0;
 }
 
-static void flush_buffers( AVCodecContext *ctx, int *error )
+static void flush_buffers( stream_manager_t *manager, AVCodecContext *ctx, int *error )
 {
+    for( int i = 0; i < manager->stream_count; i++ )
+    {
+        stream_parser_t *stream_parser = &manager->parsers[i];
+        stream_parser->pkt.size = 0;
+        if( stream_parser->parser_ctx )
+        {
+            av_parser_close( stream_parser->parser_ctx );
+            stream_parser->parser_ctx = av_parser_init( stream_parser->codec_id );
+        }
+    }
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
     AVCodec *codec = ctx->codec;
@@ -1718,7 +1892,7 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
                             int64_t rap_pos, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
-    flush_buffers( hp->video_ctx, &hp->video_error );
+    flush_buffers( &hp->video_manager, hp->video_ctx, &hp->video_error );
     if( hp->video_error )
         return 0;
     if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
@@ -1900,7 +2074,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     else
     {
         /* Seek audio stream. */
-        flush_buffers( hp->audio_ctx, &hp->audio_error );
+        flush_buffers( &hp->audio_manager, hp->audio_ctx, &hp->audio_error );
         if( hp->audio_error )
             return 0;
         hp->audio_delay_count            = 0;
@@ -1933,7 +2107,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
         for( uint32_t i = rap_number; i <= frame_number; )
         {
-            if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
+            if( get_sample( hp, &hp->audio_manager, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
                 break;
             if( i == rap_number
              && (((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[i].file_offset > pkt->pos))
@@ -1963,7 +2137,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 goto audio_out;
         }
         else if( pkt->size <= 0 )
-            get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt );
+            get_sample( hp, &hp->audio_manager, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt );
         int output_audio = 0;
         do
         {
@@ -2052,6 +2226,7 @@ static void video_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp )
         return;
+    parser_cleanup( &hp->video_manager );
     if( hp->video_input_buffer )
         av_free( hp->video_input_buffer );
     if( hp->first_valid_video_frame_data )
@@ -2077,12 +2252,11 @@ static void audio_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp )
         return;
+    parser_cleanup( &hp->audio_manager );
     if( hp->audio_input_buffer )
         av_free( hp->audio_input_buffer );
     if( hp->audio_index_entries )
         av_free( hp->audio_index_entries );
-    if( hp->audio_parser )
-        av_parser_close( hp->audio_parser );
     if( hp->audio_ctx )
         avcodec_close( hp->audio_ctx );
     if( hp->audio_format )
