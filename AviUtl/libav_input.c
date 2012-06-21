@@ -680,6 +680,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
+    int      audio_sample_rate     = 0;
     int      constant_frame_length = 1;
     int      frame_length          = 0;
     uint64_t audio_duration        = 0;
@@ -758,7 +759,11 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 {
                     int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &temp );
                     if( wasted_data_length < 0 )
+                    {
+                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
+                        pkt_ctx->sample_rate = hp->audio_frame_buffer.sample_rate;
                         break;
+                    }
                     temp.size -= wasted_data_length;
                     temp.data += wasted_data_length;
                     if( decode_complete )
@@ -790,6 +795,8 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
                 else
                     frame_length = -1;
+                if( audio_sample_rate == 0 )
+                    audio_sample_rate = pkt_ctx->sample_rate;
                 if( audio_sample_count + 1 == audio_info_count )
                 {
                     audio_info_count <<= 1;
@@ -886,12 +893,10 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         hp->audio_frame_count  = audio_sample_count;
         decide_audio_seek_method( hp, audio_sample_count );
         if( hp->video_index >= 0 )
-        {
-            AVStream *audio_stream = format_ctx->streams[ hp->audio_index ];
             calculate_av_gap( hp, video_info, audio_info,
-                              format_ctx->streams[ hp->video_index ]->time_base, audio_stream->time_base,
-                              audio_stream->codec->sample_rate );
-        }
+                              format_ctx->streams[ hp->video_index ]->time_base,
+                              format_ctx->streams[ hp->audio_index ]->time_base,
+                              audio_sample_rate );
     }
     fprintf( index, "</LibavReaderIndex>\n" );
     for( int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
