@@ -127,7 +127,6 @@ typedef struct libav_handler_tag
     enum CodecID             audio_codec_id;
     AVFormatContext         *audio_format;
     AVCodecContext          *audio_ctx;
-    AVCodecParserContext    *audio_parser;
     AVIndexEntry            *audio_index_entries;
     int                      audio_index_entries_count;
     AVFrame                  audio_frame_buffer;
@@ -438,12 +437,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             return;
         }
         avcodec_get_frame_defaults( &hp->audio_frame_buffer );
-        if( hp->audio_ctx && hp->audio_ctx->frame_size == 0 )
-        {
-            hp->audio_parser = av_parser_init( hp->audio_ctx->codec_id );
-            if( hp->audio_parser )
-                hp->audio_parser->flags = PARSER_FLAG_COMPLETE_FRAMES;
-        }
     }
     /*
         # Structure of Libav reader index file
@@ -550,41 +543,16 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( audio_present && pkt.stream_index == hp->audio_index && audio_duration <= INT32_MAX )
         {
             /* Get frame_length. */
-            int output_audio = 0;
-            if( hp->audio_parser )
-            {
-                uint8_t *out_buffer;
-                int out_buffer_size;
-                AVPacket temp = pkt;
-                while( temp.size > 0 )
-                {
-                    int wasted_data_length = av_parser_parse2( hp->audio_parser, hp->audio_ctx,
-                                                               &out_buffer, &out_buffer_size,
-                                                               temp.data, temp.size, temp.pts, temp.dts, temp.pos );
-                    if( wasted_data_length < 0 )
-                        break;
-                    temp.size -= wasted_data_length;
-                    temp.data += wasted_data_length;
-                    if( out_buffer_size )
-                    {
-                        frame_length += hp->audio_parser->duration;
-                        output_audio = 1;
-                    }
-                }
-                if( !output_audio )
-                    ++ hp->audio_delay_count;
-            }
-            if( frame_length == 0 )
-                frame_length = hp->audio_ctx->frame_size;
+            frame_length = format_ctx->streams[ pkt.stream_index ]->parser
+                         ? format_ctx->streams[ pkt.stream_index ]->parser->duration
+                         : hp->audio_ctx->frame_size;
             if( frame_length == 0 )
             {
-                if( hp->audio_parser && !output_audio )
-                    -- hp->audio_delay_count;
                 AVPacket temp = pkt;
-                uint8_t *data = pkt.data;
-                int decode_complete;
+                int output_audio = 0;
                 while( temp.size > 0 )
                 {
+                    int decode_complete;
                     int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, &temp );
                     if( wasted_data_length < 0 )
                     {
@@ -602,8 +570,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
                 if( !output_audio )
                     ++ hp->audio_delay_count;
-                pkt      = temp;
-                pkt.data = data;
             }
             audio_duration += frame_length;
             if( audio_duration <= INT32_MAX )
@@ -1292,11 +1258,6 @@ static int get_audio_track( lsmash_handler_t *h )
         {
             free( hp->audio_frame_list );
             hp->audio_frame_list = NULL;
-        }
-        if( hp->audio_parser )
-        {
-            av_parser_close( hp->audio_parser );
-            hp->audio_parser = NULL;
         }
         if( hp->audio_ctx )
         {
@@ -2086,8 +2047,6 @@ static void audio_cleanup( lsmash_handler_t *h )
         av_free( hp->audio_input_buffer );
     if( hp->audio_index_entries )
         av_free( hp->audio_index_entries );
-    if( hp->audio_parser )
-        av_parser_close( hp->audio_parser );
     if( hp->audio_ctx )
         avcodec_close( hp->audio_ctx );
     if( hp->audio_format )
