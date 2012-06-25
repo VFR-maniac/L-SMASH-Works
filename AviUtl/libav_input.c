@@ -509,6 +509,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 fseek( index, video_index_pos, SEEK_SET );
                 fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", pkt.stream_index );
                 fseek( index, current_pos, SEEK_SET );
+                memset( video_info, 0, (video_sample_count + 1) * sizeof(video_frame_info_t) );
                 hp->video_ctx               = pkt_ctx;
                 hp->video_codec_id          = pkt_ctx->codec_id;
                 hp->video_index             = pkt.stream_index;
@@ -544,6 +545,15 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
                 hp->video_input_buffer_size = max( hp->video_input_buffer_size, pkt.size );
             }
+            /* Write a video packet info to the index file. */
+            fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                     "Key=%d,Width=%d,Height=%d,PixelFormat=%s\n",
+                     pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
+                     format_ctx->streams[ pkt.stream_index ]->time_base.num,
+                     format_ctx->streams[ pkt.stream_index ]->time_base.den,
+                     pkt.pos, pkt.pts, pkt.dts,
+                     !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
+                     av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none" );
         }
         else
         {
@@ -635,19 +645,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     hp->audio_input_buffer_size = max( hp->audio_input_buffer_size, pkt.size );
                 }
             }
-        }
-        /* Write a packet info to the index file. */
-        if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
-            fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                     "Key=%d,Width=%d,Height=%d,PixelFormat=%s\n",
-                     pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.num,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.den,
-                     pkt.pos, pkt.pts, pkt.dts,
-                     !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
-                     av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none" );
-        else if( pkt_ctx->codec_type == AVMEDIA_TYPE_AUDIO )
-        {
+            /* Write an audio packet info to the index file. */
             fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
                      "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
                      pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
