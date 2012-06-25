@@ -466,16 +466,17 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->format_flags = format_ctx->iformat->flags;
     fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", hp->format_flags, hp->format_name );
     int32_t video_index_pos = ftell( index );
-    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
-    fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->audio_index );
+    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", -1 );
+    int32_t audio_index_pos = ftell( index );
+    fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", -1 );
     AVPacket pkt;
     av_init_packet( &pkt );
     hp->video_format = format_ctx;
     hp->audio_format = format_ctx;
-    int       video_resolution      = hp->video_ctx ? hp->video_ctx->width * hp->video_ctx->height : 0;
+    int       video_resolution      = 0;
     uint32_t  video_sample_count    = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
-    int       audio_present         = !!hp->audio_ctx;
+    int       audio_present         = 0;
     uint32_t  audio_sample_count    = 0;
     int       audio_sample_rate     = 0;
     int       constant_frame_length = 1;
@@ -500,24 +501,24 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         {
             if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
                 investigate_pix_fmt_by_decoding( pkt_ctx, &pkt );
-            if( pkt.stream_index == hp->video_index
-             || (!opt->force_video && pkt_ctx->width * pkt_ctx->height > video_resolution) )
+            int higher_resoluton = (pkt_ctx->width * pkt_ctx->height > video_resolution);   /* Replace lower resolution stream with higher. */
+            if( (!opt->force_video && (hp->video_index == -1 || (pkt.stream_index != hp->video_index && higher_resoluton)))
+             || (opt->force_video && hp->video_index == -1 && pkt.stream_index == opt->force_video_index) )
             {
-                if( !opt->force_video && pkt.stream_index != hp->video_index )
-                {
-                    /* Replace lower resolution stream with higher. */
-                    hp->video_ctx               = pkt_ctx;
-                    hp->video_codec_id          = pkt_ctx->codec_id;
-                    hp->video_index             = pkt.stream_index;
-                    hp->video_input_buffer_size = 0;
-                    video_resolution            = pkt_ctx->width * pkt_ctx->height;
-                    video_sample_count          = 0;
-                    last_keyframe_pts           = AV_NOPTS_VALUE;
-                    int32_t current_pos = ftell( index );
-                    fseek( index, video_index_pos, SEEK_SET );
-                    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
-                    fseek( index, current_pos, SEEK_SET );
-                }
+                int32_t current_pos = ftell( index );
+                fseek( index, video_index_pos, SEEK_SET );
+                fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", pkt.stream_index );
+                fseek( index, current_pos, SEEK_SET );
+                hp->video_ctx               = pkt_ctx;
+                hp->video_codec_id          = pkt_ctx->codec_id;
+                hp->video_index             = pkt.stream_index;
+                hp->video_input_buffer_size = 0;
+                video_resolution            = pkt_ctx->width * pkt_ctx->height;
+                video_sample_count          = 0;
+                last_keyframe_pts           = AV_NOPTS_VALUE;
+            }
+            if( pkt.stream_index == hp->video_index )
+            {
                 ++video_sample_count;
                 video_info[video_sample_count].pts           = pkt.pts;
                 video_info[video_sample_count].dts           = pkt.dts;
@@ -547,6 +548,16 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         else
         {
             audio_present = 1;
+            if( hp->audio_index == -1 && (!opt->force_audio || (opt->force_audio && pkt.stream_index == opt->force_audio_index)) )
+            {
+                int32_t current_pos = ftell( index );
+                fseek( index, audio_index_pos, SEEK_SET );
+                fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", pkt.stream_index );
+                fseek( index, current_pos, SEEK_SET );
+                hp->audio_ctx      = pkt_ctx;
+                hp->audio_codec_id = pkt_ctx->codec_id;
+                hp->audio_index    = pkt.stream_index;
+            }
             if( pkt.stream_index > max_audio_index )
             {
                 uint32_t *temp = realloc( audio_delay_count, (pkt.stream_index + 1) * sizeof(uint32_t) );
@@ -1157,54 +1168,6 @@ static void *open_file( char *file_path, reader_option_t *opt )
     hp->threads     = opt->threads;
     hp->video_index = -1;
     hp->audio_index = -1;
-    int video_resolution = 0;
-    int video_present = 0;
-    int audio_present = 0;
-    for( int index = 0; index < format_ctx->nb_streams; index++ )
-    {
-        AVCodecContext *ctx = format_ctx->streams[index]->codec;
-        if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
-        {
-            if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
-                continue;
-            video_present = 1;
-            int is_forced_index = (opt->force_video && index == opt->force_video_index);
-            if( is_forced_index || (!opt->force_video && ctx->width * ctx->height > video_resolution) )
-            {
-                hp->video_ctx      = ctx;
-                hp->video_codec_id = ctx->codec_id;
-                hp->video_index    = index;
-                if( is_forced_index )
-                    break;
-                else
-                    video_resolution = ctx->width * ctx->height;
-            }
-        }
-    }
-    for( int index = 0; index < format_ctx->nb_streams; index++ )
-    {
-        AVCodecContext *ctx = format_ctx->streams[index]->codec;
-        if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
-        {
-            if( open_decoder( ctx, ctx->codec_id, hp->threads ) )
-                continue;
-            audio_present = 1;
-            if( !opt->force_audio || index == opt->force_audio_index )
-            {
-                hp->audio_ctx      = ctx;
-                hp->audio_codec_id = ctx->codec_id;
-                hp->audio_index    = index;
-                break;
-            }
-        }
-    }
-    if( !video_present && !audio_present )
-    {
-        lavf_close_file( &format_ctx );
-        free( hp->file_path );
-        free( hp );
-        return NULL;
-    }
     create_index( hp, format_ctx, opt );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
