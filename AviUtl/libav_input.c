@@ -911,7 +911,12 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             {
                 hp->dv_in_avi = 1;
                 if( hp->video_index == -1 )
+                {
                     hp->video_index = stream_index;
+                    video_info = malloc_zero( video_info_count * sizeof(video_frame_info_t) );
+                    if( !video_info )
+                        goto fail_parsing;
+                }
             }
             if( stream_index == hp->video_index )
             {
