@@ -90,6 +90,7 @@ typedef struct libav_handler_tag
     char                    *format_name;
     int                      format_flags;
     int                      threads;
+    int                      dv_in_avi;
     /* Video stuff */
     int                      video_error;
     int                      video_index;
@@ -206,11 +207,16 @@ static inline void sort_decoding_order( video_timestamp_t *timestamp, uint32_t s
     qsort( timestamp, sample_count, sizeof(video_timestamp_t), (int(*)( const void *, const void * ))compare_dts );
 }
 
+static inline int lineup_seek_base_candidates( libav_handler_t *hp )
+{
+    return !strcmp( hp->format_name, "mpeg" ) || !strcmp( hp->format_name, "mpegts" )
+         ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
+         : SEEK_DTS_BASED | SEEK_PTS_BASED;
+}
+
 static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count )
 {
-    hp->video_seek_base = !strcmp( hp->format_name, "mpeg" ) || !strcmp( hp->format_name, "mpegts" )
-                        ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
-                        : SEEK_DTS_BASED | SEEK_PTS_BASED;
+    hp->video_seek_base = lineup_seek_base_candidates( hp );
     video_frame_info_t *info = hp->video_frame_list;
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
@@ -320,9 +326,7 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
 
 static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count )
 {
-    hp->audio_seek_base = !strcmp( hp->format_name, "mpeg" ) || !strcmp( hp->format_name, "mpegts" )
-                        ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
-                        : SEEK_DTS_BASED | SEEK_PTS_BASED;
+    hp->audio_seek_base = lineup_seek_base_candidates( hp );
     audio_frame_info_t *info = hp->audio_frame_list;
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
@@ -463,6 +467,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
     fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_path );
     hp->format_name  = (char *)format_ctx->iformat->name;
+    hp->dv_in_avi = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     hp->format_flags = format_ctx->iformat->flags;
     fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", hp->format_flags, hp->format_name );
     int32_t video_index_pos = ftell( index );
@@ -501,8 +506,16 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         {
             if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
                 investigate_pix_fmt_by_decoding( pkt_ctx, &pkt );
+            int dv_in_avi_init = 0;
+            if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
+            {
+                dv_in_avi_init  = 1;
+                hp->dv_in_avi   = 1;
+                hp->video_index = pkt.stream_index;
+            }
             int higher_resoluton = (pkt_ctx->width * pkt_ctx->height > video_resolution);   /* Replace lower resolution stream with higher. */
-            if( (!opt->force_video && (hp->video_index == -1 || (pkt.stream_index != hp->video_index && higher_resoluton)))
+            if( dv_in_avi_init
+             || (!opt->force_video && (hp->video_index == -1 || (pkt.stream_index != hp->video_index && higher_resoluton)))
              || (opt->force_video && hp->video_index == -1 && pkt.stream_index == opt->force_video_index) )
             {
                 int32_t current_pos = ftell( index );
@@ -728,9 +741,21 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
         if( hp->audio_index >= 0 )
         {
-            hp->audio_frame_length = constant_frame_length ? frame_length : 0;
+            if( hp->dv_in_avi == 1 )
+            {
+                audio_sample_count = min( video_sample_count, audio_sample_count );
+                for( uint32_t i = 0; i <= audio_sample_count; i++ )
+                {
+                    audio_info[i].keyframe      = video_info[i].keyframe;
+                    audio_info[i].sample_number = video_info[i].sample_number;
+                    audio_info[i].pts           = video_info[i].pts;
+                    audio_info[i].dts           = video_info[i].dts;
+                    audio_info[i].file_offset   = video_info[i].file_offset;
+                }
+            }
             hp->audio_frame_list   = audio_info;
             hp->audio_frame_count  = audio_sample_count;
+            hp->audio_frame_length = constant_frame_length ? frame_length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
             if( hp->video_index >= 0 )
                 calculate_av_gap( hp, video_info, audio_info,
@@ -833,6 +858,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
      || fscanf( index, "<ActiveAudioStreamIndex>%d</ActiveAudioStreamIndex>\n", &active_audio_index ) != 1 )
         return -1;
     hp->format_name = format_name;
+    hp->dv_in_avi = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     int video_present = (active_video_index >= 0);
     int audio_present = (active_audio_index >= 0);
     hp->video_index = opt->force_video ? opt->force_video_index : active_video_index;
@@ -881,6 +907,12 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         {
             if( !fgets( buf, sizeof(buf), index ) )
                 goto fail_parsing;
+            if( hp->dv_in_avi == -1 && codec_id == CODEC_ID_DVVIDEO && !opt->force_audio )
+            {
+                hp->dv_in_avi = 1;
+                if( hp->video_index == -1 )
+                    hp->video_index = stream_index;
+            }
             if( stream_index == hp->video_index )
             {
                 int key;
@@ -1076,9 +1108,21 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         }
         else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->audio_index )
         {
-            hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
+            if( hp->dv_in_avi == 1 )
+            {
+                audio_sample_count = min( video_sample_count, audio_sample_count );
+                for( uint32_t i = 0; i <= audio_sample_count; i++ )
+                {
+                    audio_info[i].keyframe      = video_info[i].keyframe;
+                    audio_info[i].sample_number = video_info[i].sample_number;
+                    audio_info[i].pts           = video_info[i].pts;
+                    audio_info[i].dts           = video_info[i].dts;
+                    audio_info[i].file_offset   = video_info[i].file_offset;
+                }
+            }
             hp->audio_frame_list   = audio_info;
             hp->audio_frame_count  = audio_sample_count;
+            hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
         }
         ++stream_index;
@@ -1865,8 +1909,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                         : (hp->audio_seek_base & SEEK_DTS_BASED)         ? hp->audio_frame_list[rap_number].dts
                         :                                                  hp->audio_frame_list[rap_number].sample_number;
         int flags = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->audio_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-        if( av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
-            av_seek_frame( hp->audio_format, hp->audio_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
+        int stream_index = hp->dv_in_avi == 1 ? 0 : hp->audio_index;
+        if( av_seek_frame( hp->audio_format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
+            av_seek_frame( hp->audio_format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
         for( uint32_t i = rap_number; i <= frame_number; )
         {
             if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
