@@ -1170,7 +1170,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             }
             else
             {
-                if( hp->dv_in_avi == 1 && (active_video_index == -1 || (opt->force_video && opt->force_video_index == -1)) )
+                if( hp->dv_in_avi == 1 && ((!opt->force_video && active_video_index == -1) || (opt->force_video && opt->force_video_index == -1)) )
                 {
                     /* Disable DV video stream. */
                     disable_video_stream( hp );
