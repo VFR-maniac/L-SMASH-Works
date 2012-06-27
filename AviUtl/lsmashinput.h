@@ -111,6 +111,7 @@ typedef struct
 {
     int threads;
     /* for libav reader */
+    int no_create_index;
     int force_video;
     int force_video_index;
     int force_audio;

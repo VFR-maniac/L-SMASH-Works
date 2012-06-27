@@ -420,10 +420,20 @@ static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket
     avcodec_decode_video2( video_ctx, &picture, &got_picture, pkt );
 }
 
+static inline void print_index( FILE *index, const char *format, ... )
+{
+    if( !index )
+        return;
+    va_list args;
+    va_start( args, format );
+    vfprintf( stderr, format, args );
+    va_end( args );
+}
+
 static inline void write_av_index_entry( FILE *index, AVIndexEntry *ie )
 {
-    fprintf( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
-             ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
+    print_index( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
+                 ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
 static void disable_video_stream( libav_handler_t *hp )
@@ -484,27 +494,33 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
      */
     char index_path[512] = { 0 };
     sprintf( index_path, "%s.index", hp->file_path );
-    FILE *index = fopen( index_path, "wb" );
-    if( !index )
+    FILE *index = !opt->no_create_index ? fopen( index_path, "wb" ) : NULL;
+    if( !index && !opt->no_create_index )
     {
         free( video_info );
         free( audio_info );
         return;
     }
-    fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
-    fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_path );
     hp->format_name  = (char *)format_ctx->iformat->name;
-    hp->dv_in_avi = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
+    hp->dv_in_avi    = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     hp->format_flags = format_ctx->iformat->flags;
-    fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", hp->format_flags, hp->format_name );
-    int32_t video_index_pos = ftell( index );
-    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", -1 );
-    int32_t audio_index_pos = ftell( index );
-    fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", -1 );
-    AVPacket pkt;
-    av_init_packet( &pkt );
     hp->video_format = format_ctx;
     hp->audio_format = format_ctx;
+    int32_t video_index_pos = 0;
+    int32_t audio_index_pos = 0;
+    if( index )
+    {
+        /* Write Index file header. */
+        fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
+        fprintf( index, "<InputFilePath>%s</InputFilePath>\n", hp->file_path );
+        fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", hp->format_flags, hp->format_name );
+        video_index_pos = ftell( index );
+        fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", -1 );
+        audio_index_pos = ftell( index );
+        fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", -1 );
+    }
+    AVPacket pkt;
+    av_init_packet( &pkt );
     int       video_resolution      = 0;
     uint32_t  video_sample_count    = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
@@ -545,10 +561,14 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
              || (!opt->force_video && (hp->video_index == -1 || (pkt.stream_index != hp->video_index && higher_resoluton)))
              || (opt->force_video && hp->video_index == -1 && pkt.stream_index == opt->force_video_index) )
             {
-                int32_t current_pos = ftell( index );
-                fseek( index, video_index_pos, SEEK_SET );
-                fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", pkt.stream_index );
-                fseek( index, current_pos, SEEK_SET );
+                /* Update active video stream. */
+                if( index )
+                {
+                    int32_t current_pos = ftell( index );
+                    fseek( index, video_index_pos, SEEK_SET );
+                    fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", pkt.stream_index );
+                    fseek( index, current_pos, SEEK_SET );
+                }
                 memset( video_info, 0, (video_sample_count + 1) * sizeof(video_frame_info_t) );
                 hp->video_ctx               = pkt_ctx;
                 hp->video_codec_id          = pkt_ctx->codec_id;
@@ -586,24 +606,28 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 hp->video_input_buffer_size = max( hp->video_input_buffer_size, pkt.size );
             }
             /* Write a video packet info to the index file. */
-            fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                     "Key=%d,Width=%d,Height=%d,PixelFormat=%s\n",
-                     pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.num,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.den,
-                     pkt.pos, pkt.pts, pkt.dts,
-                     !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
-                     av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none" );
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                         "Key=%d,Width=%d,Height=%d,PixelFormat=%s\n",
+                         pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
+                         format_ctx->streams[ pkt.stream_index ]->time_base.num,
+                         format_ctx->streams[ pkt.stream_index ]->time_base.den,
+                         pkt.pos, pkt.pts, pkt.dts,
+                         !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
+                         av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none" );
         }
         else
         {
             audio_present = 1;
             if( hp->audio_index == -1 && (!opt->force_audio || (opt->force_audio && pkt.stream_index == opt->force_audio_index)) )
             {
-                int32_t current_pos = ftell( index );
-                fseek( index, audio_index_pos, SEEK_SET );
-                fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", pkt.stream_index );
-                fseek( index, current_pos, SEEK_SET );
+                /* Update active audio stream. */
+                if( index )
+                {
+                    int32_t current_pos = ftell( index );
+                    fseek( index, audio_index_pos, SEEK_SET );
+                    fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", pkt.stream_index );
+                    fseek( index, current_pos, SEEK_SET );
+                }
                 hp->audio_ctx      = pkt_ctx;
                 hp->audio_codec_id = pkt_ctx->codec_id;
                 hp->audio_index    = pkt.stream_index;
@@ -686,15 +710,15 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
             }
             /* Write an audio packet info to the index file. */
-            fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                     "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
-                     pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.num,
-                     format_ctx->streams[ pkt.stream_index ]->time_base.den,
-                     pkt.pos, pkt.pts, pkt.dts,
-                     pkt_ctx->channels, pkt_ctx->sample_rate,
-                     pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
-                     frame_length );
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                         "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                         pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
+                         format_ctx->streams[ pkt.stream_index ]->time_base.num,
+                         format_ctx->streams[ pkt.stream_index ]->time_base.den,
+                         pkt.pos, pkt.pts, pkt.dts,
+                         pkt_ctx->channels, pkt_ctx->sample_rate,
+                         pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
+                         frame_length );
         }
         /* Update progress dialog if packet's DTS is valid. */
         if( first_dts == AV_NOPTS_VALUE )
@@ -704,7 +728,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     : 100.0 * (pkt.dts - first_dts)
                     * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
                     / (format_ctx->duration / AV_TIME_BASE) + 0.5;
-        int abort = update_progress_dlg( &prg_dlg, "Creating Index file", percent );
+        int abort = update_progress_dlg( &prg_dlg, index ? "Creating Index file" : "Parsing input file", percent );
         av_free_packet( &pkt );
         if( abort )
             goto fail_index;
@@ -754,13 +778,13 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                             if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                                 constant_frame_length = 0;
                         }
-                        fprintf( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                                 "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
-                                 stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                                 format_ctx->streams[stream_index]->time_base.num,
-                                 format_ctx->streams[stream_index]->time_base.den,
-                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
-                                 0, 0, 0, frame_length );
+                        print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                                     "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                                     stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
+                                     format_ctx->streams[stream_index]->time_base.num,
+                                     format_ctx->streams[stream_index]->time_base.den,
+                                     -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
+                                     0, 0, 0, frame_length );
                     }
                 }
             }
@@ -802,13 +826,13 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                                   audio_sample_rate );
         }
     }
-    fprintf( index, "</LibavReaderIndex>\n" );
+    print_index( index, "</LibavReaderIndex>\n" );
     for( int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
         {
-            fprintf( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_VIDEO, stream->nb_index_entries );
+            print_index( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_VIDEO, stream->nb_index_entries );
             if( hp->video_index != stream_index )
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                     write_av_index_entry( index, &stream->index_entries[i] );
@@ -825,11 +849,11 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
                 hp->video_index_entries_count = stream->nb_index_entries;
             }
-            fprintf( index, "</StreamIndexEntries>\n" );
+            print_index( index, "</StreamIndexEntries>\n" );
         }
         else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
         {
-            fprintf( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_AUDIO, stream->nb_index_entries );
+            print_index( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_AUDIO, stream->nb_index_entries );
             if( hp->audio_index != stream_index )
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                     write_av_index_entry( index, &stream->index_entries[i] );
@@ -848,11 +872,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 }
                 hp->audio_index_entries_count = stream->nb_index_entries;
             }
-            fprintf( index, "</StreamIndexEntries>\n" );
+            print_index( index, "</StreamIndexEntries>\n" );
         }
     }
-    fprintf( index, "</LibavReaderIndexFile>\n" );
-    fclose( index );
+    print_index( index, "</LibavReaderIndexFile>\n" );
+    if( index )
+        fclose( index );
     close_progress_dlg( &prg_dlg );
     hp->video_format = NULL;
     hp->audio_format = NULL;
@@ -862,7 +887,8 @@ fail_index:
     free( audio_info );
     if( audio_delay_count )
         free( audio_delay_count );
-    fclose( index );
+    if( index )
+        fclose( index );
     close_progress_dlg( &prg_dlg );
     hp->video_format = NULL;
     hp->audio_format = NULL;

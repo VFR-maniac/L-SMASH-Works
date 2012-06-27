@@ -114,6 +114,9 @@ static void get_settings( void )
         /* threads */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &reader_opt.threads ) != 1 )
             reader_opt.threads = 0;
+        /* no_create_index */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "no_create_index=%d", &reader_opt.no_create_index ) != 1 )
+            reader_opt.no_create_index = 0;
         /* force stream index */
         if( !fgets( buf, sizeof(buf), ini )
          || sscanf( buf, "force_video_index=%d:%d",
@@ -391,6 +394,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             sprintf( edit_buf, "%d", reader_opt.threads );
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            /* no_create_index */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_SETCHECK, (WPARAM) reader_opt.no_create_index ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* force stream index */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_SETCHECK, (WPARAM) reader_opt.force_video ? BST_CHECKED : BST_UNCHECKED, 0 );
             sprintf( edit_buf, "%d", reader_opt.force_video_index );
@@ -487,6 +492,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         fprintf( ini, "threads=%d\n", reader_opt.threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
+                    /* no_create_index */
+                    reader_opt.no_create_index = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_GETCHECK, 0, 0 ));
+                    fprintf( ini, "no_create_index=%d\n", reader_opt.no_create_index );
                     /* force stream index */
                     reader_opt.force_video = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_GETCHECK, 0, 0 ));
                     GetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
