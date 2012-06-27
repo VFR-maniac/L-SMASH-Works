@@ -426,7 +426,7 @@ static inline void print_index( FILE *index, const char *format, ... )
         return;
     va_list args;
     va_start( args, format );
-    vfprintf( stderr, format, args );
+    vfprintf( index, format, args );
     va_end( args );
 }
 
