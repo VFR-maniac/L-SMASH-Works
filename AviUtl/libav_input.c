@@ -90,7 +90,7 @@ typedef struct libav_handler_tag
     char                    *format_name;
     int                      format_flags;
     int                      threads;
-    int                      dv_in_avi;
+    int                      dv_in_avi;     /* 1 = 'DV in AVI Type-1', 0 = otherwise */
     /* Video stuff */
     int                      video_error;
     int                      video_index;
@@ -426,6 +426,33 @@ static inline void write_av_index_entry( FILE *index, AVIndexEntry *ie )
              ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
+static void disable_video_stream( libav_handler_t *hp )
+{
+    if( hp->video_frame_list )
+    {
+        free( hp->video_frame_list );
+        hp->video_frame_list = NULL;
+    }
+    if( hp->keyframe_list )
+    {
+        free( hp->keyframe_list );
+        hp->keyframe_list = NULL;
+    }
+    if( hp->order_converter )
+    {
+        free( hp->order_converter );
+        hp->order_converter = NULL;
+    }
+    if( hp->video_index_entries )
+    {
+        av_free( hp->video_index_entries );
+        hp->video_index_entries = NULL;
+    }
+    hp->video_index               = -1;
+    hp->video_index_entries_count = 0;
+    hp->video_frame_count         = 0;
+}
+
 static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, reader_option_t *opt )
 {
     uint32_t video_info_count = 1 << 16;
@@ -741,8 +768,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
         if( hp->audio_index >= 0 )
         {
-            if( hp->dv_in_avi == 1 )
+            if( hp->dv_in_avi == 1 && format_ctx->streams[ hp->audio_index ]->nb_index_entries == 0 )
             {
+                /* DV in AVI Type-1 */
                 audio_sample_count = min( video_sample_count, audio_sample_count );
                 for( uint32_t i = 0; i <= audio_sample_count; i++ )
                 {
@@ -752,6 +780,16 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     audio_info[i].dts           = video_info[i].dts;
                     audio_info[i].file_offset   = video_info[i].file_offset;
                 }
+            }
+            else
+            {
+                if( hp->dv_in_avi == 1 && opt->force_video && opt->force_video_index == -1 )
+                {
+                    /* Disable DV video stream. */
+                    disable_video_stream( hp );
+                    video_info = NULL;
+                }
+                hp->dv_in_avi = 0;
             }
             hp->audio_frame_list   = audio_info;
             hp->audio_frame_count  = audio_sample_count;
@@ -1099,7 +1137,11 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             goto fail_parsing;
         if( !fgets( buf, sizeof(buf), index ) )
             goto fail_parsing;
-        if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == hp->video_index )
+        ++stream_index;
+    }
+    if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
+    {
+        if( hp->video_index >= 0 )
         {
             hp->keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
             if( !hp->keyframe_list )
@@ -1111,10 +1153,11 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             if( decide_video_seek_method( hp, video_sample_count ) )
                 goto fail_parsing;
         }
-        else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->audio_index )
+        if( hp->audio_index >= 0 )
         {
-            if( hp->dv_in_avi == 1 )
+            if( hp->dv_in_avi == 1 && hp->audio_index_entries_count == 0 )
             {
+                /* DV in AVI Type-1 */
                 audio_sample_count = min( video_sample_count, audio_sample_count );
                 for( uint32_t i = 0; i <= audio_sample_count; i++ )
                 {
@@ -1125,19 +1168,25 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     audio_info[i].file_offset   = video_info[i].file_offset;
                 }
             }
+            else
+            {
+                if( hp->dv_in_avi == 1 && (active_video_index == -1 || (opt->force_video && opt->force_video_index == -1)) )
+                {
+                    /* Disable DV video stream. */
+                    disable_video_stream( hp );
+                    video_info = NULL;
+                }
+                hp->dv_in_avi = 0;
+            }
             hp->audio_frame_list   = audio_info;
             hp->audio_frame_count  = audio_sample_count;
             hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
+            if( hp->video_index >= 0 )
+                calculate_av_gap( hp, video_info, audio_info,
+                                  video_time_base, audio_time_base,
+                                  audio_sample_rate );
         }
-        ++stream_index;
-    }
-    if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
-    {
-        if( hp->video_index >= 0 && hp->audio_index >= 0 )
-            calculate_av_gap( hp, video_info, audio_info,
-                              video_time_base, audio_time_base,
-                              audio_sample_rate );
         if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )
         {
             /* Update the active stream indexes when specifying different stream indexes. */
