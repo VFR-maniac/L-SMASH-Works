@@ -188,6 +188,28 @@ static void get_settings( void )
             video_opt->colorspace = CLIP_VALUE( video_opt->colorspace, 0, 2 );
         fclose( ini );
     }
+    else
+    {
+        /* Set up defalut values. */
+        reader_opt.threads                = 0;
+        reader_opt.no_create_index        = 0;
+        reader_opt.force_video            = 0;
+        reader_opt.force_video_index      = -1;
+        reader_opt.force_audio            = 0;
+        reader_opt.force_audio_index      = -1;
+        video_opt->seek_mode              = 0;
+        video_opt->forward_seek_threshold = 10;
+        video_opt->scaler                 = 0;
+        audio_delay                       = 0;
+        reader_disabled[0]                = 0;
+        reader_disabled[1]                = 0;
+        reader_disabled[2]                = 0;
+        video_opt->width                  = 720;
+        video_opt->height                 = 480;
+        video_opt->framerate_num          = 24;
+        video_opt->framerate_den          = 1;
+        video_opt->colorspace             = OUTPUT_YUY2;
+    }
 }
 
 INPUT_HANDLE func_open( LPSTR file )
