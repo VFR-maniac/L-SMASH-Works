@@ -68,7 +68,7 @@ typedef struct
 {
     uint8_t  keyframe;
     uint8_t  is_leading;
-    uint32_t sample_number;
+    uint32_t sample_number;     /* unique value in decoding order */
     int64_t  pts;
     int64_t  dts;
     int64_t  file_offset;
@@ -116,7 +116,6 @@ typedef struct libav_handler_tag
     video_frame_info_t      *video_frame_list;      /* stored in presentation order */
     uint8_t                 *keyframe_list;         /* stored in decoding order */
     order_converter_t       *order_converter;       /* stored in decoding order */
-    int                      reordering_present;
     int                      video_seek_flags;
     int                      video_seek_base;
     int                      seek_mode;
@@ -242,33 +241,26 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
                     break;
                 }
     }
-    if( hp->video_seek_base & SEEK_PTS_BASED )
+    if( (hp->video_seek_base & SEEK_PTS_BASED) && check_frame_reordering( info, sample_count ) )
     {
-        if( check_frame_reordering( info, sample_count ) )
+        /* Consider presentation order for keyframe detection.
+         * Note: sample number is 1-origin. */
+        hp->order_converter = malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
+        if( !hp->order_converter )
         {
-            /* Consider presentation order for keyframe detection.
-             * Note: sample number is 1-origin. */
-            sort_presentation_order( &info[1], sample_count );
-            hp->reordering_present = 1;
-            if( hp->video_seek_base & SEEK_DTS_BASED )
-            {
-                hp->order_converter = malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
-                if( !hp->order_converter )
-                {
-                    DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
-                    return -1;
-                }
-                video_timestamp_t timestamp[sample_count + 1];
-                for( uint32_t i = 1; i <= sample_count; i++ )
-                {
-                    timestamp[i].pts = i;
-                    timestamp[i].dts = info[i].dts;
-                }
-                sort_decoding_order( &timestamp[1], sample_count );
-                for( uint32_t i = 1; i <= sample_count; i++ )
-                    hp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
-            }
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
+            return -1;
         }
+        sort_presentation_order( &info[1], sample_count );
+        video_timestamp_t timestamp[sample_count + 1];
+        for( uint32_t i = 1; i <= sample_count; i++ )
+        {
+            timestamp[i].pts = i;
+            timestamp[i].dts = info[i].sample_number;
+        }
+        sort_decoding_order( &timestamp[1], sample_count );
+        for( uint32_t i = 1; i <= sample_count; i++ )
+            hp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
     }
     else if( hp->video_seek_base & SEEK_DTS_BASED )
         for( uint32_t i = 1; i <= sample_count; i++ )
@@ -313,14 +305,9 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
                 info[j].keyframe = info[k].keyframe = 0;
         }
     }
-    if( hp->order_converter || !hp->reordering_present )
-        for( uint32_t i = 1; i <= sample_count; i++ )
-        {
-            uint32_t presentation_number = hp->order_converter
-                                         ? hp->order_converter[i].decoding_to_presentation
-                                         : i;
-            hp->keyframe_list[ info[presentation_number].sample_number ] = info[presentation_number].keyframe;
-        }
+    /* Set up keyframe list: presentation order (info) -> decoding order (keyframe_list) */
+    for( uint32_t i = 1; i <= sample_count; i++ )
+        hp->keyframe_list[ info[i].sample_number ] = info[i].keyframe;
     return 0;
 }
 
@@ -1523,27 +1510,13 @@ static void find_random_accessible_point( libav_handler_t *hp, uint32_t presenta
 static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( hp->order_converter || !hp->reordering_present )
-    {
-        uint32_t presentation_rap_number = hp->order_converter
-                                         ? hp->order_converter[rap_number].decoding_to_presentation
-                                         : rap_number;
-        return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
-             : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
-             : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
-             :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
-    }
-    int64_t rap_pos = INT64_MIN;
-    for( uint32_t i = 1; i <= h->video_sample_count; i++ )
-        if( rap_number == hp->video_frame_list[i].sample_number )
-        {
-            rap_pos = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[i].file_offset
-                    : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[i].pts
-                    : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[i].dts
-                    :                                                  hp->video_frame_list[i].sample_number;
-            break;
-        }
-    return rap_pos;
+    uint32_t presentation_rap_number = hp->order_converter
+                                     ? hp->order_converter[rap_number].decoding_to_presentation
+                                     : rap_number;
+    return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
+         : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
+         : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
+         :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
 }
 
 static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
