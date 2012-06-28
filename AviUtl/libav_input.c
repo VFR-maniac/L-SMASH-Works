@@ -511,7 +511,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     int       video_resolution      = 0;
     uint32_t  video_sample_count    = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
-    int       audio_present         = 0;
     uint32_t  audio_sample_count    = 0;
     int       audio_sample_rate     = 0;
     int       constant_frame_length = 1;
@@ -604,7 +603,6 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
         else
         {
-            audio_present = 1;
             if( hp->audio_index == -1 && (!opt->force_audio || (opt->force_audio && pkt.stream_index == opt->force_audio_index)) )
             {
                 /* Update active audio stream. */
@@ -735,83 +733,90 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( decide_video_seek_method( hp, video_sample_count ) )
             goto fail_index;
     }
-    if( audio_present )
+    else
+    {
+        free( video_info );
+        video_info = NULL;
+    }
+    if( audio_delay_count )
     {
         /* Flush if audio decoding is delayed. */
-        if( audio_delay_count )
+        for( int stream_index = 0; stream_index <= max_audio_index; stream_index++ )
         {
-            for( int stream_index = 0; stream_index <= max_audio_index; stream_index++ )
+            AVCodecContext *pkt_ctx = format_ctx->streams[stream_index]->codec;
+            if( pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
+                continue;
+            for( uint32_t i = 1; i <= audio_delay_count[stream_index]; i++ )
             {
-                AVCodecContext *pkt_ctx = format_ctx->streams[stream_index]->codec;
-                if( pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
-                    continue;
-                for( uint32_t i = 1; i <= audio_delay_count[stream_index]; i++ )
+                AVPacket null_pkt;
+                av_init_packet( &null_pkt );
+                null_pkt.data = NULL;
+                null_pkt.size = 0;
+                int decode_complete;
+                if( avcodec_decode_audio4( pkt_ctx, &hp->audio_frame_buffer, &decode_complete, &null_pkt ) >= 0 )
                 {
-                    AVPacket null_pkt;
-                    av_init_packet( &null_pkt );
-                    null_pkt.data = NULL;
-                    null_pkt.size = 0;
-                    int decode_complete;
-                    if( avcodec_decode_audio4( pkt_ctx, &hp->audio_frame_buffer, &decode_complete, &null_pkt ) >= 0 )
+                    frame_length = decode_complete ? hp->audio_frame_buffer.nb_samples : 0;
+                    if( stream_index == hp->audio_index )
                     {
-                        frame_length = decode_complete ? hp->audio_frame_buffer.nb_samples : 0;
-                        if( stream_index == hp->audio_index )
-                        {
-                            audio_duration += frame_length;
-                            if( audio_duration > INT32_MAX )
-                                break;
-                            uint32_t audio_frame_number = audio_sample_count - audio_delay_count[stream_index] + i;
-                            audio_info[audio_frame_number].length = frame_length;
-                            if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
-                                constant_frame_length = 0;
-                        }
-                        print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                                     "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
-                                     stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                                     format_ctx->streams[stream_index]->time_base.num,
-                                     format_ctx->streams[stream_index]->time_base.den,
-                                     -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
-                                     0, 0, 0, frame_length );
+                        audio_duration += frame_length;
+                        if( audio_duration > INT32_MAX )
+                            break;
+                        uint32_t audio_frame_number = audio_sample_count - audio_delay_count[stream_index] + i;
+                        audio_info[audio_frame_number].length = frame_length;
+                        if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
+                            constant_frame_length = 0;
                     }
+                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                                 "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                                 stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
+                                 format_ctx->streams[stream_index]->time_base.num,
+                                 format_ctx->streams[stream_index]->time_base.den,
+                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
+                                 0, 0, 0, frame_length );
                 }
             }
-            free( audio_delay_count );
         }
-        if( hp->audio_index >= 0 )
+        free( audio_delay_count );
+    }
+    if( hp->audio_index >= 0 )
+    {
+        if( hp->dv_in_avi == 1 && format_ctx->streams[ hp->audio_index ]->nb_index_entries == 0 )
         {
-            if( hp->dv_in_avi == 1 && format_ctx->streams[ hp->audio_index ]->nb_index_entries == 0 )
+            /* DV in AVI Type-1 */
+            audio_sample_count = video_info ? min( video_sample_count, audio_sample_count ) : 0;
+            for( uint32_t i = 1; i <= audio_sample_count; i++ )
             {
-                /* DV in AVI Type-1 */
-                audio_sample_count = min( video_sample_count, audio_sample_count );
-                for( uint32_t i = 0; i <= audio_sample_count; i++ )
-                {
-                    audio_info[i].keyframe      = video_info[i].keyframe;
-                    audio_info[i].sample_number = video_info[i].sample_number;
-                    audio_info[i].pts           = video_info[i].pts;
-                    audio_info[i].dts           = video_info[i].dts;
-                    audio_info[i].file_offset   = video_info[i].file_offset;
-                }
+                audio_info[i].keyframe      = video_info[i].keyframe;
+                audio_info[i].sample_number = video_info[i].sample_number;
+                audio_info[i].pts           = video_info[i].pts;
+                audio_info[i].dts           = video_info[i].dts;
+                audio_info[i].file_offset   = video_info[i].file_offset;
             }
-            else
-            {
-                if( hp->dv_in_avi == 1 && opt->force_video && opt->force_video_index == -1 )
-                {
-                    /* Disable DV video stream. */
-                    disable_video_stream( hp );
-                    video_info = NULL;
-                }
-                hp->dv_in_avi = 0;
-            }
-            hp->audio_frame_list   = audio_info;
-            hp->audio_frame_count  = audio_sample_count;
-            hp->audio_frame_length = constant_frame_length ? frame_length : 0;
-            decide_audio_seek_method( hp, audio_sample_count );
-            if( hp->video_index >= 0 )
-                calculate_av_gap( hp, video_info, audio_info,
-                                  format_ctx->streams[ hp->video_index ]->time_base,
-                                  format_ctx->streams[ hp->audio_index ]->time_base,
-                                  audio_sample_rate );
         }
+        else
+        {
+            if( hp->dv_in_avi == 1 && opt->force_video && opt->force_video_index == -1 )
+            {
+                /* Disable DV video stream. */
+                disable_video_stream( hp );
+                video_info = NULL;
+            }
+            hp->dv_in_avi = 0;
+        }
+        hp->audio_frame_list   = audio_info;
+        hp->audio_frame_count  = audio_sample_count;
+        hp->audio_frame_length = constant_frame_length ? frame_length : 0;
+        decide_audio_seek_method( hp, audio_sample_count );
+        if( hp->video_index >= 0 )
+            calculate_av_gap( hp, video_info, audio_info,
+                              format_ctx->streams[ hp->video_index ]->time_base,
+                              format_ctx->streams[ hp->audio_index ]->time_base,
+                              audio_sample_rate );
+    }
+    else
+    {
+        free( audio_info );
+        audio_info = NULL;
     }
     print_index( index, "</LibavReaderIndex>\n" );
     for( int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
