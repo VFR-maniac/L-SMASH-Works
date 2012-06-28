@@ -382,21 +382,48 @@ static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count
             info[i].keyframe = 1;
 }
 
-static void calculate_av_gap( libav_handler_t *hp, video_frame_info_t *video_info, audio_frame_info_t *audio_info,
-                              AVRational video_time_base, AVRational audio_time_base, int sample_rate )
+static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, AVRational audio_time_base, int sample_rate )
 {
-    int64_t video_ts = (hp->video_seek_base & SEEK_PTS_BASED) ? video_info[1].pts
-                     : (hp->video_seek_base & SEEK_DTS_BASED) ? video_info[1].dts
-                     :                                          0;
-    int64_t audio_ts = (hp->audio_seek_base & SEEK_PTS_BASED) ? audio_info[1].pts
-                     : (hp->audio_seek_base & SEEK_DTS_BASED) ? audio_info[1].dts
-                     :                                          0;
-    if( video_ts || audio_ts )
+    /* Pick the first video timestamp.
+     * If invalid, skip A/V gap calculation. */
+    int64_t video_ts = (hp->video_seek_base & SEEK_PTS_BASED) ? hp->video_frame_list[1].pts : hp->video_frame_list[1].dts;
+    if( video_ts == AV_NOPTS_VALUE )
+        return;
+    /* Pick the first valid audio timestamp.
+     * If not found, skip A/V gap calculation. */
+    int64_t  audio_ts        = 0;
+    uint32_t audio_ts_number = 0;
+    if( hp->audio_seek_base & SEEK_PTS_BASED )
     {
-        AVRational audio_sample_base = (AVRational){ 1, sample_rate };
+        for( uint32_t i = 1; i <= hp->audio_frame_count; i++ )
+            if( hp->audio_frame_list[i].pts != AV_NOPTS_VALUE )
+            {
+                audio_ts        = hp->audio_frame_list[i].pts;
+                audio_ts_number = i;
+                break;
+            }
+    }
+    else
+        for( uint32_t i = 1; i <= hp->audio_frame_count; i++ )
+            if( hp->audio_frame_list[i].dts != AV_NOPTS_VALUE )
+            {
+                audio_ts        = hp->audio_frame_list[i].dts;
+                audio_ts_number = i;
+                break;
+            }
+    if( audio_ts_number == 0 )
+        return;
+    /* Estimate the first audio timestamp if invalid. */
+    AVRational audio_sample_base = (AVRational){ 1, sample_rate };
+    for( uint32_t i = 1, delay_count = 0; i < min( audio_ts_number + delay_count, hp->audio_frame_count ); i++ )
+        if( hp->audio_frame_list[i].length != -1 )
+            audio_ts -= av_rescale_q( hp->audio_frame_list[i].length, audio_sample_base, audio_time_base );
+        else
+            ++delay_count;
+    /* Calculate A/V gap in audio samplerate. */
+    if( video_ts || audio_ts )
         hp->av_gap = av_rescale_q( audio_ts, audio_time_base, audio_sample_base )
                    - av_rescale_q( video_ts, video_time_base, audio_sample_base );
-    }
 }
 
 static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket *pkt )
@@ -808,7 +835,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         hp->audio_frame_length = constant_frame_length ? frame_length : 0;
         decide_audio_seek_method( hp, audio_sample_count );
         if( hp->video_index >= 0 )
-            calculate_av_gap( hp, video_info, audio_info,
+            calculate_av_gap( hp,
                               format_ctx->streams[ hp->video_index ]->time_base,
                               format_ctx->streams[ hp->audio_index ]->time_base,
                               audio_sample_rate );
@@ -1201,9 +1228,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
             if( hp->video_index >= 0 )
-                calculate_av_gap( hp, video_info, audio_info,
-                                  video_time_base, audio_time_base,
-                                  audio_sample_rate );
+                calculate_av_gap( hp, video_time_base, audio_time_base, audio_sample_rate );
         }
         if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )
         {
