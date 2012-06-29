@@ -34,6 +34,7 @@
 #include "filter.h"
 
 #include "config.h"
+#include "progress_dlg.h"
 
 /* chapter handling */
 #define CHAPTER_BUFSIZE 512
@@ -432,8 +433,9 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         video_sequence->media_start_sample_number = video_sequence->presentation_start_sample_number;
         in_video_track->ctd_shift = 0;
     }
-    video_sequence->number_of_samples = video_sequence->media_end_sample_number - video_sequence->media_start_sample_number + 1;
     video_sequence->current_sample_number = video_sequence->media_start_sample_number;
+    video_sequence->number_of_samples     = video_sequence->media_end_sample_number - video_sequence->media_start_sample_number + 1;
+    hp->number_of_samples[VIDEO_TRACK]   += video_sequence->number_of_samples;
     /* Decide presentation range of audio track from one of video track if audio track is present. */
     if( !input->track[AUDIO_TRACK].active )
         return 0;
@@ -517,7 +519,8 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     audio_sequence->presentation_start_sample_number = sample_number;
     audio_sequence->start_skip_duration              = audio_start_time - dts;
     audio_sequence->current_sample_number            = audio_sequence->media_start_sample_number;
-    hp->number_of_samples[AUDIO_TRACK]              += audio_sequence->media_end_sample_number - audio_sequence->media_start_sample_number + 1;
+    audio_sequence->number_of_samples                = audio_sequence->media_end_sample_number - audio_sequence->media_start_sample_number + 1;
+    hp->number_of_samples[AUDIO_TRACK]              += audio_sequence->number_of_samples;
     return lsmash_get_cts_from_media_timeline( input->root, in_audio_track->track_ID,
                                                audio_sequence->media_start_sample_number, &audio_sequence->smallest_cts );
 }
@@ -525,7 +528,6 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
 static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s, int frame_e )
 {
     uint32_t number_of_samples = frame_e - frame_s + 1;
-    hp->number_of_samples[VIDEO_TRACK] = number_of_samples;
     aviutl_sample_t *aviutl_video_sample = malloc( number_of_samples * sizeof(aviutl_sample_t) );
     if( !aviutl_video_sample )
         return -1;
@@ -875,17 +877,17 @@ static void update_largest_cts( output_track_t *out_track, uint64_t cts )
         out_track->second_largest_cts = cts;
 }
 
-static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
+static int do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { hp->with_video, hp->with_audio };
     output_movie_t   *output                      = hp->output;
     sequence_t       *sequence[2]                 = { hp->sequence[VIDEO_TRACK], hp->sequence[AUDIO_TRACK] };
     lsmash_sample_t  *sample[2]                   = { NULL, NULL };
-    uint32_t          sample_pos_on_aviutl[2]     = { frame_s, 0 };
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
-    uint32_t          num_output_samples          = 0;  /* for video track */
+    uint32_t          num_output_samples[2]       = { 0, 0 };
+    uint32_t          media_end_sample_number     = hp->number_of_samples[hp->with_video ? VIDEO_TRACK : AUDIO_TRACK];
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -959,11 +961,10 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                         break;
                     }
                     reordered_ts = (reordered_ts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
-                    sample[type]->dts = num_output_samples > hp->composition_sample_delay
-                                      ? hp->prev_reordered_cts[ (num_output_samples - hp->composition_sample_delay) % hp->composition_sample_delay ]
+                    sample[type]->dts = num_output_samples[type] > hp->composition_sample_delay
+                                      ? hp->prev_reordered_cts[ (num_output_samples[type] - hp->composition_sample_delay) % hp->composition_sample_delay ]
                                       : reordered_ts;
-                    hp->prev_reordered_cts[ num_output_samples % hp->composition_sample_delay ] = reordered_ts + hp->composition_delay_time;
-                    ++num_output_samples;
+                    hp->prev_reordered_cts[ num_output_samples[type] % hp->composition_sample_delay ] = reordered_ts + hp->composition_delay_time;
                 }
                 else
                     sample[type]->dts = sample[type]->cts;
@@ -1026,20 +1027,26 @@ static void do_mux( lsmash_handler_t *hp, void *editp, FILTER *fp, int frame_s )
                     sequence[type]->presentation_start_time = sample_cts;
                 if( sequence[type]->current_sample_number == sequence[type]->presentation_end_sample_number )
                     sequence[type]->presentation_end_time   = sample_cts;
-                /* Update progress. */
-                if( type == VIDEO_TRACK )
-                    fp->exfunc->set_frame( editp, sample_pos_on_aviutl[type]++ );
             }
             ++ sequence[type]->current_sample_number;
+            ++ num_output_samples[type];
+            /* Update progress dialog.
+             * Users can abort muxing by pressing Cancel button. */
+            if( type == (hp->with_video ? VIDEO_TRACK : AUDIO_TRACK)
+             && update_progress_dlg( progress_dlg, "Muxing", ((double)num_output_samples[type] / media_end_sample_number) * 99.0 ) )
+                return -1;
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
+    if( update_progress_dlg( progress_dlg, "Muxing", 99 ) )
+        return -1;  /* Abort muxing. */
     for( uint32_t i = 0; i < 2; i++ )
         if( output->track[i].active
          && lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+    return 0;
 }
 
 static int construct_timeline_maps( lsmash_handler_t *hp )
@@ -1227,7 +1234,6 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             char file_name[MAX_PATH];
             if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
                 return FALSE;
-            int current_frame = fp->exfunc->get_frame( editp );
             int frame_s;
             int frame_e;
             if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
@@ -1250,19 +1256,27 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             }
             if( write_reference_chapter( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
-            do_mux( &h, editp, fp, frame_s );
+            progress_dlg_t progress_dlg;
+            init_progress_dlg( &progress_dlg );
+            if( do_mux( &h, &progress_dlg ) )
+            {
+                /* Abort muxing. */
+                close_progress_dlg( &progress_dlg );
+                return exporter_error( &h );
+            }
             if( construct_timeline_maps( &h ) )
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
+            update_progress_dlg( &progress_dlg, "Optimizing", 100 );
             if( finish_movie( h.output ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                fp->exfunc->set_frame( editp, current_frame );
+                close_progress_dlg( &progress_dlg );
                 return exporter_error( &h );
             }
+            close_progress_dlg( &progress_dlg );
             cleanup_handler( &h );
-            fp->exfunc->set_frame( editp, current_frame );
             break;
         }
         case WM_FILTER_FILE_CLOSE :
