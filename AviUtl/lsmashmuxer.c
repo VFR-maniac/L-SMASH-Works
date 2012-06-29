@@ -877,7 +877,7 @@ static void update_largest_cts( output_track_t *out_track, uint64_t cts )
         out_track->second_largest_cts = cts;
 }
 
-static int do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
+static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { hp->with_video, hp->with_audio };
@@ -1034,19 +1034,18 @@ static int do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
              * Users can abort muxing by pressing Cancel button. */
             if( type == (hp->with_video ? VIDEO_TRACK : AUDIO_TRACK)
              && update_progress_dlg( progress_dlg, "Muxing", ((double)num_output_samples[type] / media_end_sample_number) * 99.0 ) )
-                return -1;
+                return;
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
     if( update_progress_dlg( progress_dlg, "Muxing", 99 ) )
-        return -1;  /* Abort muxing. */
+        return;     /* Abort muxing. */
     for( uint32_t i = 0; i < 2; i++ )
         if( output->track[i].active
          && lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-    return 0;
 }
 
 static int construct_timeline_maps( lsmash_handler_t *hp )
@@ -1258,16 +1257,12 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
             progress_dlg_t progress_dlg;
             init_progress_dlg( &progress_dlg );
-            if( do_mux( &h, &progress_dlg ) )
-            {
-                /* Abort muxing. */
-                close_progress_dlg( &progress_dlg );
-                return exporter_error( &h );
-            }
+            do_mux( &h, &progress_dlg );
             if( construct_timeline_maps( &h ) )
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
+            progress_dlg.abort = FALSE;
             update_progress_dlg( &progress_dlg, "Optimizing", 100 );
             if( finish_movie( h.output ) )
             {
