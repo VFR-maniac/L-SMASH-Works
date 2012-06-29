@@ -1138,7 +1138,6 @@ static int moov_to_front_callback( void *param, uint64_t written_movie_size, uin
 {
     progress_dlg_t *progress_dlg = (progress_dlg_t *)param;
     update_progress_dlg( progress_dlg, "Finalizing", ((double)written_movie_size / total_movie_size) * 100.0 );
-    progress_dlg->abort = FALSE;    /* Forbidden to abort finalizing. */
     return 0;
 }
 
