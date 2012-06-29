@@ -9,7 +9,7 @@ vpath %.h $(SRCDIR)
 vpath %.rc $(SRCDIR)
 
 OBJ_INPUT = $(SRC_INPUT:%.c=%.o) lsmashinput.res
-OBJ_MUXER = $(SRC_MUXER:%.c=%.o)
+OBJ_MUXER = $(SRC_MUXER:%.c=%.o) lsmashmuxer.res
 OBJ_DUMPER = $(SRC_DUMPER:%.c=%.o)
 
 SRC_ALL = $(SRC_INPUT) $(SRC_MUXER) $(SRC_DUMPER)

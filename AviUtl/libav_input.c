@@ -547,7 +547,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     int       max_audio_index       = -1;
     uint32_t *audio_delay_count     = NULL;
     progress_dlg_t prg_dlg;
-    init_progress_dlg( &prg_dlg );
+    init_progress_dlg( &prg_dlg, "lsmashinput.aui" );
     while( av_read_frame( format_ctx, &pkt ) >= 0 )
     {
         AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;

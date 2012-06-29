@@ -888,7 +888,7 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
     uint32_t          num_output_samples[2]       = { 0, 0 };
     uint64_t          total_num_samples           = hp->number_of_samples[VIDEO_TRACK] + hp->number_of_samples[AUDIO_TRACK];
-    init_progress_dlg( progress_dlg );
+    init_progress_dlg( progress_dlg, "lsmashmuxer.auf" );
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
