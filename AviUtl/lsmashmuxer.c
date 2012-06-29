@@ -34,6 +34,7 @@
 #include "filter.h"
 
 #include "config.h"
+#include "resource.h"
 #include "progress_dlg.h"
 
 /* chapter handling */
@@ -877,7 +878,7 @@ static void update_largest_cts( output_track_t *out_track, uint64_t cts )
         out_track->second_largest_cts = cts;
 }
 
-static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
+static int do_mux( lsmash_handler_t *hp )
 {
     int               type                        = VIDEO_TRACK;
     int               active[2]                   = { hp->with_video, hp->with_audio };
@@ -888,7 +889,8 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
     uint32_t          num_output_samples[2]       = { 0, 0 };
     uint64_t          total_num_samples           = hp->number_of_samples[VIDEO_TRACK] + hp->number_of_samples[AUDIO_TRACK];
-    init_progress_dlg( progress_dlg, "lsmashmuxer.auf" );
+    progress_dlg_t    progress_dlg;
+    init_progress_dlg( &progress_dlg, "lsmashmuxer.auf", IDD_PROGRESS_ABORTABLE );
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -1033,12 +1035,9 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
             ++ num_output_samples[type];
             /* Update progress dialog.
              * Users can abort muxing by pressing Cancel button. */
-            if( update_progress_dlg( progress_dlg, "Muxing",
+            if( update_progress_dlg( &progress_dlg, "Muxing",
                                     ((double)(num_output_samples[VIDEO_TRACK] + num_output_samples[AUDIO_TRACK]) / total_num_samples) * 100.0 ) )
-            {
-                close_progress_dlg( progress_dlg );
                 break;
-            }
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
@@ -1049,6 +1048,9 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
         if( output->track[i].active
          && lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
             MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+    int abort = progress_dlg.abort;
+    close_progress_dlg( &progress_dlg );
+    return abort;
 }
 
 static int construct_timeline_maps( lsmash_handler_t *hp )
@@ -1140,18 +1142,18 @@ static int moov_to_front_callback( void *param, uint64_t written_movie_size, uin
     return 0;
 }
 
-static int finish_movie( output_movie_t *output, progress_dlg_t *progress_dlg )
+static int finish_movie( output_movie_t *output, int abort )
 {
-    if( !progress_dlg->hnd )
+    if( abort )
         return lsmash_finish_movie( output->root, NULL );
+    progress_dlg_t progress_dlg;
+    init_progress_dlg( &progress_dlg, "lsmashmuxer.auf", IDD_PROGRESS_UNABORTABLE );
     lsmash_adhoc_remux_t moov_to_front;
     moov_to_front.func        = moov_to_front_callback;
     moov_to_front.buffer_size = 4*1024*1024;    /* 4MiB */
-    moov_to_front.param       = progress_dlg;
-    progress_dlg->progress_percent = -1;
-    progress_dlg->abort            = FALSE;
+    moov_to_front.param       = &progress_dlg;
     int ret = lsmash_finish_movie( output->root, &moov_to_front );
-    close_progress_dlg( progress_dlg );
+    close_progress_dlg( &progress_dlg );
     return ret;
 }
 
@@ -1274,15 +1276,14 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
             /* Mux with a progress dialog.
              * Users can abort muxing by pressing Cancel button on it. */
-            progress_dlg_t progress_dlg;
-            do_mux( &h, &progress_dlg );
+            int abort = do_mux( &h );
             /* Finalize with or without a progress dialog.
-             * Users can NOT abort finalizing by pressing Cancel button on it . */
+             * Users can NOT abort finalizing. */
             if( construct_timeline_maps( &h ) )
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
-            if( finish_movie( h.output, &progress_dlg ) )
+            if( finish_movie( h.output, abort ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                 return exporter_error( &h );

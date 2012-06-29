@@ -31,7 +31,7 @@ typedef struct {
     int abort;
 } progress_dlg_t;
 
-void init_progress_dlg(progress_dlg_t *dlg, const char *module_name);
+void init_progress_dlg(progress_dlg_t *dlg, const char *module_name, int template_id);
 void close_progress_dlg(progress_dlg_t *dlg);
 int update_progress_dlg(progress_dlg_t *dlg, const char *mes, int progress_percent);
 

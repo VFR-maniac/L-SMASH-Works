@@ -32,6 +32,7 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
+#include "resource.h"
 #include "progress_dlg.h"
 
 #define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
@@ -547,7 +548,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     int       max_audio_index       = -1;
     uint32_t *audio_delay_count     = NULL;
     progress_dlg_t prg_dlg;
-    init_progress_dlg( &prg_dlg, "lsmashinput.aui" );
+    init_progress_dlg( &prg_dlg, "lsmashinput.aui", IDD_PROGRESS_ABORTABLE );
     while( av_read_frame( format_ctx, &pkt ) >= 0 )
     {
         AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;

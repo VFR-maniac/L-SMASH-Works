@@ -48,12 +48,12 @@ static BOOL CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 	return FALSE;
 }
 
-void init_progress_dlg(progress_dlg_t *dlg, const char *module_name)
+void init_progress_dlg(progress_dlg_t *dlg, const char *module_name, int template_id )
 {
     dlg->hnd = NULL;
     dlg->progress_percent = -1;
     dlg->abort = FALSE;
-    dlg->hnd = CreateDialogParam(GetModuleHandle(module_name), MAKEINTRESOURCE(IDD_INDEX_PROGRESS), NULL, dialog_proc, (LPARAM)dlg);
+    dlg->hnd = CreateDialogParam(GetModuleHandle(module_name), MAKEINTRESOURCE(template_id), NULL, dialog_proc, (LPARAM)dlg);
 }
 
 void close_progress_dlg(progress_dlg_t *dlg)

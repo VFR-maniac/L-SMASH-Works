@@ -47,6 +47,7 @@
 #define IDC_EDIT_FORCE_AUDIO_INDEX    1018
 #define IDC_CHECK_CREATE_INDEX_FILE   1019
 
-#define IDD_INDEX_PROGRESS             101
+#define IDD_PROGRESS_ABORTABLE         101
+#define IDD_PROGRESS_UNABORTABLE       102
 #define IDC_PERCENT_TEXT              1100
 #define IDC_PROGRESS                  1101
