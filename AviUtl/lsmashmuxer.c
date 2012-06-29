@@ -888,6 +888,7 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
     uint32_t          num_output_samples[2]       = { 0, 0 };
     uint64_t          total_num_samples           = hp->number_of_samples[VIDEO_TRACK] + hp->number_of_samples[AUDIO_TRACK];
+    init_progress_dlg( progress_dlg );
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -1034,7 +1035,10 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
              * Users can abort muxing by pressing Cancel button. */
             if( update_progress_dlg( progress_dlg, "Muxing",
                                     ((double)(num_output_samples[VIDEO_TRACK] + num_output_samples[AUDIO_TRACK]) / total_num_samples) * 100.0 ) )
+            {
+                close_progress_dlg( progress_dlg );
                 break;
+            }
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
@@ -1138,11 +1142,17 @@ static int moov_to_front_callback( void *param, uint64_t written_movie_size, uin
 
 static int finish_movie( output_movie_t *output, progress_dlg_t *progress_dlg )
 {
+    if( !progress_dlg->hnd )
+        return lsmash_finish_movie( output->root, NULL );
     lsmash_adhoc_remux_t moov_to_front;
     moov_to_front.func        = moov_to_front_callback;
     moov_to_front.buffer_size = 4*1024*1024;    /* 4MiB */
     moov_to_front.param       = progress_dlg;
-    return lsmash_finish_movie( output->root, &moov_to_front );
+    progress_dlg->progress_percent = -1;
+    progress_dlg->abort            = FALSE;
+    int ret = lsmash_finish_movie( output->root, &moov_to_front );
+    close_progress_dlg( progress_dlg );
+    return ret;
 }
 
 static void cleanup_handler( lsmash_handler_t *hp )
@@ -1262,15 +1272,12 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             }
             if( write_reference_chapter( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
-            /* Mux with progress dialog.
-             * Users can abort muxing by pressing Cancel button. */
+            /* Mux with a progress dialog.
+             * Users can abort muxing by pressing Cancel button on it. */
             progress_dlg_t progress_dlg;
-            init_progress_dlg( &progress_dlg );
             do_mux( &h, &progress_dlg );
-            /* Finalize with progress dialog.
-             * Users can NOT abort finalizing by pressing Cancel button. */
-            progress_dlg.progress_percent = -1;
-            progress_dlg.abort            = FALSE;
+            /* Finalize with or without a progress dialog.
+             * Users can NOT abort finalizing by pressing Cancel button on it . */
             if( construct_timeline_maps( &h ) )
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
@@ -1278,10 +1285,8 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             if( finish_movie( h.output, &progress_dlg ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                close_progress_dlg( &progress_dlg );
                 return exporter_error( &h );
             }
-            close_progress_dlg( &progress_dlg );
             cleanup_handler( &h );
             break;
         }
