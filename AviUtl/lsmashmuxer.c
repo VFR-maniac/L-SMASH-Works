@@ -1033,14 +1033,14 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
             /* Update progress dialog.
              * Users can abort muxing by pressing Cancel button. */
             if( type == (hp->with_video ? VIDEO_TRACK : AUDIO_TRACK)
-             && update_progress_dlg( progress_dlg, "Muxing", ((double)num_output_samples[type] / media_end_sample_number) * 99.0 ) )
+             && update_progress_dlg( progress_dlg, "Muxing", ((double)num_output_samples[type] / media_end_sample_number) * 100.0 ) )
                 return;
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
-    if( update_progress_dlg( progress_dlg, "Muxing", 99 ) )
+    if( update_progress_dlg( progress_dlg, "Muxing", 100 ) )
         return;     /* Abort muxing. */
     for( uint32_t i = 0; i < 2; i++ )
         if( output->track[i].active
@@ -1129,12 +1129,20 @@ static int write_chapter_list( lsmash_handler_t *hp, FILTER *fp )
     return 0;
 }
 
-static int finish_movie( output_movie_t *output )
+static int moov_to_front_callback( void *param, uint64_t written_movie_size, uint64_t total_movie_size )
+{
+    progress_dlg_t *progress_dlg = (progress_dlg_t *)param;
+    update_progress_dlg( progress_dlg, "Finalizing", ((double)written_movie_size / total_movie_size) * 100.0 );
+    progress_dlg->abort = FALSE;    /* Forbidden to abort finalizing. */
+    return 0;
+}
+
+static int finish_movie( output_movie_t *output, progress_dlg_t *progress_dlg )
 {
     lsmash_adhoc_remux_t moov_to_front;
-    moov_to_front.func        = NULL;
+    moov_to_front.func        = moov_to_front_callback;
     moov_to_front.buffer_size = 4*1024*1024;    /* 4MiB */
-    moov_to_front.param       = NULL;
+    moov_to_front.param       = progress_dlg;
     return lsmash_finish_movie( output->root, &moov_to_front );
 }
 
@@ -1262,9 +1270,9 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
-            progress_dlg.abort = FALSE;
-            update_progress_dlg( &progress_dlg, "Optimizing", 100 );
-            if( finish_movie( h.output ) )
+            progress_dlg.progress_percent = -1;
+            progress_dlg.abort            = FALSE;
+            if( finish_movie( h.output, &progress_dlg ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                 close_progress_dlg( &progress_dlg );
