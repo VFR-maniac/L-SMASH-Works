@@ -187,9 +187,9 @@ typedef struct
     input_movie_t   **input;
     output_movie_t   *output;
     sequence_t       *sequence[2];
+    uint64_t          number_of_samples[2];
     uint32_t          number_of_sequences;
     uint32_t          number_of_inputs;
-    uint32_t          number_of_samples[2];
     uint32_t          composition_sample_delay; /* for video track */
     uint64_t          composition_delay_time;   /* for video track */
     uint64_t         *prev_reordered_cts;       /* for video track */
@@ -435,7 +435,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     }
     video_sequence->current_sample_number = video_sequence->media_start_sample_number;
     video_sequence->number_of_samples     = video_sequence->media_end_sample_number - video_sequence->media_start_sample_number + 1;
-    hp->number_of_samples[VIDEO_TRACK]   += video_sequence->number_of_samples;
+    hp->number_of_samples[VIDEO_TRACK]   += in_video_track->active ? video_sequence->number_of_samples : 0;
     /* Decide presentation range of audio track from one of video track if audio track is present. */
     if( !input->track[AUDIO_TRACK].active )
         return 0;
@@ -887,7 +887,7 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
     uint32_t          num_consecutive_sample_skip = 0;
     uint32_t          num_active_input_tracks     = output->number_of_tracks;
     uint32_t          num_output_samples[2]       = { 0, 0 };
-    uint32_t          media_end_sample_number     = hp->number_of_samples[hp->with_video ? VIDEO_TRACK : AUDIO_TRACK];
+    uint64_t          total_num_samples           = hp->number_of_samples[VIDEO_TRACK] + hp->number_of_samples[AUDIO_TRACK];
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -1032,16 +1032,15 @@ static void do_mux( lsmash_handler_t *hp, progress_dlg_t *progress_dlg )
             ++ num_output_samples[type];
             /* Update progress dialog.
              * Users can abort muxing by pressing Cancel button. */
-            if( type == (hp->with_video ? VIDEO_TRACK : AUDIO_TRACK)
-             && update_progress_dlg( progress_dlg, "Muxing", ((double)num_output_samples[type] / media_end_sample_number) * 100.0 ) )
-                return;
+            if( update_progress_dlg( progress_dlg, "Muxing",
+                                    ((double)(num_output_samples[VIDEO_TRACK] + num_output_samples[AUDIO_TRACK]) / total_num_samples) * 100.0 ) )
+                break;
         }
         else
             ++num_consecutive_sample_skip;      /* Skip appendig sample. */
         type ^= 0x01;
     }
-    if( update_progress_dlg( progress_dlg, "Muxing", 100 ) )
-        return;     /* Abort muxing. */
+    /* Flush the rest of internally pooled samples and add the last sample_delta. */
     for( uint32_t i = 0; i < 2; i++ )
         if( output->track[i].active
          && lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
@@ -1263,15 +1262,19 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             }
             if( write_reference_chapter( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
+            /* Mux with progress dialog.
+             * Users can abort muxing by pressing Cancel button. */
             progress_dlg_t progress_dlg;
             init_progress_dlg( &progress_dlg );
             do_mux( &h, &progress_dlg );
+            /* Finalize with progress dialog.
+             * Users can NOT abort finalizing by pressing Cancel button. */
+            progress_dlg.progress_percent = -1;
+            progress_dlg.abort            = FALSE;
             if( construct_timeline_maps( &h ) )
                 MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
             if( write_chapter_list( &h, fp ) )
                 MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
-            progress_dlg.progress_percent = -1;
-            progress_dlg.abort            = FALSE;
             if( finish_movie( h.output, &progress_dlg ) )
             {
                 MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
