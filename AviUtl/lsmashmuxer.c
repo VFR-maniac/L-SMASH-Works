@@ -471,7 +471,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
     else
     {
         /* Dummy video sequence */
-        video_presentation_start_time = input->fi.video_scale * video_sequence->media_start_sample_number;
+        video_presentation_start_time = input->fi.video_scale * (video_sequence->media_start_sample_number - 1);
         video_presentation_end_time   = input->fi.video_scale * video_sequence->media_end_sample_number;
         video_timescale = input->fi.video_rate;
     }
