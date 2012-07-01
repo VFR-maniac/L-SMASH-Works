@@ -109,6 +109,7 @@ typedef struct
 
 typedef struct
 {
+    int  optimize_pd;
     int  import_chapter;
     char chapter_file[MAX_PATH];
 } option_t;
@@ -1157,9 +1158,9 @@ static int moov_to_front_callback( void *param, uint64_t written_movie_size, uin
     return 0;
 }
 
-static int finish_movie( output_movie_t *output, int abort )
+static int finish_movie( output_movie_t *output, int optimize_pd )
 {
-    if( abort )
+    if( !optimize_pd )
         return lsmash_finish_movie( output->root, NULL );
     progress_dlg_t progress_dlg;
     init_progress_dlg( &progress_dlg, "lsmashmuxer.auf", IDD_PROGRESS_UNABORTABLE );
@@ -1253,7 +1254,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 }
                 fp->ex_data_ptr  = opt;
                 fp->ex_data_size = sizeof(option_t);
+                opt->optimize_pd = 1;
             }
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_OPTIMIZE_PD ), BM_SETCHECK, (WPARAM) opt->optimize_pd ? BST_CHECKED : BST_UNCHECKED, 0 );
             SetDlgItemText( hwnd, IDC_EDIT_CHAPTER_PATH, (LPCTSTR)opt->chapter_file );
             break;
         }
@@ -1262,6 +1265,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             {
                 case IDOK :
                 {
+                    option_t *opt = (option_t *)fp->ex_data_ptr;
+                    opt->optimize_pd = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_OPTIMIZE_PD ), BM_GETCHECK, 0, 0 ));
                     char file_name[MAX_PATH];
                     if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
                     {
@@ -1299,7 +1304,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                     if( write_chapter_list( &h, fp ) )
                         MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
-                    if( finish_movie( h.output, abort ) )
+                    if( finish_movie( h.output, !abort && opt->optimize_pd ) )
                     {
                         MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                         return exporter_error( &h );
@@ -1308,9 +1313,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     EndDialog( hwnd, IDOK );
                     break;
                 }
-                case IDC_BUTTON_OPTION_CLEAR :
+                case IDC_BUTTON_OPTION_DEFAULT :
                 {
                     option_t *opt = (option_t *)fp->ex_data_ptr;
+                    opt->optimize_pd = 1;
+                    SendMessage( GetDlgItem( hwnd, IDC_CHECK_OPTIMIZE_PD ), BM_SETCHECK, (WPARAM)BST_CHECKED, 0 );
                     disable_chapter( hwnd, opt );
                     break;
                 }
@@ -1345,6 +1352,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     opt->import_chapter = 1;
                     break;
                 }
+                default :
+                    break;
             }
             break;
         default :

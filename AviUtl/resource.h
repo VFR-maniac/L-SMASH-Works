@@ -56,6 +56,7 @@
 
 /* Muxer dialog */
 #define IDD_MUXER_OPTIONS              103
-#define IDC_BUTTON_OPTION_CLEAR       1200
+#define IDC_BUTTON_OPTION_DEFAULT     1200
 #define IDC_BUTTON_CHAPTER_BROWSE     1201
 #define IDC_EDIT_CHAPTER_PATH         1202
+#define IDC_CHECK_OPTIMIZE_PD         1203
