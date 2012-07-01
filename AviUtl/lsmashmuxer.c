@@ -103,6 +103,7 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
 
 typedef struct
 {
+    int  import_chapter;
     char chapter_file[MAX_PATH];
 } option_t;
 
@@ -729,7 +730,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
     movie_param.minor_version    = input->movie_param.minor_version;
     movie_param.number_of_brands = input->movie_param.number_of_brands;
     movie_param.brands           = input->movie_param.brands;
-    if( fp->ex_data_ptr )
+    if( fp->ex_data_ptr && ((option_t *)fp->ex_data_ptr)->import_chapter )
         for( uint32_t i = 0; i < movie_param.number_of_brands; i++ )
             if( movie_param.brands[i] == ISOM_BRAND_TYPE_QT  || movie_param.brands[i] == ISOM_BRAND_TYPE_M4A
              || movie_param.brands[i] == ISOM_BRAND_TYPE_M4B || movie_param.brands[i] == ISOM_BRAND_TYPE_M4P
@@ -1128,15 +1129,19 @@ static int write_reference_chapter( lsmash_handler_t *hp, FILTER *fp )
 {
     if( !hp->ref_chap_available )
         return 0;
+    option_t *opt = (option_t *)fp->ex_data_ptr;
+    if( !opt || !opt->import_chapter )
+        return 0;
     uint32_t track_ID = hp->output->track[ hp->with_video ? VIDEO_TRACK : AUDIO_TRACK ].track_ID;
-    return lsmash_create_reference_chapter_track( hp->output->root, track_ID, fp->ex_data_ptr );
+    return lsmash_create_reference_chapter_track( hp->output->root, track_ID, opt->chapter_file );
 }
 
 static int write_chapter_list( lsmash_handler_t *hp, FILTER *fp )
 {
-    if( fp->ex_data_size )
-        return lsmash_set_tyrant_chapter( hp->output->root, fp->ex_data_ptr, 0 );
-    return 0;
+    option_t *opt = (option_t *)fp->ex_data_ptr;
+    if( !opt || !opt->import_chapter )
+        return 0;
+    return lsmash_set_tyrant_chapter( hp->output->root, opt->chapter_file, 0 );
 }
 
 static int moov_to_front_callback( void *param, uint64_t written_movie_size, uint64_t total_movie_size )
@@ -1222,7 +1227,7 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
     {
         case WM_FILTER_IMPORT :
         {
-            option_t *opt = fp->ex_data_ptr;
+            option_t *opt = (option_t *)fp->ex_data_ptr;
             if( !opt )
             {
                 opt = malloc_zero( sizeof(option_t) );
@@ -1245,11 +1250,15 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 }
                 else if( MessageBox( HWND_DESKTOP, "Do you want to clear which chapter file is currently selected?", "lsmashmuxer", MB_ICONQUESTION | MB_YESNO ) == IDYES )
                     cleanup_option( fp );
+                else
+                    opt->import_chapter = 1;
                 fclose( existence_check );
                 return FALSE;
             }
             else if( validate_chapter( chapter_file ) )
                 cleanup_option( fp );
+            else
+                opt->import_chapter = 1;
             break;
         }
         case WM_FILTER_EXPORT :
