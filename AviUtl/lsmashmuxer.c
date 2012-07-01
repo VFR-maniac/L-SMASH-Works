@@ -1219,14 +1219,21 @@ static void cleanup_option( FILTER *fp )
     fp->ex_data_size = 0;
 }
 
-BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *editp, FILTER *fp )
+static inline void disable_chapter( HWND hwnd, option_t *opt )
 {
-    if( !fp->exfunc->is_editing( editp ) )
-        return FALSE;
-    switch( message )
+    opt->import_chapter = 0;
+    memset( opt->chapter_file, 0, MAX_PATH );
+    SetDlgItemText( hwnd, IDC_EDIT_CHAPTER_PATH, (LPCTSTR)opt->chapter_file );
+}
+
+static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
+{
+    static FILTER *fp;
+	switch( message )
     {
-        case WM_FILTER_IMPORT :
+        case WM_INITDIALOG:
         {
+            fp = (FILTER *)lparam;
             option_t *opt = (option_t *)fp->ex_data_ptr;
             if( !opt )
             {
@@ -1239,28 +1246,70 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
                 fp->ex_data_ptr  = opt;
                 fp->ex_data_size = sizeof(option_t);
             }
-            char *chapter_file = opt->chapter_file;
-            if( !fp->exfunc->dlg_get_load_name( (LPSTR)chapter_file, "Chapter file\0*.*\0", chapter_file[0] == '\0' ? "chapter.txt" : chapter_file ) )
-            {
-                FILE *existence_check = fopen( chapter_file, "rb" );
-                if( !existence_check )
-                {
-                    cleanup_option( fp );
-                    return FALSE;
-                }
-                else if( MessageBox( HWND_DESKTOP, "Do you want to clear which chapter file is currently selected?", "lsmashmuxer", MB_ICONQUESTION | MB_YESNO ) == IDYES )
-                    cleanup_option( fp );
-                else
-                    opt->import_chapter = 1;
-                fclose( existence_check );
-                return FALSE;
-            }
-            else if( validate_chapter( chapter_file ) )
-                cleanup_option( fp );
-            else
-                opt->import_chapter = 1;
+            SetDlgItemText( hwnd, IDC_EDIT_CHAPTER_PATH, (LPCTSTR)opt->chapter_file );
             break;
         }
+        case WM_COMMAND:
+            switch( wparam )
+            {
+                case IDOK :
+                {
+                    EndDialog( hwnd, IDOK );
+                    break;
+                }
+                case IDC_BUTTON_OPTION_CLEAR :
+                {
+                    option_t *opt = (option_t *)fp->ex_data_ptr;
+                    disable_chapter( hwnd, opt );
+                    break;
+                }
+                case IDC_BUTTON_CHAPTER_BROWSE :
+                {
+                    option_t *opt = (option_t *)fp->ex_data_ptr;
+                    char *chapter_file = opt->chapter_file;
+                    if( !fp->exfunc->dlg_get_load_name( (LPSTR)chapter_file, "Chapter file\0*.*\0", chapter_file[0] == '\0' ? "chapter.txt" : chapter_file ) )
+                    {
+                        FILE *existence_check = fopen( chapter_file, "rb" );
+                        if( !existence_check )
+                        {
+                            disable_chapter( hwnd, opt );
+                            break;
+                        }
+                        fclose( existence_check );
+                        if( MessageBox( HWND_DESKTOP,
+                                        "Do you want to clear which chapter file is currently selected?",
+                                        "lsmashmuxer",
+                                        MB_ICONQUESTION | MB_YESNO ) == IDYES )
+                        {
+                            disable_chapter( hwnd, opt );
+                            break;
+                        }
+                    }
+                    else if( validate_chapter( chapter_file ) )
+                    {
+                        disable_chapter( hwnd, opt );
+                        break;
+                    }
+                    SetDlgItemText( hwnd, IDC_EDIT_CHAPTER_PATH, (LPCTSTR)chapter_file );
+                    opt->import_chapter = 1;
+                    break;
+                }
+            }
+            break;
+        default :
+            break;
+	}
+	return FALSE;
+}
+
+BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *editp, FILTER *fp )
+{
+    if( !fp->exfunc->is_editing( editp ) )
+        return FALSE;
+    switch( message )
+    {
+        case WM_FILTER_IMPORT :
+            return DialogBoxParam( GetModuleHandle( "lsmashmuxer.auf" ), MAKEINTRESOURCE( IDD_MUXER_OPTIONS ), hwnd, dialog_proc, (LPARAM)fp );
         case WM_FILTER_EXPORT :
         {
             char file_name[MAX_PATH];
