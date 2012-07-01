@@ -65,7 +65,7 @@ do \
 
 FILTER_DLL filter =
 {
-    FILTER_FLAG_IMPORT|FILTER_FLAG_EXPORT|FILTER_FLAG_EX_DATA|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
+    FILTER_FLAG_EXPORT|FILTER_FLAG_EX_DATA|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
     0,0,                                                /* Size of configuration window */
     "Libav-SMASH Muxer",                                /* Name of filter plugin */
     0,                                                  /* Number of trackbars */
@@ -100,6 +100,12 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
 
 #define VIDEO_TRACK 0
 #define AUDIO_TRACK 1
+
+typedef struct
+{
+    void   *editp;
+    FILTER *fp;
+} muxer_t;
 
 typedef struct
 {
@@ -1228,12 +1234,14 @@ static inline void disable_chapter( HWND hwnd, option_t *opt )
 
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
 {
+    static void   *editp;
     static FILTER *fp;
 	switch( message )
     {
         case WM_INITDIALOG:
         {
-            fp = (FILTER *)lparam;
+            editp = ((muxer_t *)lparam)->editp;
+            fp    = ((muxer_t *)lparam)->fp;
             option_t *opt = (option_t *)fp->ex_data_ptr;
             if( !opt )
             {
@@ -1254,6 +1262,49 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             {
                 case IDOK :
                 {
+                    char file_name[MAX_PATH];
+                    if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
+                    {
+                        EndDialog( hwnd, IDOK );
+                        return FALSE;
+                    }
+                    int frame_s;
+                    int frame_e;
+                    if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        return FALSE;
+                    }
+                    lsmash_handler_t h       = { 0 };
+                    output_movie_t out_movie = { 0 };
+                    h.output = &out_movie;
+                    if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        return exporter_error( &h );
+                    }
+                    if( open_output_file( &h, fp, file_name ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashmuxer", MB_ICONERROR  | MB_OK );
+                        return exporter_error( &h );
+                    }
+                    if( write_reference_chapter( &h, fp ) )
+                        MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
+                    /* Mux with a progress dialog.
+                     * Users can abort muxing by pressing Cancel button on it. */
+                    int abort = do_mux( &h );
+                    /* Finalize with or without a progress dialog.
+                     * Users can NOT abort finalizing. */
+                    if( construct_timeline_maps( &h ) )
+                        MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    if( write_chapter_list( &h, fp ) )
+                        MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
+                    if( finish_movie( h.output, abort ) )
+                    {
+                        MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        return exporter_error( &h );
+                    }
+                    cleanup_handler( &h );
                     EndDialog( hwnd, IDOK );
                     break;
                 }
@@ -1308,50 +1359,12 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         return FALSE;
     switch( message )
     {
-        case WM_FILTER_IMPORT :
-            return DialogBoxParam( GetModuleHandle( "lsmashmuxer.auf" ), MAKEINTRESOURCE( IDD_MUXER_OPTIONS ), hwnd, dialog_proc, (LPARAM)fp );
         case WM_FILTER_EXPORT :
         {
-            char file_name[MAX_PATH];
-            if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, MPEG4_FILE_EXT, NULL ) )
-                return FALSE;
-            int frame_s;
-            int frame_e;
-            if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
-            {
-                MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                return FALSE;
-            }
-            lsmash_handler_t h       = { 0 };
-            output_movie_t out_movie = { 0 };
-            h.output = &out_movie;
-            if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
-            {
-                MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                return exporter_error( &h );
-            }
-            if( open_output_file( &h, fp, file_name ) )
-            {
-                MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashmuxer", MB_ICONERROR  | MB_OK );
-                return exporter_error( &h );
-            }
-            if( write_reference_chapter( &h, fp ) )
-                MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
-            /* Mux with a progress dialog.
-             * Users can abort muxing by pressing Cancel button on it. */
-            int abort = do_mux( &h );
-            /* Finalize with or without a progress dialog.
-             * Users can NOT abort finalizing. */
-            if( construct_timeline_maps( &h ) )
-                MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-            if( write_chapter_list( &h, fp ) )
-                MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
-            if( finish_movie( h.output, abort ) )
-            {
-                MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                return exporter_error( &h );
-            }
-            cleanup_handler( &h );
+            muxer_t muxer;
+            muxer.editp = editp;
+            muxer.fp    = fp;
+            DialogBoxParam( GetModuleHandle( "lsmashmuxer.auf" ), MAKEINTRESOURCE( IDD_MUXER_OPTIONS ), hwnd, dialog_proc, (LPARAM)&muxer );
             break;
         }
         case WM_FILTER_FILE_CLOSE :
