@@ -103,6 +103,11 @@ EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTableYUY2( void )
 
 typedef struct
 {
+    char chapter_file[MAX_PATH];
+} option_t;
+
+typedef struct
+{
     int                       active;
     uint32_t                  track_ID;
     uint32_t                  number_of_samples;
@@ -1197,6 +1202,18 @@ static BOOL exporter_error( lsmash_handler_t *hp )
     return FALSE;
 }
 
+static void cleanup_option( FILTER *fp )
+{
+    if( !fp )
+        return;
+    if( fp->ex_data_ptr )
+    {
+        free( fp->ex_data_ptr );
+        fp->ex_data_ptr = NULL;
+    }
+    fp->ex_data_size = 0;
+}
+
 BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *editp, FILTER *fp )
 {
     if( !fp->exfunc->is_editing( editp ) )
@@ -1205,45 +1222,34 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
     {
         case WM_FILTER_IMPORT :
         {
-            char *chapter_file;
-            if( !fp->ex_data_ptr )
+            option_t *opt = fp->ex_data_ptr;
+            if( !opt )
             {
-                chapter_file = malloc_zero( MAX_PATH );
-                if( !chapter_file )
+                opt = malloc_zero( sizeof(option_t) );
+                if( !opt )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to allocate memory.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to allocate memory for option.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                     return FALSE;
                 }
-                fp->ex_data_ptr = chapter_file;
-                fp->ex_data_size = MAX_PATH;
+                fp->ex_data_ptr  = opt;
+                fp->ex_data_size = sizeof(option_t);
             }
-            else
-                chapter_file = fp->ex_data_ptr;
+            char *chapter_file = opt->chapter_file;
             if( !fp->exfunc->dlg_get_load_name( (LPSTR)chapter_file, "Chapter file\0*.*\0", chapter_file[0] == '\0' ? "chapter.txt" : chapter_file ) )
             {
                 FILE *existence_check = fopen( chapter_file, "rb" );
                 if( !existence_check )
                 {
-                    free( fp->ex_data_ptr );
-                    fp->ex_data_ptr = NULL;
-                    fp->ex_data_size = 0;
+                    cleanup_option( fp );
                     return FALSE;
                 }
                 else if( MessageBox( HWND_DESKTOP, "Do you want to clear which chapter file is currently selected?", "lsmashmuxer", MB_ICONQUESTION | MB_YESNO ) == IDYES )
-                {
-                    free( fp->ex_data_ptr );
-                    fp->ex_data_ptr = NULL;
-                    fp->ex_data_size = 0;
-                }
+                    cleanup_option( fp );
                 fclose( existence_check );
                 return FALSE;
             }
             else if( validate_chapter( chapter_file ) )
-            {
-                free( fp->ex_data_ptr );
-                fp->ex_data_ptr = NULL;
-                fp->ex_data_size = 0;
-            }
+                cleanup_option( fp );
             break;
         }
         case WM_FILTER_EXPORT :
@@ -1291,12 +1297,7 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             break;
         }
         case WM_FILTER_FILE_CLOSE :
-            if( fp->ex_data_ptr )
-            {
-                free( fp->ex_data_ptr );
-                fp->ex_data_ptr = NULL;
-                fp->ex_data_size = 0;
-            }
+            cleanup_option( fp );
             break;
         default :
             break;
@@ -1306,7 +1307,6 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
 
 BOOL func_exit( FILTER *fp )
 {
-    if( fp->ex_data_ptr )
-        free( fp->ex_data_ptr );
+    cleanup_option( fp );
     return FALSE;
 }
