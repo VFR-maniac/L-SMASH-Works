@@ -1273,6 +1273,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         EndDialog( hwnd, IDOK );
                         return FALSE;
                     }
+                    ShowWindow( hwnd, SW_HIDE );
                     int frame_s;
                     int frame_e;
                     if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
