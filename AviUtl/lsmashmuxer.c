@@ -526,12 +526,21 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         else    /* This audio track cosists of only one sample. */
             audio_sequence->presentation_end_sample_number = 1;
     }
+    uint32_t media_start_sample_number = sample_number;
+    if( in_audio_track->media_param.roll_grouping )
+    {
+        /* Get pre-roll info.
+         * Here, if an error occurs, ignore that since it is not so fatal. */
+        lsmash_sample_property_t prop;
+        if( !lsmash_get_sample_property_from_media_timeline( input->root, in_audio_track->track_ID, sample_number, &prop ) )
+            media_start_sample_number -= media_start_sample_number > prop.pre_roll.distance ? prop.pre_roll.distance : 0;
+    }
     audio_sequence->input                            = input;
     audio_sequence->number                           = sequence_number;
     audio_sequence->media_end_sample_number          = audio_sequence->presentation_end_sample_number;
-    audio_sequence->media_start_sample_number        = sample_number;
+    audio_sequence->media_start_sample_number        = media_start_sample_number;
     audio_sequence->presentation_start_sample_number = sample_number;
-    audio_sequence->start_skip_duration              = audio_start_time - dts;
+    audio_sequence->start_skip_duration              = audio_start_time - dts;  /* Cut off duration within the first audio frame. */
     audio_sequence->current_sample_number            = audio_sequence->media_start_sample_number;
     audio_sequence->number_of_samples                = audio_sequence->media_end_sample_number - audio_sequence->media_start_sample_number + 1;
     hp->number_of_samples[AUDIO_TRACK]              += audio_sequence->number_of_samples;
