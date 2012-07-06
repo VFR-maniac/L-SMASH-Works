@@ -478,6 +478,17 @@ static void disable_video_stream( libav_handler_t *hp )
     hp->video_frame_count         = 0;
 }
 
+static inline int read_frame( AVFormatContext *format_ctx, AVPacket *pkt )
+{
+    int ret = av_read_frame( format_ctx, pkt );
+    if( ret == AVERROR( EAGAIN ) )
+    {
+        av_usleep( 10000 );
+        return read_frame( format_ctx, pkt );
+    }
+    return ret;
+}
+
 static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, reader_option_t *opt )
 {
     uint32_t video_info_count = 1 << 16;
@@ -549,7 +560,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     uint32_t *audio_delay_count     = NULL;
     progress_dlg_t prg_dlg;
     init_progress_dlg( &prg_dlg, "lsmashinput.aui", IDD_PROGRESS_ABORTABLE );
-    while( av_read_frame( format_ctx, &pkt ) >= 0 )
+    while( read_frame( format_ctx, &pkt ) >= 0 )
     {
         AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;
         if( pkt_ctx->codec_type != AVMEDIA_TYPE_VIDEO
@@ -1554,7 +1565,7 @@ static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **
 {
     AVPacket temp;
     av_init_packet( &temp );
-    while( av_read_frame( format_ctx, &temp ) >= 0 )
+    while( read_frame( format_ctx, &temp ) >= 0 )
     {
         if( temp.stream_index != stream_index )
         {
