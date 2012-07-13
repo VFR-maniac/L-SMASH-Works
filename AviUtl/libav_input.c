@@ -235,12 +235,13 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
         if( hp->format_flags & AVFMT_NO_BYTE_SEEK )
             hp->video_seek_base &= ~SEEK_FILE_OFFSET_BASED;
         else
+        {
+            uint32_t error_count = 0;
             for( uint32_t i = 1; i <= sample_count; i++ )
-                if( info[i].file_offset == -1 )
-                {
-                    hp->video_seek_base &= ~SEEK_FILE_OFFSET_BASED;
-                    break;
-                }
+                error_count += (info[i].file_offset == -1);
+            if( error_count == sample_count )
+                hp->video_seek_base &= ~SEEK_FILE_OFFSET_BASED;
+        }
     }
     if( (hp->video_seek_base & SEEK_PTS_BASED) && check_frame_reordering( info, sample_count ) )
     {
