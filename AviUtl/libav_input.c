@@ -847,7 +847,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         hp->audio_frame_count  = audio_sample_count;
         hp->audio_frame_length = constant_frame_length ? frame_length : 0;
         decide_audio_seek_method( hp, audio_sample_count );
-        if( hp->video_index >= 0 )
+        if( opt->av_sync && hp->video_index >= 0 )
             calculate_av_gap( hp,
                               format_ctx->streams[ hp->video_index ]->time_base,
                               format_ctx->streams[ hp->audio_index ]->time_base,
@@ -1240,7 +1240,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             hp->audio_frame_count  = audio_sample_count;
             hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
-            if( hp->video_index >= 0 )
+            if( opt->av_sync && hp->video_index >= 0 )
                 calculate_av_gap( hp, video_time_base, audio_time_base, audio_sample_rate );
         }
         if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )

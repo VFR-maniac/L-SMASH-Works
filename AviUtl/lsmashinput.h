@@ -110,6 +110,7 @@ typedef struct
 typedef struct
 {
     int threads;
+    int av_sync;
     /* for libav reader */
     int no_create_index;
     int force_video;

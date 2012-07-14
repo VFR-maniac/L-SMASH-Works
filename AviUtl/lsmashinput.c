@@ -114,6 +114,9 @@ static void get_settings( void )
         /* threads */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "threads=%d", &reader_opt.threads ) != 1 )
             reader_opt.threads = 0;
+        /* av_sync */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "av_sync=%d", &reader_opt.av_sync ) != 1 )
+            reader_opt.av_sync = 1;
         /* no_create_index */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "no_create_index=%d", &reader_opt.no_create_index ) != 1 )
             reader_opt.no_create_index = 0;
@@ -192,6 +195,7 @@ static void get_settings( void )
     {
         /* Set up defalut values. */
         reader_opt.threads                = 0;
+        reader_opt.av_sync                = 1;
         reader_opt.no_create_index        = 0;
         reader_opt.force_video            = 0;
         reader_opt.force_video_index      = -1;
@@ -416,6 +420,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             sprintf( edit_buf, "%d", reader_opt.threads );
             SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
             SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            /* av_sync */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_AV_SYNC ), BM_SETCHECK, (WPARAM) reader_opt.av_sync ? BST_CHECKED : BST_UNCHECKED, 0 );
             /* no_create_index */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_SETCHECK, (WPARAM) reader_opt.no_create_index ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* force stream index */
@@ -514,6 +520,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         fprintf( ini, "threads=%d\n", reader_opt.threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
+                    /* av_sync */
+                    reader_opt.av_sync = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AV_SYNC ), BM_GETCHECK, 0, 0 ));
+                    fprintf( ini, "av_sync=%d\n", reader_opt.av_sync );
                     /* no_create_index */
                     reader_opt.no_create_index = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_GETCHECK, 0, 0 ));
                     fprintf( ini, "no_create_index=%d\n", reader_opt.no_create_index );

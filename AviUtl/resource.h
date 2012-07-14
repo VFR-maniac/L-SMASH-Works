@@ -53,6 +53,7 @@
 #define IDC_CHECK_FORCE_AUDIO         1117
 #define IDC_EDIT_FORCE_AUDIO_INDEX    1118
 #define IDC_CHECK_CREATE_INDEX_FILE   1119
+#define IDC_CHECK_AV_SYNC             1120
 
 /* Muxer dialog */
 #define IDD_MUXER_OPTIONS              103
