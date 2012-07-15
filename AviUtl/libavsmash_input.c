@@ -816,7 +816,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         hp->last_remainder_size          = 0;
         hp->next_audio_pcm_sample_number = 0;
         hp->last_audio_frame_number      = 0;
-        if( start < 0 )
+        uint64_t start_frame_pos;
+        if( start >= 0 )
+            start_frame_pos = start;
+        else
         {
             int silent_length = -start;
             copy_size = silent_length * block_align;
@@ -824,7 +827,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             buf += copy_size;
             output_length += silent_length;
             wanted_length -= silent_length;
-            start = 0;
+            start_frame_pos = 0;
         }
         frame_number = 1;
         uint64_t next_frame_pos = 0;
@@ -834,12 +837,12 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             if( get_frame_length( hp, frame_number, &frame_length ) )
                 break;
             next_frame_pos += (uint64_t)frame_length;
-            if( start < next_frame_pos )
+            if( start_frame_pos < next_frame_pos )
                 break;
             ++frame_number;
         } while( frame_number <= hp->audio_frame_count );
         uint32_t priming_samples = get_priming_samples( hp, frame_number, frame_length );
-        data_offset = (priming_samples + start + frame_length - next_frame_pos) * block_align;
+        data_offset = (priming_samples + start_frame_pos + frame_length - next_frame_pos) * block_align;
     }
     do
     {

@@ -1941,7 +1941,7 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
-static int find_start_audio_frame( libav_handler_t *hp, int start, uint64_t *start_offset )
+static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
 {
     int frame_number = 1;
     uint64_t next_frame_pos = 0;
@@ -1950,11 +1950,11 @@ static int find_start_audio_frame( libav_handler_t *hp, int start, uint64_t *sta
     {
         frame_length = hp->audio_frame_list[frame_number].length;
         next_frame_pos += frame_length;
-        if( start < next_frame_pos )
+        if( start_frame_pos < next_frame_pos )
             break;
         ++frame_number;
     } while( frame_number <= hp->audio_frame_count );
-    *start_offset = start + frame_length - next_frame_pos;
+    *start_offset = start_frame_pos + frame_length - next_frame_pos;
     return frame_number;
 }
 
@@ -2033,7 +2033,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         hp->last_remainder_size          = 0;
         hp->next_audio_pcm_sample_number = 0;
         hp->last_audio_frame_number      = 0;
-        if( start < 0 )
+        uint64_t start_frame_pos;
+        if( start >= 0 )
+            start_frame_pos = start;
+        else
         {
             int silent_length = -start;
             copy_size = silent_length * block_align;
@@ -2041,9 +2044,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             buf += copy_size;
             output_length += silent_length;
             wanted_length -= silent_length;
-            start = 0;
+            start_frame_pos = 0;
         }
-        frame_number = find_start_audio_frame( hp, start, &data_offset );
+        frame_number = find_start_audio_frame( hp, start_frame_pos, &data_offset );
         seek_audio( hp, frame_number, pkt );
         data_offset *= block_align;
         already_gotten = 1;
