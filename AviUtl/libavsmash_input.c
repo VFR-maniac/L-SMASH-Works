@@ -787,7 +787,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     int      copy_size;
     int      output_length = 0;
     int      block_align = h->audio_format.Format.nBlockAlign;
-    if( start == hp->next_audio_pcm_sample_number )
+    if( start > 0 && start == hp->next_audio_pcm_sample_number )
     {
         frame_number = hp->last_audio_frame_number;
         if( hp->last_remainder_size && hp->audio_frame_buffer.data[0] )
@@ -816,6 +816,16 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         hp->last_remainder_size          = 0;
         hp->next_audio_pcm_sample_number = 0;
         hp->last_audio_frame_number      = 0;
+        if( start < 0 )
+        {
+            int silent_length = -start;
+            copy_size = silent_length * block_align;
+            memset( buf, 0, copy_size );
+            buf += copy_size;
+            output_length += silent_length;
+            wanted_length -= silent_length;
+            start = 0;
+        }
         frame_number = 1;
         uint64_t next_frame_pos = 0;
         uint32_t frame_length   = 0;
@@ -919,18 +929,15 @@ static int is_keyframe( lsmash_handler_t *h, int sample_number )
 
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
 {
-    if( *start < audio_delay )
+    /* Even if start become negative, its absolute value shall be equal to wanted_length or smaller. */
+    int end = *start + wanted_length;
+    if( *start < audio_delay && end <= audio_delay )
     {
-        if( *start + wanted_length < audio_delay )
-        {
-            libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
-            hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
-            return 0;
-        }
-        *start = audio_delay - *start;
+        libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
+        hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
+        return 0;
     }
-    else
-        *start -= audio_delay;
+    *start -= audio_delay;
     return 1;
 }
 
