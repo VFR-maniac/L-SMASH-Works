@@ -56,43 +56,52 @@ typedef struct
 typedef struct libavsmash_handler_tag
 {
     /* L-SMASH's stuff */
-    lsmash_root_t           *root;
-    uint32_t                 number_of_tracks;
-    uint32_t                 video_track_ID;
-    uint32_t                 audio_track_ID;
+    lsmash_root_t            *root;
+    lsmash_movie_parameters_t movie_param;
+    uint32_t                  number_of_tracks;
+    uint32_t                  video_track_ID;
+    uint32_t                  audio_track_ID;
     /* Libav's stuff */
-    AVCodecContext          *video_ctx;
-    AVCodecContext          *audio_ctx;
-    AVFormatContext         *format_ctx;
-    struct SwsContext       *sws_ctx;
-    int                      threads;
+    AVCodecContext           *video_ctx;
+    AVCodecContext           *audio_ctx;
+    AVFormatContext          *format_ctx;
+    struct SwsContext        *sws_ctx;
+    int                       threads;
     /* Video stuff */
-    int                      video_error;
-    uint8_t                 *video_input_buffer;
-    uint32_t                 last_video_sample_number;
-    uint32_t                 last_rap_number;
-    uint32_t                 video_delay_count;
-    uint32_t                 first_valid_video_sample_number;
-    uint32_t                 first_valid_video_sample_size;
-    uint8_t                 *first_valid_video_sample_data;
-    decode_status_t          decode_status;
-    order_converter_t       *order_converter;
-    uint8_t                 *keyframe_list;
-    int                      seek_mode;
-    uint32_t                 forward_seek_threshold;
-    func_convert_colorspace *convert_colorspace;
+    int                       video_error;
+    uint8_t                  *video_input_buffer;
+    uint32_t                  last_video_sample_number;
+    uint32_t                  last_rap_number;
+    uint32_t                  video_delay_count;
+    uint32_t                  first_valid_video_sample_number;
+    uint32_t                  first_valid_video_sample_size;
+    uint8_t                  *first_valid_video_sample_data;
+    decode_status_t           decode_status;
+    order_converter_t        *order_converter;
+    uint8_t                  *keyframe_list;
+    int                       seek_mode;
+    uint32_t                  forward_seek_threshold;
+    func_convert_colorspace  *convert_colorspace;
+    uint32_t                  video_media_timescale;
+    uint64_t                  video_skip_duration;
+    int64_t                   video_start_pts;
     /* Audio stuff */
-    int                      audio_error;
-    uint8_t                 *audio_input_buffer;
-    AVFrame                  audio_frame_buffer;
-    AVPacket                 audio_packet;
-    uint32_t                 audio_frame_count;
-    uint32_t                 audio_delay_count;
-    uint32_t                 audio_frame_length;
-    uint32_t                 next_audio_pcm_sample_number;
-    uint32_t                 last_audio_frame_number;
-    uint32_t                 last_remainder_size;
-    uint32_t                 priming_samples;
+    int                       audio_error;
+    uint8_t                  *audio_input_buffer;
+    AVFrame                   audio_frame_buffer;
+    AVPacket                  audio_packet;
+    uint32_t                  audio_frame_count;
+    uint32_t                  audio_delay_count;
+    uint32_t                  audio_frame_length;
+    uint32_t                  next_audio_pcm_sample_number;
+    uint32_t                  last_audio_frame_number;
+    uint32_t                  last_remainder_size;
+    uint32_t                  audio_media_timescale;
+    uint64_t                  audio_skip_samples;
+    int64_t                   audio_start_pts;
+    int64_t                   av_gap;
+    int                       av_sync;
+    int                       audio_upsampling;
 } libavsmash_handler_t;
 
 static void *open_file( char *file_name, reader_option_t *opt )
@@ -115,6 +124,7 @@ static void *open_file( char *file_name, reader_option_t *opt )
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "The number of tracks equals 0." );
         goto open_fail;
     }
+    hp->movie_param = movie_param;
     hp->number_of_tracks = movie_param.number_of_tracks;
     /* libavformat */
     av_register_all();
@@ -130,6 +140,7 @@ static void *open_file( char *file_name, reader_option_t *opt )
         goto open_fail;
     }
     hp->threads = opt->threads;
+    hp->av_sync = opt->av_sync;
     return hp;
 open_fail:
     if( hp->format_ctx )
@@ -164,7 +175,7 @@ static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
 static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
-    uint64_t media_timescale = lsmash_get_media_timescale( hp->root, track_ID );
+    uint64_t media_timescale = hp->video_media_timescale;
     if( h->video_sample_count == 1 )
     {
         /* Calculate average framerate. */
@@ -235,6 +246,36 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     return 0;
 }
 
+static uint64_t get_empty_duration( libavsmash_handler_t *hp, uint32_t track_ID, uint32_t media_timescale )
+{
+    /* Consider empty duration if the first edit is an empty edit. */
+    lsmash_edit_t edit;
+    if( lsmash_get_explicit_timeline_map( hp->root, track_ID, 1, &edit ) )
+        return 0;
+    if( edit.duration && edit.start_time == ISOM_EDIT_MODE_EMPTY )
+        return av_rescale_q( edit.duration,
+                             (AVRational){ 1, hp->movie_param.timescale },
+                             (AVRational){ 1, media_timescale } );
+    return 0;
+}
+
+static int64_t get_start_time( libavsmash_handler_t *hp, uint32_t track_ID )
+{
+    /* Consider start time of this media if any non-empty edit is present. */
+    uint32_t edit_count = lsmash_count_explicit_timeline_map( hp->root, track_ID );
+    for( uint32_t edit_number = 1; edit_number <= edit_count; edit_number++ )
+    {
+        lsmash_edit_t edit;
+        if( lsmash_get_explicit_timeline_map( hp->root, track_ID, edit_number, &edit ) )
+            return 0;
+        if( edit.duration == 0 )
+            return 0;   /* no edits */
+        if( edit.start_time >= 0 )
+            return edit.start_time;
+    }
+    return 0;
+}
+
 static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
 {
     libavsmash_handler_t *hp = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK)
@@ -272,35 +313,44 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
         hp->video_track_ID = track_ID;
+        hp->video_media_timescale = media_param.timescale;
         h->video_sample_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
         if( setup_timestamp_info( h, track_ID ) )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to set up timestamp info." );
             return -1;
         }
+        if( hp->av_sync )
+        {
+            uint32_t min_cts_sample_number = hp->order_converter ? hp->order_converter[1].composition_to_decoding : 1;
+            uint64_t min_cts;
+            if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, min_cts_sample_number, &min_cts ) )
+            {
+                DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
+                return -1;
+            }
+            uint64_t empty_duration = get_empty_duration( hp, track_ID, hp->video_media_timescale );
+            hp->video_skip_duration = get_start_time( hp, track_ID );
+            hp->video_start_pts = min_cts + empty_duration;
+        }
     }
     else
     {
         hp->audio_track_ID = track_ID;
+        hp->audio_media_timescale = media_param.timescale;
         hp->audio_frame_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
         h->audio_pcm_sample_count = lsmash_get_media_duration( hp->root, track_ID );
-        if( media_param.roll_grouping )
+        uint64_t min_cts;
+        if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, 1, &min_cts ) )
         {
-            uint32_t edit_count = lsmash_count_explicit_timeline_map( hp->root, track_ID );
-            for( uint32_t edit_number = 1; edit_number <= edit_count; edit_number++ )
-            {
-                lsmash_edit_t edit;
-                if( lsmash_get_explicit_timeline_map( hp->root, track_ID, edit_number, &edit ) )
-                    break;
-                if( edit.duration == 0 )
-                    break;  /* no edits */
-                if( edit.start_time >= 0 )
-                {
-                    /* Streams that is concatenated with different number of priming samples are not supported yet. */
-                    hp->priming_samples = edit.start_time;
-                    break;
-                }
-            }
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of audio stream." );
+            return -1;
+        }
+        if( hp->av_sync )
+        {
+            uint64_t empty_duration = get_empty_duration( hp, track_ID, hp->audio_media_timescale );
+            hp->audio_skip_samples = get_start_time( hp, track_ID );
+            hp->audio_start_pts = min_cts + empty_duration;
         }
     }
     /* libavformat */
@@ -517,13 +567,25 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         return -1;
     }
     avcodec_get_frame_defaults( &hp->audio_frame_buffer );
+    if( hp->av_sync && hp->video_track_ID )
+    {
+        AVRational audio_sample_base = (AVRational){ 1, hp->audio_ctx->sample_rate };
+        hp->av_gap = av_rescale_q( hp->audio_start_pts,
+                                   (AVRational){ 1, hp->audio_media_timescale }, audio_sample_base )
+                   - av_rescale_q( hp->video_start_pts - hp->video_skip_duration,
+                                   (AVRational){ 1, hp->video_media_timescale }, audio_sample_base );
+    }
     hp->audio_frame_length = hp->audio_ctx->frame_size;
     if( h->audio_pcm_sample_count * 2 <= hp->audio_frame_count * hp->audio_frame_length )
     {
         /* for HE-AAC upsampling */
-        h->audio_pcm_sample_count *= 2;
-        hp->priming_samples       *= 2;
+        hp->audio_upsampling = 2;
+        hp->audio_skip_samples    *= hp->audio_upsampling;
+        h->audio_pcm_sample_count *= hp->audio_upsampling;
     }
+    else
+        hp->audio_upsampling = 1;
+    h->audio_pcm_sample_count += hp->av_gap - hp->audio_skip_samples;
     hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
@@ -756,24 +818,27 @@ static inline int get_frame_length( libavsmash_handler_t *hp, uint32_t frame_num
     return 0;
 }
 
-static uint32_t get_priming_samples( libavsmash_handler_t *hp, uint32_t frame_number, uint32_t frame_length )
+static uint32_t get_preroll_samples( libavsmash_handler_t *hp, uint32_t *frame_number )
 {
-    /* If the audio stream has priming samples, they precede the actual audio data.
-     * Priming samples are needed for correct composition because of CODEC characteristic and given by encoder. */
+    /* Some audio CODEC requires pre-roll for correct composition. */
     lsmash_sample_property_t prop;
-    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, &prop ) )
+    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->audio_track_ID, *frame_number, &prop ) )
         return 0;
     if( prop.pre_roll.distance == 0 )
         return 0;
-    /* Stream shall have number of priming samples greater or equal to pre-roll distance. */
-    uint32_t min_priming_samples = frame_length;
-    for( uint32_t i = 1; i < prop.pre_roll.distance; i++ )
+    uint32_t preroll_samples = 0;
+    for( uint32_t i = 0; i < prop.pre_roll.distance; i++ )
     {
-        if( get_frame_length( hp, frame_number + i, &frame_length ) )
+        if( *frame_number > 1 )
+            --(*frame_number);
+        else
             break;
-        min_priming_samples += frame_length;
+        uint32_t frame_length;
+        if( get_frame_length( hp, *frame_number, &frame_length ) )
+            break;
+        preroll_samples += frame_length;
     }
-    return max( hp->priming_samples, min_priming_samples );
+    return preroll_samples;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -829,6 +894,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             wanted_length -= silent_length;
             start_frame_pos = 0;
         }
+        start_frame_pos += hp->audio_skip_samples;
         frame_number = 1;
         uint64_t next_frame_pos = 0;
         uint32_t frame_length   = 0;
@@ -836,13 +902,13 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         {
             if( get_frame_length( hp, frame_number, &frame_length ) )
                 break;
-            next_frame_pos += (uint64_t)frame_length;
+            next_frame_pos += (uint64_t)frame_length * hp->audio_upsampling;
             if( start_frame_pos < next_frame_pos )
                 break;
             ++frame_number;
         } while( frame_number <= hp->audio_frame_count );
-        uint32_t priming_samples = get_priming_samples( hp, frame_number, frame_length );
-        data_offset = (priming_samples + start_frame_pos + frame_length - next_frame_pos) * block_align;
+        uint32_t preroll_samples = get_preroll_samples( hp, &frame_number );
+        data_offset = (start_frame_pos + (preroll_samples + frame_length) * hp->audio_upsampling - next_frame_pos) * block_align;
     }
     do
     {
@@ -933,10 +999,11 @@ static int is_keyframe( lsmash_handler_t *h, int sample_number )
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
 {
     /* Even if start become negative, its absolute value shall be equal to wanted_length or smaller. */
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     int end = *start + wanted_length;
+    audio_delay += hp->av_gap;
     if( *start < audio_delay && end <= audio_delay )
     {
-        libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
         hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
         return 0;
     }
