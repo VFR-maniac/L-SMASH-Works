@@ -1737,6 +1737,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     if( h->audio_pcm_sample_count * 2 <= hp->audio_frame_count * hp->audio_frame_length )
         /* for HE-AAC upsampling */
         h->audio_pcm_sample_count *= 2;
+    h->audio_pcm_sample_count += hp->av_gap;
     hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;

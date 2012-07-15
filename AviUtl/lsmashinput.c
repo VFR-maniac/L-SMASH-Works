@@ -378,7 +378,7 @@ BOOL func_info_get( INPUT_HANDLE ih, INPUT_INFO *iip )
     if( hp->audio_reader != READER_NONE )
     {
         iip->flag             |= INPUT_INFO_FLAG_AUDIO;
-        iip->audio_n           = hp->audio_pcm_sample_count;
+        iip->audio_n           = hp->audio_pcm_sample_count + audio_delay;
         iip->audio_format      = &hp->audio_format.Format;
         iip->audio_format_size = sizeof( WAVEFORMATEX ) + hp->audio_format.Format.cbSize;
     }
@@ -394,9 +394,10 @@ int func_read_video( INPUT_HANDLE ih, int sample_number, void *buf )
 int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
 {
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
-    return hp->read_audio && hp->delay_audio( hp, &start, length, audio_delay )
-         ? hp->read_audio( hp, start, length, buf )
-         : 0;
+    if( hp->read_audio && hp->delay_audio( hp, &start, length, audio_delay ) )
+        return hp->read_audio( hp, start, length, buf );
+    memset( buf, 0, length * hp->audio_format.Format.nBlockAlign );
+    return length;
 }
 
 BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
