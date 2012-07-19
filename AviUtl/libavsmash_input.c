@@ -246,27 +246,27 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     return 0;
 }
 
-static uint64_t get_empty_duration( libavsmash_handler_t *hp, uint32_t track_ID, uint32_t media_timescale )
+static uint64_t get_empty_duration( lsmash_root_t *root, uint32_t track_ID, uint32_t movie_timescale, uint32_t media_timescale )
 {
     /* Consider empty duration if the first edit is an empty edit. */
     lsmash_edit_t edit;
-    if( lsmash_get_explicit_timeline_map( hp->root, track_ID, 1, &edit ) )
+    if( lsmash_get_explicit_timeline_map( root, track_ID, 1, &edit ) )
         return 0;
     if( edit.duration && edit.start_time == ISOM_EDIT_MODE_EMPTY )
         return av_rescale_q( edit.duration,
-                             (AVRational){ 1, hp->movie_param.timescale },
+                             (AVRational){ 1, movie_timescale },
                              (AVRational){ 1, media_timescale } );
     return 0;
 }
 
-static int64_t get_start_time( libavsmash_handler_t *hp, uint32_t track_ID )
+static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
 {
     /* Consider start time of this media if any non-empty edit is present. */
-    uint32_t edit_count = lsmash_count_explicit_timeline_map( hp->root, track_ID );
+    uint32_t edit_count = lsmash_count_explicit_timeline_map( root, track_ID );
     for( uint32_t edit_number = 1; edit_number <= edit_count; edit_number++ )
     {
         lsmash_edit_t edit;
-        if( lsmash_get_explicit_timeline_map( hp->root, track_ID, edit_number, &edit ) )
+        if( lsmash_get_explicit_timeline_map( root, track_ID, edit_number, &edit ) )
             return 0;
         if( edit.duration == 0 )
             return 0;   /* no edits */
@@ -310,6 +310,12 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get construct timeline." );
         return -1;
     }
+    uint32_t ctd_shift;
+    if( lsmash_get_composition_to_decode_shift_from_media_timeline( hp->root, track_ID, &ctd_shift ) )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the timeline shift." );
+        return -1;
+    }
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
         hp->video_track_ID = track_ID;
@@ -329,9 +335,9 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
                 DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
                 return -1;
             }
-            uint64_t empty_duration = get_empty_duration( hp, track_ID, hp->video_media_timescale );
-            hp->video_skip_duration = get_start_time( hp, track_ID );
-            hp->video_start_pts = min_cts + empty_duration;
+            hp->video_start_pts = min_cts + ctd_shift
+                                + get_empty_duration( hp->root, track_ID, hp->movie_param.timescale, hp->video_media_timescale );
+            hp->video_skip_duration = ctd_shift + get_start_time( hp->root, track_ID );
         }
     }
     else
@@ -340,17 +346,17 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         hp->audio_media_timescale = media_param.timescale;
         hp->audio_frame_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
         h->audio_pcm_sample_count = lsmash_get_media_duration( hp->root, track_ID );
-        uint64_t min_cts;
-        if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, 1, &min_cts ) )
-        {
-            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of audio stream." );
-            return -1;
-        }
         if( hp->av_sync )
         {
-            uint64_t empty_duration = get_empty_duration( hp, track_ID, hp->audio_media_timescale );
-            hp->audio_skip_samples = get_start_time( hp, track_ID );
-            hp->audio_start_pts = min_cts + empty_duration;
+            uint64_t min_cts;
+            if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, 1, &min_cts ) )
+            {
+                DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of audio stream." );
+                return -1;
+            }
+            hp->audio_start_pts = min_cts + ctd_shift
+                                + get_empty_duration( hp->root, track_ID, hp->movie_param.timescale, hp->audio_media_timescale );
+            hp->audio_skip_samples = ctd_shift + get_start_time( hp->root, track_ID );
         }
     }
     /* libavformat */
