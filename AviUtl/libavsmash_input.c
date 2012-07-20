@@ -96,6 +96,7 @@ typedef struct libavsmash_handler_tag
     uint32_t                  next_audio_pcm_sample_number;
     uint32_t                  last_audio_frame_number;
     uint32_t                  last_remainder_size;
+    uint32_t                  last_remainder_offset;
     uint32_t                  audio_media_timescale;
     uint64_t                  audio_skip_samples;
     int64_t                   audio_start_pts;
@@ -851,18 +852,6 @@ static uint32_t get_preroll_samples( libavsmash_handler_t *hp, uint32_t *frame_n
     return preroll_samples;
 }
 
-static inline void waste_remainder_audio_samples( libavsmash_handler_t *hp, int wasted_data_size, uint8_t **p_buf )
-{
-    for( int i = 0; i < wasted_data_size; i += hp->audio_input_block_align )
-        for( int j = 0; j < hp->audio_planes; j++ )
-            for( int k = 0; k < hp->audio_input_block_align; k++ )
-            {
-                **p_buf = hp->audio_frame_buffer.data[j][i + k];
-                ++(*p_buf);
-            }
-    hp->last_remainder_size -= wasted_data_size;
-}
-
 static inline void waste_decoded_audio_samples( libavsmash_handler_t *hp, int wasted_data_size, uint8_t **p_buf, int data_offset )
 {
     for( int i = 0; i < wasted_data_size; i += hp->audio_input_block_align )
@@ -874,14 +863,12 @@ static inline void waste_decoded_audio_samples( libavsmash_handler_t *hp, int wa
             }
 }
 
-static inline void move_unused_audio_samples( libavsmash_handler_t *hp, int wasted_data_size )
+static inline void waste_remainder_audio_samples( libavsmash_handler_t *hp, int wasted_data_size, uint8_t **p_buf )
 {
-    /* Move unused decoded data to the head of output buffer for the next access. */
-    if( wasted_data_size == 0 || hp->last_remainder_size == 0 )
-        return;
-    for( int i = 0; i < hp->audio_planes; i++ )
-        if( hp->audio_frame_buffer.data[i] )
-            memmove( hp->audio_frame_buffer.data[i], hp->audio_frame_buffer.data[i] + wasted_data_size, hp->last_remainder_size );
+    waste_decoded_audio_samples( hp, wasted_data_size, p_buf, hp->last_remainder_offset );
+    hp->last_remainder_size -= wasted_data_size;
+    if( hp->last_remainder_size == 0 )
+        hp->last_remainder_offset = 0;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -920,6 +907,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             return 0;
         hp->audio_delay_count            = 0;
         hp->last_remainder_size          = 0;
+        hp->last_remainder_offset        = 0;
         hp->next_audio_pcm_sample_number = 0;
         hp->last_audio_frame_number      = 0;
         uint64_t start_frame_pos;
@@ -1022,9 +1010,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     } while( 1 );
 audio_out:
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "output_length = %d, remainder = %d", output_length, hp->last_remainder_size );
-    move_unused_audio_samples( hp, copy_size );
     hp->next_audio_pcm_sample_number = start + output_length;
     hp->last_audio_frame_number = frame_number;
+    if( hp->last_remainder_size )
+        hp->last_remainder_offset += copy_size;
     return output_length;
 }
 
