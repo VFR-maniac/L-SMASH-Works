@@ -961,6 +961,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int output_audio = 0;
         do
         {
+            hp->last_remainder_size   = 0;
+            hp->last_remainder_offset = 0;
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
