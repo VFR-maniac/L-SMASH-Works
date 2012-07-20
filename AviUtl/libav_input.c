@@ -2075,7 +2075,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     }
     do
     {
-        copy_size = 0;
         if( already_gotten )
             already_gotten = 0;
         else if( frame_number > hp->audio_frame_count )
@@ -2089,7 +2088,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 -- hp->audio_delay_count;
             }
             else
+            {
+                copy_size = 0;
                 goto audio_out;
+            }
         }
         else if( pkt->size <= 0 )
             get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt );
@@ -2098,6 +2100,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         {
             hp->last_remainder_size   = 0;
             hp->last_remainder_offset = 0;
+            copy_size = 0;
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
@@ -2130,10 +2133,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                     }
                 }
                 else
-                {
-                    copy_size = 0;
                     data_offset -= decoded_data_size;
-                }
                 output_audio = 1;
             }
         } while( pkt->size > 0 );

@@ -941,7 +941,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     }
     do
     {
-        copy_size = 0;
         AVPacket *pkt = &hp->audio_packet;
         if( frame_number > hp->audio_frame_count )
         {
@@ -954,7 +953,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 -- hp->audio_delay_count;
             }
             else
+            {
+                copy_size = 0;
                 goto audio_out;
+            }
         }
         else if( pkt->size <= 0 )
             get_sample( hp->root, hp->audio_track_ID, frame_number, hp->audio_input_buffer, pkt );
@@ -963,6 +965,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         {
             hp->last_remainder_size   = 0;
             hp->last_remainder_offset = 0;
+            copy_size = 0;
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
@@ -995,10 +998,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                     }
                 }
                 else
-                {
-                    copy_size = 0;
                     data_offset -= decoded_data_size;
-                }
                 output_audio = 1;
             }
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, wasted_data_length = %d,"
