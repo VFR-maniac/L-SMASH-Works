@@ -944,6 +944,7 @@ static int do_mux( lsmash_handler_t *hp )
                 }
                 else
                     sequence[type]->presentation_end_time += sequence[type]->last_sample_delta;
+                sequence[type]->presentation_end_time -= sequence[type]->end_skip_duration;
                 /* Check if no more sequences. */
                 if( sequence[type]->number == hp->number_of_sequences )
                 {
@@ -1049,8 +1050,9 @@ static int do_mux( lsmash_handler_t *hp )
              && sequence[type]->current_sample_number <= sequence[type]->presentation_end_sample_number )
             {
                 if( sequence[type]->current_sample_number == sequence[type]->presentation_start_sample_number )
-                    sequence[type]->presentation_start_time = sample_cts;
+                    sequence[type]->presentation_start_time = sample_cts + sequence[type]->start_skip_duration;
                 if( sequence[type]->current_sample_number == sequence[type]->presentation_end_sample_number )
+                    /* The actual value shall be decided at appending the sample of the end of this sequence. */
                     sequence[type]->presentation_end_time   = sample_cts;
             }
             ++ sequence[type]->current_sample_number;
@@ -1078,6 +1080,7 @@ static int do_mux( lsmash_handler_t *hp )
 static int construct_timeline_maps( lsmash_handler_t *hp )
 {
     output_movie_t *output = hp->output;
+    uint32_t movie_timescale = lsmash_get_movie_timescale( output->root );
     for( uint32_t i = 0; i < 2; i++ )
     {
         if( !output->track[i].active || !hp->sequence[i] )
@@ -1086,17 +1089,15 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
         uint32_t media_timescale = lsmash_get_media_timescale( output->root, out_track->track_ID );
         if( media_timescale == 0 )
             continue;
-        uint32_t movie_timescale = lsmash_get_movie_timescale( output->root );
         double timescale_convert_multiplier = (double)movie_timescale / media_timescale;
         /* Create edits per sequence. */
         for( int j = 0; j < hp->number_of_sequences; j++ )
         {
             sequence_t *sequence = &hp->sequence[i][j];
             /* Set up an edit for this sequence. */
-            uint64_t skip_duration = sequence->start_skip_duration + sequence->end_skip_duration;
             lsmash_edit_t edit;
-            edit.duration   = (sequence->presentation_end_time - sequence->presentation_start_time - skip_duration) * timescale_convert_multiplier;
-            edit.start_time = sequence->presentation_start_time + sequence->start_skip_duration;
+            edit.duration   = (sequence->presentation_end_time - sequence->presentation_start_time) * timescale_convert_multiplier;
+            edit.start_time = sequence->presentation_start_time;
             edit.rate       = ISOM_EDIT_MODE_NORMAL;
             if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, edit ) )
             {
