@@ -2014,6 +2014,12 @@ static inline void waste_remainder_audio_samples( libav_handler_t *hp, int waste
         hp->last_remainder_offset = 0;
 }
 
+static inline void put_silence_audio_samples( int silence_data_size, uint8_t **p_buf )
+{
+    memset( *p_buf, 0, silence_data_size );
+    *p_buf += silence_data_size;
+}
+
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
@@ -2060,12 +2066,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             start_frame_pos = start;
         else
         {
-            int silent_length = -start;
-            int silent_data_size = silent_length * h->audio_format.Format.nBlockAlign;
-            memset( buf, 0, silent_data_size );
-            buf += silent_data_size;
-            output_length += silent_length;
-            wanted_length -= silent_length;
+            int silence_length = -start;
+            put_silence_audio_samples( silence_length * h->audio_format.Format.nBlockAlign, (uint8_t **)&buf );
+            output_length += silence_length;
+            wanted_length -= silence_length;
             start_frame_pos = 0;
         }
         frame_number = find_start_audio_frame( hp, start_frame_pos, &data_offset );
