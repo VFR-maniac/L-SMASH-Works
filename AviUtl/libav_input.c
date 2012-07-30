@@ -35,8 +35,6 @@
 #include "resource.h"
 #include "progress_dlg.h"
 
-#define DECODER_DELAY( ctx ) (ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0))
-
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
@@ -1565,6 +1563,11 @@ static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32
          :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
 }
 
+static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
+{
+    return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
+}
+
 static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
 {
     AVPacket temp;
@@ -1676,7 +1679,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
             av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     }
-    for( uint32_t i = 1; i <= h->video_sample_count + DECODER_DELAY( hp->video_ctx ); i++ )
+    for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( hp->video_ctx ); i++ )
     {
         AVPacket pkt;
         get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
@@ -1685,7 +1688,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         int got_picture;
         if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            hp->first_valid_video_frame_number = i - min( DECODER_DELAY( hp->video_ctx ), hp->video_delay_count );
+            hp->first_valid_video_frame_number = i - min( get_decoder_delay( hp->video_ctx ), hp->video_delay_count );
             if( hp->first_valid_video_frame_number > 1 || h->video_sample_count == 1 )
             {
                 hp->first_valid_video_frame_size = MAKE_AVIUTL_PITCH( h->video_format.biWidth * h->video_format.biBitCount )
@@ -1809,7 +1812,7 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
     hp->decode_status     = DECODE_REQUIRE_INITIAL;
     int dummy;
     uint32_t i;
-    for( i = rap_number; i < presentation_sample_number + DECODER_DELAY( hp->video_ctx ); i++ )
+    for( i = rap_number; i < presentation_sample_number + get_decoder_delay( hp->video_ctx ); i++ )
     {
         int ret = decode_video_sample( hp, picture, &dummy, i );
         if( ret == -1 && !error_ignorance )
@@ -1820,7 +1823,7 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
     }
-    hp->video_delay_count = min( DECODER_DELAY( hp->video_ctx ), i - rap_number );
+    hp->video_delay_count = min( get_decoder_delay( hp->video_ctx ), i - rap_number );
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %"PRIu32", seek_position = %"PRIu32" video_delay_count = %"PRIu32,
                                      rap_number, i, hp->video_delay_count );
     return i;
@@ -1830,7 +1833,7 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
 {
     if( hp->decode_status == DECODE_INITIALIZING )
     {
-        if( hp->video_delay_count > DECODER_DELAY( hp->video_ctx ) )
+        if( hp->video_delay_count > get_decoder_delay( hp->video_ctx ) )
             -- hp->video_delay_count;
         else
             hp->decode_status = DECODE_INITIALIZED;
@@ -1848,11 +1851,11 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
             ++ hp->video_delay_count;
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
                                          goal, current - 1, got_picture, hp->video_delay_count );
-        if( hp->video_delay_count > DECODER_DELAY( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
+        if( hp->video_delay_count > get_decoder_delay( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
             break;
     }
     /* Flush the last frames. */
-    if( current > video_sample_count && DECODER_DELAY( hp->video_ctx ) )
+    if( current > video_sample_count && get_decoder_delay( hp->video_ctx ) )
         while( current <= goal )
         {
             AVPacket pkt;
