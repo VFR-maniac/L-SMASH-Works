@@ -92,6 +92,8 @@ typedef struct
     decode_status_t    decode_status;
 } video_decode_handler_t;
 
+typedef int func_make_frame( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env );
+
 class LSMASHVideoSource : public IClip
 {
 private:
@@ -99,6 +101,7 @@ private:
     video_decode_handler_t vh;
     PVideoFrame           *first_valid_frame;
     uint32_t               first_valid_frame_number;
+    func_make_frame       *make_frame;
     void get_first_video_track( const char *source, int threads, IScriptEnvironment *env );
     void prepare_video_decoding( IScriptEnvironment *env );
 public:
@@ -306,7 +309,7 @@ static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_n
     return 0;
 }
 
-static int make_frame( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
+static int make_frame_420p( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
     int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
     if( abs_dst_linesize & 15 )
@@ -327,6 +330,63 @@ static int make_frame( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AV
     return 0;
 }
 
+static int make_frame_422( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
+{
+    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
+    if( abs_dst_linesize < 0 )
+        abs_dst_linesize = -abs_dst_linesize;
+    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
+    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+    dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * codec_ctx->height );
+    if( !dst_data[0] )
+        return -1;
+    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, codec_ctx->height, dst_data, dst_linesize );
+    env->BitBlt( frame->GetWritePtr(), frame->GetPitch(), dst_data[0], dst_linesize[0], frame->GetRowSize(), frame->GetHeight() );
+    av_free( dst_data[0] );
+    return 0;
+}
+
+static void avoid_yuv_scale_conversion( enum PixelFormat *input_pixel_format )
+{
+    static const struct
+    {
+        enum PixelFormat full;
+        enum PixelFormat limited;
+    } range_hack_table[]
+        = {
+            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
+            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
+            { PIX_FMT_NONE,     PIX_FMT_NONE    }
+          };
+    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
+        if( *input_pixel_format == range_hack_table[i].full )
+            *input_pixel_format = range_hack_table[i].limited;
+}
+
+func_make_frame *determine_colorspace_conversion( enum PixelFormat *input_pixel_format, enum PixelFormat *output_pixel_format, int *output_pixel_type )
+{
+    avoid_yuv_scale_conversion( input_pixel_format );
+    switch( *input_pixel_format )
+    {
+        case PIX_FMT_YUV420P :
+        case PIX_FMT_NV12 :
+        case PIX_FMT_NV21 :
+            *output_pixel_format = PIX_FMT_YUV420P;     /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
+            *output_pixel_type   = VideoInfo::CS_I420;
+            return make_frame_420p;
+        case PIX_FMT_YUYV422 :
+        case PIX_FMT_YUV422P :
+        case PIX_FMT_UYVY422 :
+            *output_pixel_format = PIX_FMT_YUYV422;     /* packed YUV 4:2:2, 16bpp */
+            *output_pixel_type   = VideoInfo::CS_YUY2;
+            return make_frame_422;
+        default :
+            *output_pixel_format = PIX_FMT_NONE;
+            *output_pixel_type   = VideoInfo::CS_UNKNOWN;
+            return NULL;
+    }
+}
+
 void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 {
     /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
@@ -337,20 +397,18 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     if( !vh.input_buffer )
         env->ThrowError( "LSMASHVideoSource: failed to allocate memory to the input buffer for video." );
     /* swscale */
-    if( vh.codec_ctx->pix_fmt != PIX_FMT_YUV420P && vh.codec_ctx->pix_fmt == PIX_FMT_YUVJ420P
-     && vh.codec_ctx->pix_fmt != PIX_FMT_NV12    && vh.codec_ctx->pix_fmt == PIX_FMT_NV21 )
-        env->ThrowError( "LSMASHVideoSource: only support 4:2:0 colorspace." );
-    enum PixelFormat output_pixel_format = vh.codec_ctx->pix_fmt != PIX_FMT_YUVJ420P ? PIX_FMT_YUV420P : PIX_FMT_YUVJ420P;
+    enum PixelFormat output_pixel_format;
+    make_frame = determine_colorspace_conversion( &vh.codec_ctx->pix_fmt, &output_pixel_format, &vi.pixel_type );
+    if( !make_frame )
+        env->ThrowError( "LSMASHVideoSource: only support 4:2:0 or 4:2:2 colorspace." );
+    vi.width  = vh.codec_ctx->width;
+    vi.height = vh.codec_ctx->height;
     vh.sws_ctx = sws_getCachedContext( NULL,
                                        vh.codec_ctx->width, vh.codec_ctx->height, vh.codec_ctx->pix_fmt,
                                        vh.codec_ctx->width, vh.codec_ctx->height, output_pixel_format,
                                        SWS_FAST_BILINEAR, NULL, NULL, NULL );
     if( !vh.sws_ctx )
         env->ThrowError( "LSMASHVideoSource: failed to get swscale context." );
-    /* VideoInfo */
-    vi.width      = vh.codec_ctx->width;
-    vi.height     = vh.codec_ctx->height;
-    vi.pixel_type = VideoInfo::CS_I420;
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vh.codec_ctx ); i++ )
     {
