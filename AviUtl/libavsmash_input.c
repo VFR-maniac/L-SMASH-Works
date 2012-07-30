@@ -609,7 +609,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
     if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
     {
-        Format->cbSize = 22;
+        Format->cbSize = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
         h->audio_format.Samples.wValidBitsPerSample = hp->audio_ctx->bits_per_raw_sample;
         h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
     }
