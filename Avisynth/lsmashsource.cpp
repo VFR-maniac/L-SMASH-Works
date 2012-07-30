@@ -697,10 +697,10 @@ private:
     VideoInfo              vi;
     audio_decode_handler_t ah;
     uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_first_audio_track( const char *source, bool no_priming, IScriptEnvironment *env );
+    void get_first_audio_track( const char *source, bool skip_priming, IScriptEnvironment *env );
     void prepare_audio_decoding( IScriptEnvironment *env );
 public:
-    LSMASHAudioSource( const char *source, bool no_priming, IScriptEnvironment *env );
+    LSMASHAudioSource( const char *source, bool skip_priming, IScriptEnvironment *env );
     ~LSMASHAudioSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
     bool __stdcall GetParity( int n ) { return false; }
@@ -709,11 +709,11 @@ public:
     const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
 
-LSMASHAudioSource::LSMASHAudioSource( const char *source, bool no_priming, IScriptEnvironment *env )
+LSMASHAudioSource::LSMASHAudioSource( const char *source, bool skip_priming, IScriptEnvironment *env )
 {
     memset( &vi, 0, sizeof(VideoInfo) );
     memset( &ah, 0, sizeof(audio_decode_handler_t) );
-    get_first_audio_track( source, no_priming, env );
+    get_first_audio_track( source, skip_priming, env );
     lsmash_discard_boxes( ah.root );
     prepare_audio_decoding( env );
 }
@@ -767,7 +767,7 @@ static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
     return 0;
 }
 
-void LSMASHAudioSource::get_first_audio_track( const char *source, bool no_priming, IScriptEnvironment *env )
+void LSMASHAudioSource::get_first_audio_track( const char *source, bool skip_priming, IScriptEnvironment *env )
 {
     uint32_t number_of_tracks = open_file( source, env );
     /* L-SMASH */
@@ -788,7 +788,7 @@ void LSMASHAudioSource::get_first_audio_track( const char *source, bool no_primi
         env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
     if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
-    if( no_priming )
+    if( skip_priming )
     {
         uint32_t ctd_shift;
         if( lsmash_get_composition_to_decode_shift_from_media_timeline( ah.root, ah.track_ID, &ctd_shift ) )
@@ -1078,14 +1078,14 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
-    const char *source     = args[0].AsString();
-    bool        no_priming = args[1].AsBool( true );
-    return new LSMASHAudioSource( source, no_priming, env );
+    const char *source       = args[0].AsString();
+    bool        skip_priming = args[1].AsBool( true );
+    return new LSMASHAudioSource( source, skip_priming, env );
 }
 
 extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( IScriptEnvironment *env )
 {
     env->AddFunction( "LSMASHVideoSource", "[source]s[threads]i[seek_mode]i[seek_threshold]i", CreateLSMASHVideoSource, 0 );
-    env->AddFunction( "LSMASHAudioSource", "[source]s[no_priming]b", CreateLSMASHAudioSource, 0 );
+    env->AddFunction( "LSMASHAudioSource", "[source]s[skip_priming]b", CreateLSMASHAudioSource, 0 );
     return "LSMASHSource";
 }
