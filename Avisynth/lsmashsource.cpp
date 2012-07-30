@@ -103,6 +103,7 @@ private:
     PVideoFrame           *first_valid_frame;
     uint32_t               first_valid_frame_number;
     func_make_frame       *make_frame;
+    uint32_t open_file( const char *source, IScriptEnvironment *env );
     void get_first_video_track( const char *source, int threads, IScriptEnvironment *env );
     void prepare_video_decoding( IScriptEnvironment *env );
 public:
@@ -144,23 +145,23 @@ LSMASHVideoSource::~LSMASHVideoSource()
     lsmash_destroy_root( vh.root );
 }
 
-static uint32_t open_file( video_decode_handler_t *hp, const char *source, IScriptEnvironment *env )
+uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *env )
 {
     /* L-SMASH */
-    hp->root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !hp->root )
+    vh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
+    if( !vh.root )
         env->ThrowError( "LSMASHVideoSource: failed to lsmash_open_movie." );
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( hp->root, &movie_param );
+    lsmash_get_movie_parameters( vh.root, &movie_param );
     if( movie_param.number_of_tracks == 0 )
         env->ThrowError( "LSMASHVideoSource: the number of tracks equals 0." );
     /* libavformat */
     av_register_all();
     avcodec_register_all();
-    if( avformat_open_input( &hp->format_ctx, source, NULL, NULL ) )
+    if( avformat_open_input( &vh.format_ctx, source, NULL, NULL ) )
         env->ThrowError( "LSMASHVideoSource: failed to avformat_open_input." );
-    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
+    if( avformat_find_stream_info( vh.format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to avformat_find_stream_info." );
     return movie_param.number_of_tracks;
 }
@@ -251,7 +252,7 @@ static void setup_timestamp_info( video_decode_handler_t *hp, VideoInfo *vi, uin
 
 void LSMASHVideoSource::get_first_video_track( const char *source, int threads, IScriptEnvironment *env )
 {
-    uint32_t number_of_tracks = open_file( &vh, source, env );
+    uint32_t number_of_tracks = open_file( source, env );
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
@@ -666,7 +667,404 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
 #undef MAX_ERROR_COUNT
 }
 
-AVSValue __cdecl CreatLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
+typedef struct
+{
+    lsmash_root_t     *root;
+    uint32_t           track_ID;
+    AVCodecContext    *codec_ctx;
+    AVFormatContext   *format_ctx;
+    uint8_t           *input_buffer;
+    AVFrame            frame_buffer;
+    AVPacket           packet;
+    uint32_t           frame_count;
+    uint32_t           delay_count;
+    uint32_t           frame_length;
+    uint32_t           last_frame_number;
+    uint64_t           last_remainder_size;
+    uint64_t           last_remainder_offset;
+    uint64_t           next_pcm_sample_number;
+    uint64_t           skip_samples;
+    int                upsampling;
+    int                planes;
+    int                input_block_align;
+    int                output_block_align;
+    int                error;
+} audio_decode_handler_t;
+
+class LSMASHAudioSource : public IClip
+{
+private:
+    VideoInfo              vi;
+    audio_decode_handler_t ah;
+    uint32_t open_file( const char *source, IScriptEnvironment *env );
+    void get_first_audio_track( const char *source, bool no_priming, IScriptEnvironment *env );
+    void prepare_audio_decoding( IScriptEnvironment *env );
+public:
+    LSMASHAudioSource( const char *source, bool no_priming, IScriptEnvironment *env );
+    ~LSMASHAudioSource();
+    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
+    bool __stdcall GetParity( int n ) { return false; }
+    void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
+    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
+    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
+};
+
+LSMASHAudioSource::LSMASHAudioSource( const char *source, bool no_priming, IScriptEnvironment *env )
+{
+    memset( &vi, 0, sizeof(VideoInfo) );
+    memset( &ah, 0, sizeof(audio_decode_handler_t) );
+    get_first_audio_track( source, no_priming, env );
+    lsmash_discard_boxes( ah.root );
+    prepare_audio_decoding( env );
+}
+
+LSMASHAudioSource::~LSMASHAudioSource()
+{
+    if( ah.input_buffer )
+        av_free( ah.input_buffer );
+    if( ah.codec_ctx )
+        avcodec_close( ah.codec_ctx );
+    if( ah.format_ctx )
+        avformat_close_input( &ah.format_ctx );
+    lsmash_destroy_root( ah.root );
+}
+
+uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *env )
+{
+    /* L-SMASH */
+    ah.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
+    if( !ah.root )
+        env->ThrowError( "LSMASHAudioSource: failed to lsmash_open_movie." );
+    lsmash_movie_parameters_t movie_param;
+    lsmash_initialize_movie_parameters( &movie_param );
+    lsmash_get_movie_parameters( ah.root, &movie_param );
+    if( movie_param.number_of_tracks == 0 )
+        env->ThrowError( "LSMASHAudioSource: the number of tracks equals 0." );
+    /* libavformat */
+    av_register_all();
+    avcodec_register_all();
+    if( avformat_open_input( &ah.format_ctx, source, NULL, NULL ) )
+        env->ThrowError( "LSMASHAudioSource: failed to avformat_open_input." );
+    if( avformat_find_stream_info( ah.format_ctx, NULL ) < 0 )
+        env->ThrowError( "LSMASHAudioSource: failed to avformat_find_stream_info." );
+    return movie_param.number_of_tracks;
+}
+
+static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
+{
+    /* Consider start time of this media if any non-empty edit is present. */
+    uint32_t edit_count = lsmash_count_explicit_timeline_map( root, track_ID );
+    for( uint32_t edit_number = 1; edit_number <= edit_count; edit_number++ )
+    {
+        lsmash_edit_t edit;
+        if( lsmash_get_explicit_timeline_map( root, track_ID, edit_number, &edit ) )
+            return 0;
+        if( edit.duration == 0 )
+            return 0;   /* no edits */
+        if( edit.start_time >= 0 )
+            return edit.start_time;
+    }
+    return 0;
+}
+
+void LSMASHAudioSource::get_first_audio_track( const char *source, bool no_priming, IScriptEnvironment *env )
+{
+    uint32_t number_of_tracks = open_file( source, env );
+    /* L-SMASH */
+    uint32_t i;
+    lsmash_media_parameters_t media_param;
+    for( i = 1; i <= number_of_tracks; i++ )
+    {
+        ah.track_ID = lsmash_get_track_ID( ah.root, i );
+        if( ah.track_ID == 0 )
+            env->ThrowError( "LSMASHAudioSource: failed to get find audio track." );
+        lsmash_initialize_media_parameters( &media_param );
+        if( lsmash_get_media_parameters( ah.root, ah.track_ID, &media_param ) )
+            env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
+        if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
+            break;
+    }
+    if( i > number_of_tracks )
+        env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
+    if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
+        env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
+    if( no_priming )
+    {
+        uint32_t ctd_shift;
+        if( lsmash_get_composition_to_decode_shift_from_media_timeline( ah.root, ah.track_ID, &ctd_shift ) )
+            env->ThrowError( "LSMASHAudioSource: failed to get the timeline shift." );
+        ah.skip_samples = ctd_shift + get_start_time( ah.root, ah.track_ID );
+    }
+    ah.frame_count = lsmash_get_sample_count_in_media_timeline( ah.root, ah.track_ID );
+    vi.num_audio_samples = lsmash_get_media_duration( ah.root, ah.track_ID );
+    /* libavformat */
+    for( i = 0; i < ah.format_ctx->nb_streams && ah.format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
+    if( i == ah.format_ctx->nb_streams )
+        env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
+    /* libavcodec */
+    AVStream *stream = ah.format_ctx->streams[i];
+    ah.codec_ctx = stream->codec;
+    AVCodec *codec = avcodec_find_decoder( ah.codec_ctx->codec_id );
+    if( !codec )
+        env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
+    ah.codec_ctx->thread_count = 0;
+    if( avcodec_open2( ah.codec_ctx, codec, NULL ) < 0 )
+        env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
+}
+
+void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
+{
+    /* Note: the input buffer for avcodec_decode_audio4 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
+    uint32_t input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( ah.root, ah.track_ID );
+    if( input_buffer_size == 0 )
+        env->ThrowError( "LSMASHAudioSource: No valid audio sample found." );
+    ah.input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
+    if( !ah.input_buffer )
+        env->ThrowError( "LSMASHAudioSource: failed to allocate memory to the input buffer for audio." );
+    avcodec_get_frame_defaults( &ah.frame_buffer );
+    ah.frame_length = ah.codec_ctx->frame_size;
+    if( vi.num_audio_samples * 2 <= ah.frame_count * ah.frame_length )
+    {
+        /* for HE-AAC upsampling */
+        ah.upsampling         = 2;
+        ah.skip_samples      *= ah.upsampling;
+        vi.num_audio_samples *= ah.upsampling;
+    }
+    else
+        ah.upsampling = 1;
+    vi.num_audio_samples       -= ah.skip_samples;
+    vi.nchannels                = ah.codec_ctx->channels;
+    vi.audio_samples_per_second = ah.codec_ctx->sample_rate;
+    ah.next_pcm_sample_number   = vi.num_audio_samples + 1;   /* Force seeking at the first reading. */
+    ah.planes                   = av_sample_fmt_is_planar( ah.codec_ctx->sample_fmt ) ? vi.nchannels : 1;
+    ah.output_block_align       = vi.nchannels * av_get_bytes_per_sample( ah.codec_ctx->sample_fmt );
+    ah.input_block_align        = ah.output_block_align / ah.planes;
+    switch ( ah.codec_ctx->sample_fmt )
+    {
+        case AV_SAMPLE_FMT_U8 :
+        case AV_SAMPLE_FMT_U8P :
+            vi.sample_type = SAMPLE_INT8;
+            break;
+        case AV_SAMPLE_FMT_S16 :
+        case AV_SAMPLE_FMT_S16P :
+            vi.sample_type = SAMPLE_INT16;
+            break;
+        case AV_SAMPLE_FMT_S32 :
+        case AV_SAMPLE_FMT_S32P :
+            vi.sample_type = SAMPLE_INT32;
+            break;
+        case AV_SAMPLE_FMT_FLT :
+        case AV_SAMPLE_FMT_FLTP :
+            vi.sample_type = SAMPLE_FLOAT;
+            break;
+        default :
+            env->ThrowError( "LSMASHAudioSource: %s is not supported.", av_get_sample_fmt_name( ah.codec_ctx->sample_fmt ) );
+    }
+}
+
+static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_number, uint32_t *frame_length )
+{
+    if( hp->frame_length == 0 )
+    {
+        /* variable frame length
+         * Guess the frame length from sample duration. */
+        if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, frame_number, frame_length ) )
+            return -1;
+    }
+    else
+        /* constant frame length */
+        *frame_length = hp->frame_length;
+    return 0;
+}
+
+static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame_number )
+{
+    /* Some audio CODEC requires pre-roll for correct composition. */
+    lsmash_sample_property_t prop;
+    if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->track_ID, *frame_number, &prop ) )
+        return 0;
+    if( prop.pre_roll.distance == 0 )
+        return 0;
+    uint32_t preroll_samples = 0;
+    for( uint32_t i = 0; i < prop.pre_roll.distance; i++ )
+    {
+        if( *frame_number > 1 )
+            --(*frame_number);
+        else
+            break;
+        uint32_t frame_length;
+        if( get_frame_length( hp, *frame_number, &frame_length ) )
+            break;
+        preroll_samples += frame_length;
+    }
+    return preroll_samples;
+}
+
+static inline void waste_decoded_audio_samples( audio_decode_handler_t *hp, uint64_t wasted_data_size, uint8_t **p_buf, uint64_t data_offset )
+{
+    for( uint64_t i = 0; i < wasted_data_size; i += hp->input_block_align )
+        for( int j = 0; j < hp->planes; j++ )
+            for( uint64_t k = 0; k < hp->input_block_align; k++ )
+            {
+                **p_buf = hp->frame_buffer.data[j][i + k + data_offset];
+                ++(*p_buf);
+            }
+}
+
+static inline void waste_remainder_audio_samples( audio_decode_handler_t *hp, uint64_t wasted_data_size, uint8_t **p_buf )
+{
+    waste_decoded_audio_samples( hp, wasted_data_size, p_buf, hp->last_remainder_offset );
+    hp->last_remainder_size -= wasted_data_size;
+    if( hp->last_remainder_size == 0 )
+        hp->last_remainder_offset = 0;
+}
+
+static inline void put_silence_audio_samples( uint64_t silence_data_size, uint8_t **p_buf )
+{
+    for( uint64_t i = 0; i < silence_data_size; i++ )
+    {
+        **p_buf = 0;
+        ++(*p_buf);
+    }
+}
+
+void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
+{
+    uint32_t frame_number;
+    uint64_t data_offset;
+    uint64_t copy_size;
+    uint64_t output_length = 0;
+    uint64_t block_align = ah.input_block_align;
+    if( start > 0 && start == ah.next_pcm_sample_number )
+    {
+        frame_number = ah.last_frame_number;
+        if( ah.last_remainder_size && ah.frame_buffer.data[0] )
+        {
+            copy_size = min( ah.last_remainder_size, wanted_length * block_align );
+            waste_remainder_audio_samples( &ah, copy_size, (uint8_t **)&buf );
+            uint64_t copied_length = copy_size / block_align;
+            output_length += copied_length;
+            wanted_length -= copied_length;
+            if( wanted_length <= 0 )
+                goto audio_out;
+        }
+        if( ah.packet.size <= 0 )
+            ++frame_number;
+        data_offset = 0;
+    }
+    else
+    {
+        /* Seek audio stream. */
+        flush_buffers( ah.codec_ctx, &ah.error );
+        if( ah.error )
+            return;
+        ah.delay_count            = 0;
+        ah.last_remainder_size          = 0;
+        ah.last_remainder_offset        = 0;
+        ah.next_pcm_sample_number = 0;
+        ah.last_frame_number      = 0;
+        uint64_t start_frame_pos;
+        if( start >= 0 )
+            start_frame_pos = start;
+        else
+        {
+            uint64_t silence_length = -start;
+            put_silence_audio_samples( silence_length * ah.output_block_align, (uint8_t **)&buf );
+            output_length += silence_length;
+            wanted_length -= silence_length;
+            start_frame_pos = 0;
+        }
+        start_frame_pos += ah.skip_samples;
+        frame_number = 1;
+        uint64_t next_frame_pos = 0;
+        uint32_t frame_length   = 0;
+        do
+        {
+            if( get_frame_length( &ah, frame_number, &frame_length ) )
+                break;
+            next_frame_pos += (uint64_t)frame_length * ah.upsampling;
+            if( start_frame_pos < next_frame_pos )
+                break;
+            ++frame_number;
+        } while( frame_number <= ah.frame_count );
+        uint32_t preroll_samples = get_preroll_samples( &ah, &frame_number );
+        data_offset = (start_frame_pos + (preroll_samples + frame_length) * ah.upsampling - next_frame_pos) * block_align;
+    }
+    do
+    {
+        AVPacket *pkt = &ah.packet;
+        if( frame_number > ah.frame_count )
+        {
+            if( ah.delay_count )
+            {
+                /* Null packet */
+                av_init_packet( pkt );
+                pkt->data = NULL;
+                pkt->size = 0;
+                -- ah.delay_count;
+            }
+            else
+            {
+                copy_size = 0;
+                goto audio_out;
+            }
+        }
+        else if( pkt->size <= 0 )
+            get_sample( ah.root, ah.track_ID, frame_number, ah.input_buffer, pkt );
+        int output_audio = 0;
+        do
+        {
+            ah.last_remainder_size   = 0;
+            ah.last_remainder_offset = 0;
+            copy_size = 0;
+            int decode_complete;
+            int wasted_data_length = avcodec_decode_audio4( ah.codec_ctx, &ah.frame_buffer, &decode_complete, pkt );
+            if( wasted_data_length < 0 )
+            {
+                pkt->size = 0;  /* Force to get the next sample. */
+                break;
+            }
+            if( pkt->data )
+            {
+                pkt->size -= wasted_data_length;
+                pkt->data += wasted_data_length;
+            }
+            else if( !decode_complete )
+                goto audio_out;
+            if( decode_complete && ah.frame_buffer.data[0] )
+            {
+                uint64_t decoded_data_size = ah.frame_buffer.nb_samples * block_align;
+                if( decoded_data_size > data_offset )
+                {
+                    copy_size = min( decoded_data_size - data_offset, wanted_length * block_align );
+                    waste_decoded_audio_samples( &ah, copy_size, (uint8_t **)&buf, data_offset );
+                    uint64_t copied_length = copy_size / block_align;
+                    output_length += copied_length;
+                    wanted_length -= copied_length;
+                    data_offset = 0;
+                    if( wanted_length <= 0 )
+                    {
+                        ah.last_remainder_size = decoded_data_size - copy_size;
+                        goto audio_out;
+                    }
+                }
+                else
+                    data_offset -= decoded_data_size;
+                output_audio = 1;
+            }
+        } while( pkt->size > 0 );
+        if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
+            ++ ah.delay_count;
+        ++frame_number;
+    } while( 1 );
+audio_out:
+    ah.next_pcm_sample_number = start + output_length;
+    ah.last_frame_number = frame_number;
+    if( ah.last_remainder_size )
+        ah.last_remainder_offset += copy_size;
+}
+
+AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
     const char *source                 = args[0].AsString();
     int         threads                = args[1].AsInt( 0 );
@@ -675,11 +1073,19 @@ AVSValue __cdecl CreatLSMASHVideoSource( AVSValue args, void *user_data, IScript
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LSMASHVideoSource( source, threads, seek_mode, forward_seek_threshold, env );  
+    return new LSMASHVideoSource( source, threads, seek_mode, forward_seek_threshold, env );
+}
+
+AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
+{
+    const char *source     = args[0].AsString();
+    bool        no_priming = args[1].AsBool( true );
+    return new LSMASHAudioSource( source, no_priming, env );
 }
 
 extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( IScriptEnvironment *env )
 {
-    env->AddFunction( "LSMASHVideoSource", "[source]s[threads]i[seek_mode]i[seek_threshold]i", CreatLSMASHVideoSource, 0 );
+    env->AddFunction( "LSMASHVideoSource", "[source]s[threads]i[seek_mode]i[seek_threshold]i", CreateLSMASHVideoSource, 0 );
+    env->AddFunction( "LSMASHAudioSource", "[source]s[no_priming]b", CreateLSMASHAudioSource, 0 );
     return "LSMASHSource";
 }
