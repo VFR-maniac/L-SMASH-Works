@@ -254,7 +254,7 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
 {
     uint32_t number_of_tracks = open_file( source, env );
     if( track_number && track_number > number_of_tracks )
-        env->ThrowError( "LSMASHVideoSource: the number of tracks equals %l32u.", number_of_tracks );
+        env->ThrowError( "LSMASHVideoSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
@@ -788,7 +788,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
 {
     uint32_t number_of_tracks = open_file( source, env );
     if( track_number && track_number > number_of_tracks )
-        env->ThrowError( "LSMASHAudioSource: the number of tracks equals %l32u.", number_of_tracks );
+        env->ThrowError( "LSMASHAudioSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
