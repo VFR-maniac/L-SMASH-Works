@@ -40,6 +40,7 @@ extern "C"
 #include <libavformat/avformat.h>   /* Codec specific info importer */
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
+#include <libavutil/pixdesc.h>
 }
 
 #pragma comment( lib, "libgcc.a" )
@@ -309,7 +310,28 @@ static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_n
     return 0;
 }
 
-static int make_frame_420p( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
+static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt )
+{
+    int src_size = 0;
+    for( int i = 0; i < 4; i++ )
+    {
+        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[src_pix_fmt].comp[i];
+        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
+            src_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+    }
+    if( src_size == 0 )
+        return 1;
+    int dst_size = 0;
+    for( int i = 0; i < 4; i++ )
+    {
+        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[dst_pix_fmt].comp[i];
+        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
+            dst_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+    }
+    return (dst_size - 1) / src_size + 1;
+}
+
+static int make_frame_yuv420p( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
     int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
     if( abs_dst_linesize & 15 )
@@ -323,14 +345,14 @@ static int make_frame_420p( AVCodecContext *codec_ctx, struct SwsContext *sws_ct
     dst_data[3] = NULL;
     const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, codec_ctx->height, dst_data, dst_linesize );
-    env->BitBlt( frame->GetWritePtr( PLANAR_Y ), frame->GetPitch( PLANAR_Y ), dst_data[0], dst_linesize[0], frame->GetRowSize( PLANAR_Y ), frame->GetHeight( PLANAR_Y )); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_U ), frame->GetPitch( PLANAR_U ), dst_data[1], dst_linesize[1], frame->GetRowSize( PLANAR_U ), frame->GetHeight( PLANAR_U )); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_V ), frame->GetPitch( PLANAR_V ), dst_data[2], dst_linesize[2], frame->GetRowSize( PLANAR_V ), frame->GetHeight( PLANAR_V )); 
+    env->BitBlt( frame->GetWritePtr( PLANAR_Y ), frame->GetPitch( PLANAR_Y ), dst_data[0], dst_linesize[0], frame->GetRowSize( PLANAR_Y ), frame->GetHeight( PLANAR_Y ) ); 
+    env->BitBlt( frame->GetWritePtr( PLANAR_U ), frame->GetPitch( PLANAR_U ), dst_data[1], dst_linesize[1], frame->GetRowSize( PLANAR_U ), frame->GetHeight( PLANAR_U ) ); 
+    env->BitBlt( frame->GetWritePtr( PLANAR_V ), frame->GetPitch( PLANAR_V ), dst_data[2], dst_linesize[2], frame->GetRowSize( PLANAR_V ), frame->GetHeight( PLANAR_V ) ); 
     av_free( dst_data[0] );
     return 0;
 }
 
-static int make_frame_422( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
+static int make_frame_yuv422( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
@@ -342,6 +364,23 @@ static int make_frame_422( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx
         return -1;
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, codec_ctx->height, dst_data, dst_linesize );
     env->BitBlt( frame->GetWritePtr(), frame->GetPitch(), dst_data[0], dst_linesize[0], frame->GetRowSize(), frame->GetHeight() );
+    av_free( dst_data[0] );
+    return 0;
+}
+
+static int make_frame_rgba32( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
+{
+    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
+    if( abs_dst_linesize < 0 )
+        abs_dst_linesize = -abs_dst_linesize;
+    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, codec_ctx->pix_fmt );
+    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
+    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
+    dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * codec_ctx->height );
+    if( !dst_data[0] )
+        return -1;
+    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, codec_ctx->height, dst_data, dst_linesize );
+    env->BitBlt( frame->GetWritePtr() + frame->GetPitch() * (frame->GetHeight() - 1), -frame->GetPitch(), dst_data[0], dst_linesize[0], frame->GetRowSize(), frame->GetHeight() ); 
     av_free( dst_data[0] );
     return 0;
 }
@@ -373,13 +412,23 @@ func_make_frame *determine_colorspace_conversion( enum PixelFormat *input_pixel_
         case PIX_FMT_NV21 :
             *output_pixel_format = PIX_FMT_YUV420P;     /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
             *output_pixel_type   = VideoInfo::CS_I420;
-            return make_frame_420p;
+            return make_frame_yuv420p;
         case PIX_FMT_YUYV422 :
         case PIX_FMT_YUV422P :
         case PIX_FMT_UYVY422 :
             *output_pixel_format = PIX_FMT_YUYV422;     /* packed YUV 4:2:2, 16bpp */
             *output_pixel_type   = VideoInfo::CS_YUY2;
-            return make_frame_422;
+            return make_frame_yuv422;
+        case PIX_FMT_ARGB :
+        case PIX_FMT_RGBA :
+        case PIX_FMT_ABGR :
+        case PIX_FMT_BGRA :
+        case PIX_FMT_RGB24 :
+        case PIX_FMT_BGR24 :
+        case PIX_FMT_GBRP :
+            *output_pixel_format = PIX_FMT_BGRA;        /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
+            *output_pixel_type   = VideoInfo::CS_BGR32;
+            return make_frame_rgba32;
         default :
             *output_pixel_format = PIX_FMT_NONE;
             *output_pixel_type   = VideoInfo::CS_UNKNOWN;
@@ -397,10 +446,11 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     if( !vh.input_buffer )
         env->ThrowError( "LSMASHVideoSource: failed to allocate memory to the input buffer for video." );
     /* swscale */
+    enum PixelFormat input_pixel_format = vh.codec_ctx->pix_fmt;
     enum PixelFormat output_pixel_format;
     make_frame = determine_colorspace_conversion( &vh.codec_ctx->pix_fmt, &output_pixel_format, &vi.pixel_type );
     if( !make_frame )
-        env->ThrowError( "LSMASHVideoSource: only support 4:2:0 or 4:2:2 colorspace." );
+        env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = vh.codec_ctx->width;
     vi.height = vh.codec_ctx->height;
     vh.sws_ctx = sws_getCachedContext( NULL,
