@@ -207,8 +207,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->vi->nchannels;
     Format->nSamplesPerSec  = hp->vi->audio_samples_per_second;
-    Format->wBitsPerSample  = avs_bytes_per_audio_sample( hp->vi ) * 8;
-    Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
+    Format->wBitsPerSample  = avs_bytes_per_channel_sample( hp->vi ) * 8;
+    Format->nBlockAlign     = avs_bytes_per_audio_sample( hp->vi );
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
     Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
     if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
