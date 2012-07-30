@@ -104,10 +104,10 @@ private:
     uint32_t               first_valid_frame_number;
     func_make_frame       *make_frame;
     uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_first_video_track( const char *source, int threads, IScriptEnvironment *env );
+    void get_video_track( const char *source, uint32_t track_number, int threads, IScriptEnvironment *env );
     void prepare_video_decoding( IScriptEnvironment *env );
 public:
-    LSMASHVideoSource( const char *source, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env );
+    LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env );
     ~LSMASHVideoSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env );
     bool __stdcall GetParity( int n ) { return false; }
@@ -116,14 +116,14 @@ public:
     const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
 
-LSMASHVideoSource::LSMASHVideoSource( const char *source, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env )
+LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env )
 {
     memset( &vi, 0, sizeof(VideoInfo) );
     memset( &vh, 0, sizeof(video_decode_handler_t) );
     vh.seek_mode              = seek_mode;
     vh.forward_seek_threshold = forward_seek_threshold;
     first_valid_frame         = NULL;
-    get_first_video_track( source, threads, env );
+    get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vh.root );
     prepare_video_decoding( env );
 }
@@ -250,25 +250,43 @@ static void setup_timestamp_info( video_decode_handler_t *hp, VideoInfo *vi, uin
     vi->fps_denominator = (unsigned int)composition_timebase;
 }
 
-void LSMASHVideoSource::get_first_video_track( const char *source, int threads, IScriptEnvironment *env )
+void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_number, int threads, IScriptEnvironment *env )
 {
     uint32_t number_of_tracks = open_file( source, env );
+    if( track_number && track_number > number_of_tracks )
+        env->ThrowError( "LSMASHVideoSource: the number of tracks equals %l32u.", number_of_tracks );
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
-    for( i = 1; i <= number_of_tracks; i++ )
+    if( track_number == 0 )
     {
-        vh.track_ID = lsmash_get_track_ID( vh.root, i );
+        /* Get the first video track. */
+        for( i = 1; i <= number_of_tracks; i++ )
+        {
+            vh.track_ID = lsmash_get_track_ID( vh.root, i );
+            if( vh.track_ID == 0 )
+                env->ThrowError( "LSMASHVideoSource: failed to find video track." );
+            lsmash_initialize_media_parameters( &media_param );
+            if( lsmash_get_media_parameters( vh.root, vh.track_ID, &media_param ) )
+                env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
+            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+                break;
+        }
+        if( i > number_of_tracks )
+            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
+    }
+    else
+    {
+        /* Get the desired video track. */
+        vh.track_ID = lsmash_get_track_ID( vh.root, track_number );
         if( vh.track_ID == 0 )
-            env->ThrowError( "LSMASHVideoSource: failed to get find video track." );
+            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
         lsmash_initialize_media_parameters( &media_param );
         if( lsmash_get_media_parameters( vh.root, vh.track_ID, &media_param ) )
             env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
-        if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-            break;
+        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+            env->ThrowError( "LSMASHVideoSource: the track you specified is not a video track." );
     }
-    if( i > number_of_tracks )
-        env->ThrowError( "LSMASHVideoSource: failed to find video track." );
     if( lsmash_construct_timeline( vh.root, vh.track_ID ) )
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
     vi.num_frames = lsmash_get_sample_count_in_media_timeline( vh.root, vh.track_ID );
@@ -508,8 +526,7 @@ static inline uint32_t get_decoding_sample_number( order_converter_t *order_conv
          : composition_sample_number;
 }
 
-static int find_random_accessible_point( video_decode_handler_t *hp, uint32_t composition_sample_number,
-                                         uint32_t decoding_sample_number, uint32_t *rap_number )
+static int find_random_accessible_point( video_decode_handler_t *hp, uint32_t composition_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
 {
     if( decoding_sample_number == 0 )
         decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
@@ -697,10 +714,10 @@ private:
     VideoInfo              vi;
     audio_decode_handler_t ah;
     uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_first_audio_track( const char *source, bool skip_priming, IScriptEnvironment *env );
+    void get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
     void prepare_audio_decoding( IScriptEnvironment *env );
 public:
-    LSMASHAudioSource( const char *source, bool skip_priming, IScriptEnvironment *env );
+    LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
     ~LSMASHAudioSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
     bool __stdcall GetParity( int n ) { return false; }
@@ -709,11 +726,11 @@ public:
     const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
 
-LSMASHAudioSource::LSMASHAudioSource( const char *source, bool skip_priming, IScriptEnvironment *env )
+LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
     memset( &vi, 0, sizeof(VideoInfo) );
     memset( &ah, 0, sizeof(audio_decode_handler_t) );
-    get_first_audio_track( source, skip_priming, env );
+    get_audio_track( source, track_number, skip_priming, env );
     lsmash_discard_boxes( ah.root );
     prepare_audio_decoding( env );
 }
@@ -767,25 +784,43 @@ static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
     return 0;
 }
 
-void LSMASHAudioSource::get_first_audio_track( const char *source, bool skip_priming, IScriptEnvironment *env )
+void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
     uint32_t number_of_tracks = open_file( source, env );
+    if( track_number && track_number > number_of_tracks )
+        env->ThrowError( "LSMASHAudioSource: the number of tracks equals %l32u.", number_of_tracks );
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
-    for( i = 1; i <= number_of_tracks; i++ )
+    if( track_number == 0 )
     {
-        ah.track_ID = lsmash_get_track_ID( ah.root, i );
+        /* Get the first audio track. */
+        for( i = 1; i <= number_of_tracks; i++ )
+        {
+            ah.track_ID = lsmash_get_track_ID( ah.root, i );
+            if( ah.track_ID == 0 )
+                env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
+            lsmash_initialize_media_parameters( &media_param );
+            if( lsmash_get_media_parameters( ah.root, ah.track_ID, &media_param ) )
+                env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
+            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
+                break;
+        }
+        if( i > number_of_tracks )
+            env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
+    }
+    else
+    {
+        /* Get the desired audio track. */
+        ah.track_ID = lsmash_get_track_ID( ah.root, track_number );
         if( ah.track_ID == 0 )
-            env->ThrowError( "LSMASHAudioSource: failed to get find audio track." );
+            env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
         lsmash_initialize_media_parameters( &media_param );
         if( lsmash_get_media_parameters( ah.root, ah.track_ID, &media_param ) )
             env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
-        if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
-            break;
+        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
+            env->ThrowError( "LSMASHAudioSource: the track you specified is not an audio track." );
     }
-    if( i > number_of_tracks )
-        env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
     if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
     if( skip_priming )
@@ -1067,25 +1102,27 @@ audio_out:
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
     const char *source                 = args[0].AsString();
-    int         threads                = args[1].AsInt( 0 );
-    int         seek_mode              = args[2].AsInt( 0 );
-    uint32_t    forward_seek_threshold = args[3].AsInt( 10 );
+    uint32_t    track_number           = args[1].AsInt( 0 );
+    int         threads                = args[2].AsInt( 0 );
+    int         seek_mode              = args[3].AsInt( 0 );
+    uint32_t    forward_seek_threshold = args[4].AsInt( 10 );
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LSMASHVideoSource( source, threads, seek_mode, forward_seek_threshold, env );
+    return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold, env );
 }
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
     const char *source       = args[0].AsString();
-    bool        skip_priming = args[1].AsBool( true );
-    return new LSMASHAudioSource( source, skip_priming, env );
+    uint32_t    track_number = args[1].AsInt( 0 );
+    bool        skip_priming = args[2].AsBool( true );
+    return new LSMASHAudioSource( source, track_number, skip_priming, env );
 }
 
 extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( IScriptEnvironment *env )
 {
-    env->AddFunction( "LSMASHVideoSource", "[source]s[threads]i[seek_mode]i[seek_threshold]i", CreateLSMASHVideoSource, 0 );
-    env->AddFunction( "LSMASHAudioSource", "[source]s[skip_priming]b", CreateLSMASHAudioSource, 0 );
+    env->AddFunction( "LSMASHVideoSource", "[source]s[track]i[threads]i[seek_mode]i[seek_threshold]i", CreateLSMASHVideoSource, 0 );
+    env->AddFunction( "LSMASHAudioSource", "[source]s[track]i[skip_priming]b", CreateLSMASHAudioSource, 0 );
     return "LSMASHSource";
 }
