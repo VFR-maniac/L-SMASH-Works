@@ -789,7 +789,7 @@ static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
 
 static char *duplicate_as_string( void *src, size_t length )
 {
-    char *dst = (char *)malloc( length + 1 );
+    char *dst = new char[length + 1];
     if( !dst )
         return NULL;
     memcpy( dst, src, length );
@@ -876,10 +876,10 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
                               &dummy[0], &priming_samples, &padding, &duration, &dummy[1], &dummy[2],
                               &dummy[3], &dummy[4], &dummy[5], &dummy[6], &dummy[7], &dummy[8] ) )
             {
-                free( value );
+                delete [] value;
                 continue;
             }
-            free( value );
+            delete [] value;
             ah.implicit_preroll  = 1;
             ah.skip_samples      = priming_samples;
             vi.num_audio_samples = duration + priming_samples;
