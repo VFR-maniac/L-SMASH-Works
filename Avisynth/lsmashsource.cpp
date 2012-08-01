@@ -953,7 +953,7 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
         if( hp->skip_samples == 0 || !hp->implicit_preroll )
             return 0;
         /* Estimate pre-roll distance. */
-        uint64_t skip_samples = hp->skip_samples;
+        uint64_t skip_samples = hp->skip_samples / hp->upsampling;
         for( uint32_t i = 1; i <= hp->frame_count || skip_samples; i++ )
         {
             uint32_t frame_length;
