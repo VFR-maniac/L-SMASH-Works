@@ -787,6 +787,16 @@ static int64_t get_start_time( lsmash_root_t *root, uint32_t track_ID )
     return 0;
 }
 
+static char *duplicate_as_string( void *src, size_t length )
+{
+    char *dst = (char *)malloc( length + 1 );
+    if( !dst )
+        return NULL;
+    memcpy( dst, src, length );
+    dst[length] = '\0';
+    return dst;
+}
+
 void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
     uint32_t number_of_tracks = open_file( source, env );
@@ -842,8 +852,21 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
              || memcmp( "com.apple.iTunes", metadata.meaning, strlen( metadata.meaning ) )
              || memcmp( "iTunSMPB", metadata.name, strlen( metadata.name ) ) )
                 continue;
-            char *value = metadata.type == ITUNES_METADATA_TYPE_STRING ? metadata.value.string : (char *)metadata.value.binary.data;
-            if( strlen( value ) < 116 )
+            char *value;
+            if( metadata.type == ITUNES_METADATA_TYPE_STRING )
+            {
+                int length = strlen( metadata.value.string );
+                if( length < 116 )
+                    continue;
+                value = duplicate_as_string( metadata.value.string, length );
+            }
+            else    /* metadata.type == ITUNES_METADATA_TYPE_BINARY */
+            {
+                if( metadata.value.binary.size < 116 )
+                    continue;
+                value = duplicate_as_string( metadata.value.binary.data, metadata.value.binary.size );
+            }
+            if( !value )
                 continue;
             uint32_t dummy[9];
             uint32_t priming_samples;
@@ -852,7 +875,11 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
             if( 12 != sscanf( value, " %I32x %I32x %I32x %I64x %I32x %I32x %I32x %I32x %I32x %I32x %I32x %I32x",
                               &dummy[0], &priming_samples, &padding, &duration, &dummy[1], &dummy[2],
                               &dummy[3], &dummy[4], &dummy[5], &dummy[6], &dummy[7], &dummy[8] ) )
+            {
+                free( value );
                 continue;
+            }
+            free( value );
             ah.implicit_preroll  = 1;
             ah.skip_samples      = priming_samples;
             vi.num_audio_samples = duration + priming_samples;
