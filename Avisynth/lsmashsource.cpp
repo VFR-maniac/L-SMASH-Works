@@ -43,6 +43,8 @@ extern "C"
 #include <libavutil/pixdesc.h>
 }
 
+#pragma warning( disable:4996 )
+
 #pragma comment( lib, "libgcc.a" )
 #pragma comment( lib, "libz.a" )
 #pragma comment( lib, "libbz2.a" )
@@ -701,6 +703,7 @@ typedef struct
     uint64_t           last_remainder_offset;
     uint64_t           next_pcm_sample_number;
     uint64_t           skip_samples;
+    int                implicit_preroll;
     int                upsampling;
     int                planes;
     int                input_block_align;
@@ -823,15 +826,42 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     }
     if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
-    if( skip_priming )
-    {
-        uint32_t ctd_shift;
-        if( lsmash_get_composition_to_decode_shift_from_media_timeline( ah.root, ah.track_ID, &ctd_shift ) )
-            env->ThrowError( "LSMASHAudioSource: failed to get the timeline shift." );
-        ah.skip_samples = ctd_shift + get_start_time( ah.root, ah.track_ID );
-    }
     ah.frame_count = lsmash_get_sample_count_in_media_timeline( ah.root, ah.track_ID );
     vi.num_audio_samples = lsmash_get_media_duration( ah.root, ah.track_ID );
+    if( skip_priming )
+    {
+        uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( ah.root );
+        for( i = 1; i <= itunes_metadata_count; i++ )
+        {
+            lsmash_itunes_metadata_t metadata;
+            if( lsmash_get_itunes_metadata( ah.root, i, &metadata ) )
+                continue;
+            if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM || !metadata.meaning || !metadata.name
+             || memcmp( "com.apple.iTunes", metadata.meaning, strlen( metadata.meaning ) )
+             || memcmp( "iTunSMPB", metadata.name, strlen( metadata.name ) ) )
+                continue;
+            char *value = metadata.type == ITUNES_METADATA_TYPE_STRING ? metadata.value.string : (char *)metadata.value.binary.data;
+            uint32_t dummy[9];
+            uint32_t priming_samples;
+            uint32_t padding;
+            uint64_t duration;
+            if( 12 != sscanf( value, "%I32x %I32x %I32x %I64x %I32x %I32x %I32x %I32x %I32x %I32x %I32x %I32x",
+                              &dummy[0], &priming_samples, &padding, &duration, &dummy[1], &dummy[2],
+                              &dummy[3], &dummy[4], &dummy[5], &dummy[6], &dummy[7], &dummy[8] ) )
+                continue;
+            ah.implicit_preroll  = 1;
+            ah.skip_samples      = priming_samples;
+            vi.num_audio_samples = duration + priming_samples;
+            break;
+        }
+        if( ah.skip_samples == 0 )
+        {
+            uint32_t ctd_shift;
+            if( lsmash_get_composition_to_decode_shift_from_media_timeline( ah.root, ah.track_ID, &ctd_shift ) )
+                env->ThrowError( "LSMASHAudioSource: failed to get the timeline shift." );
+            ah.skip_samples = ctd_shift + get_start_time( ah.root, ah.track_ID );
+        }
+    }
     /* libavformat */
     for( i = 0; i < ah.format_ctx->nb_streams && ah.format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
     if( i == ah.format_ctx->nb_streams )
@@ -919,7 +949,23 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
     if( lsmash_get_sample_property_from_media_timeline( hp->root, hp->track_ID, *frame_number, &prop ) )
         return 0;
     if( prop.pre_roll.distance == 0 )
-        return 0;
+    {
+        if( hp->skip_samples == 0 || !hp->implicit_preroll )
+            return 0;
+        /* Estimate pre-roll distance. */
+        uint64_t skip_samples = hp->skip_samples;
+        for( uint32_t i = 1; i <= hp->frame_count || skip_samples; i++ )
+        {
+            uint32_t frame_length;
+            if( get_frame_length( hp, i, &frame_length ) )
+                break;
+            if( skip_samples < frame_length )
+                skip_samples = 0;
+            else
+                skip_samples -= frame_length;
+            ++ prop.pre_roll.distance;
+        }
+    }
     uint32_t preroll_samples = 0;
     for( uint32_t i = 0; i < prop.pre_roll.distance; i++ )
     {
