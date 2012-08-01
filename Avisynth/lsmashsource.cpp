@@ -841,11 +841,13 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
              || memcmp( "iTunSMPB", metadata.name, strlen( metadata.name ) ) )
                 continue;
             char *value = metadata.type == ITUNES_METADATA_TYPE_STRING ? metadata.value.string : (char *)metadata.value.binary.data;
+            if( strlen( value ) < 116 )
+                continue;
             uint32_t dummy[9];
             uint32_t priming_samples;
             uint32_t padding;
             uint64_t duration;
-            if( 12 != sscanf( value, "%I32x %I32x %I32x %I64x %I32x %I32x %I32x %I32x %I32x %I32x %I32x %I32x",
+            if( 12 != sscanf( value, " %I32x %I32x %I32x %I64x %I32x %I32x %I32x %I32x %I32x %I32x %I32x %I32x",
                               &dummy[0], &priming_samples, &padding, &duration, &dummy[1], &dummy[2],
                               &dummy[3], &dummy[4], &dummy[5], &dummy[6], &dummy[7], &dummy[8] ) )
                 continue;
