@@ -836,7 +836,9 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
             lsmash_itunes_metadata_t metadata;
             if( lsmash_get_itunes_metadata( ah.root, i, &metadata ) )
                 continue;
-            if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM || !metadata.meaning || !metadata.name
+            if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM
+             || (metadata.type != ITUNES_METADATA_TYPE_STRING && metadata.type != ITUNES_METADATA_TYPE_BINARY)
+             || !metadata.meaning || !metadata.name
              || memcmp( "com.apple.iTunes", metadata.meaning, strlen( metadata.meaning ) )
              || memcmp( "iTunSMPB", metadata.name, strlen( metadata.name ) ) )
                 continue;
