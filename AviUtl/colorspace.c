@@ -263,6 +263,7 @@ static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFo
     }
     if( src_size == 0 )
         return 1;
+    src_size *= av_get_bits_per_pixel( &av_pix_fmt_descriptors[src_pix_fmt] );
     int dst_size = 0;
     for( int i = 0; i < 4; i++ )
     {
@@ -270,6 +271,7 @@ static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFo
         if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
             dst_size += ((comp->depth_minus1 + 8) >> 3) << 3;
     }
+    dst_size *= av_get_bits_per_pixel( &av_pix_fmt_descriptors[dst_pix_fmt] );
     return (dst_size - 1) / src_size + 1;
 }
 
