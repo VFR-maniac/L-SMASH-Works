@@ -195,7 +195,7 @@ static void setup_timestamp_info( video_decode_handler_t *hp, VideoInfo *vi, uin
     if( vi->num_frames == 1 )
     {
         /* Calculate average framerate. */
-        uint64_t media_duration = lsmash_get_media_duration( hp->root, hp->track_ID );
+        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( hp->root, hp->track_ID );
         if( media_duration == 0 )
             media_duration = INT32_MAX;
         reduce_fraction( &media_timescale, &media_duration );
@@ -837,7 +837,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
     ah.frame_count = lsmash_get_sample_count_in_media_timeline( ah.root, ah.track_ID );
-    vi.num_audio_samples = lsmash_get_media_duration( ah.root, ah.track_ID );
+    vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( ah.root, ah.track_ID );
     if( skip_priming )
     {
         uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( ah.root );
