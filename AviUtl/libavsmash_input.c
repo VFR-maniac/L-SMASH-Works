@@ -180,7 +180,7 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     if( h->video_sample_count == 1 )
     {
         /* Calculate average framerate. */
-        uint64_t media_duration = lsmash_get_media_duration( hp->root, track_ID );
+        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( hp->root, track_ID );
         if( media_duration == 0 )
             media_duration = INT32_MAX;
         reduce_fraction( &media_timescale, &media_duration );
@@ -346,7 +346,7 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         hp->audio_track_ID = track_ID;
         hp->audio_media_timescale = media_param.timescale;
         hp->audio_frame_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
-        h->audio_pcm_sample_count = lsmash_get_media_duration( hp->root, track_ID );
+        h->audio_pcm_sample_count = lsmash_get_media_duration_from_media_timeline( hp->root, track_ID );
         if( hp->av_sync )
         {
             uint64_t min_cts;
