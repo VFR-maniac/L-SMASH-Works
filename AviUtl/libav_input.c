@@ -255,7 +255,12 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
             return -1;
         }
         sort_presentation_order( &info[1], sample_count );
-        video_timestamp_t timestamp[sample_count + 1];
+        video_timestamp_t *timestamp = malloc( (sample_count + 1) * sizeof(video_timestamp_t) );
+        if( !timestamp )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
+            return -1;
+        }
         for( uint32_t i = 1; i <= sample_count; i++ )
         {
             timestamp[i].pts = i;
@@ -264,6 +269,7 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
         sort_decoding_order( &timestamp[1], sample_count );
         for( uint32_t i = 1; i <= sample_count; i++ )
             hp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
+        free( timestamp );
     }
     else if( hp->video_seek_base & SEEK_DTS_BASED )
         for( uint32_t i = 1; i <= sample_count; i++ )
