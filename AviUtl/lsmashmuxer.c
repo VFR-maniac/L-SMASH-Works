@@ -125,16 +125,25 @@ typedef struct
 
 typedef struct
 {
+    int               active;
+    uint32_t          out_mapped_index;
+    lsmash_summary_t *summary;
+} input_summary_t;
+
+typedef struct
+{
     int                       active;
     uint32_t                  track_ID;
+    uint32_t                  number_of_summaries;
     uint32_t                  number_of_samples;
     uint32_t                  last_sample_delta;
     uint32_t                  timescale_integrator;
     uint32_t                  ctd_shift;
     uint64_t                  empty_duration;
     uint64_t                  skip_duration;
-    lsmash_sample_t          *sample;
     double                    dts;
+    lsmash_sample_t          *sample;
+    input_summary_t          *summaries;
     lsmash_track_parameters_t track_param;
     lsmash_media_parameters_t media_param;
 } input_track_t;
@@ -186,7 +195,6 @@ typedef struct
     uint32_t                  track_ID;
     uint32_t                  media_timescale;
     uint64_t                  edit_offset;
-    uint64_t                  largest_dts;
     uint64_t                  largest_cts;
     uint64_t                  second_largest_cts;
     lsmash_track_parameters_t track_param;
@@ -347,10 +355,34 @@ static void get_first_track_of_type( input_movie_t *input, uint32_t number_of_tr
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the timeline shift." );
         return;
     }
-    in_track->empty_duration = get_empty_duration( input->root, track_ID, input->movie_param.timescale, in_track->media_param.timescale );
-    in_track->skip_duration  = get_start_time( input->root, track_ID ) + in_track->ctd_shift;
+    in_track->number_of_summaries = lsmash_count_summary( input->root, in_track->track_ID );
+    if( in_track->number_of_summaries == 0 )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find valid summaries." );
+        return;
+    }
+    in_track->summaries = malloc( in_track->number_of_summaries * sizeof(input_summary_t) );
+    if( !in_track->summaries )
+    {
+        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to alloc input summaries." );
+        return;
+    }
+    memset( in_track->summaries, 0, in_track->number_of_summaries * sizeof(input_summary_t) );
+    for( i = 0; i < in_track->number_of_summaries; i++ )
+    {
+        lsmash_summary_t *summary = lsmash_get_summary( input->root, in_track->track_ID, i + 1 );
+        if( !summary )
+        {
+            MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get a summary." );
+            continue;
+        }
+        in_track->summaries[i].summary = summary;
+        in_track->summaries[i].active  = 1;
+    }
+    in_track->empty_duration    = get_empty_duration( input->root, track_ID, input->movie_param.timescale, in_track->media_param.timescale );
+    in_track->skip_duration     = get_start_time( input->root, track_ID ) + in_track->ctd_shift;
     in_track->number_of_samples = lsmash_get_sample_count_in_media_timeline( input->root, track_ID );
-    in_track->active = 1;
+    in_track->active            = 1;
 }
 
 static inline uint32_t get_decoding_sample_number( order_converter_t *order_converter, uint32_t composition_sample_number )
@@ -909,12 +941,6 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to set media parameters." );
             return -1;
         }
-        /* FIXME: support multiple sample descriptions for multiple input files. */
-        if( lsmash_copy_decoder_specific_info( output->root, out_track->track_ID, input->root, in_track->track_ID ) )
-        {
-            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to copy a Decoder Specific Info." );
-            return -1;
-        }
         out_track->active = 1;
     }
     if( !output->track[VIDEO_TRACK].active )
@@ -1012,6 +1038,42 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
     }
     hp->composition_delay_time = (hp->composition_delay_time - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
     return 0;
+}
+
+static uint32_t get_identical_summary( output_movie_t *output, output_track_t *out_track, lsmash_summary_t *summary )
+{
+    uint32_t number_of_summaries = lsmash_count_summary( output->root, out_track->track_ID );
+    for( uint32_t index = 1; index <= number_of_summaries; index++ )
+    {
+        lsmash_summary_t *out_summary = lsmash_get_summary( output->root, out_track->track_ID, index );
+        if( !out_summary )
+            continue;
+        if( lsmash_compare_summary( summary, out_summary ) == 0 )
+            return index;
+    }
+    return 0;
+}
+
+static uint32_t get_output_sample_description_index( output_movie_t *output, output_track_t *out_track, input_track_t *in_track, uint32_t index )
+{
+    input_summary_t *in_summary = &in_track->summaries[index - 1];
+    if( in_summary->active && in_summary->out_mapped_index == 0 )
+    {
+        in_summary->out_mapped_index = get_identical_summary( output, out_track, in_summary->summary );
+        if( in_summary->out_mapped_index == 0 )
+        {
+            /* Append a new sample description entry. */
+            in_summary->out_mapped_index = lsmash_add_sample_entry( output->root, out_track->track_ID, in_summary->summary );
+            if( in_summary->out_mapped_index == 0 )
+            {
+                DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "failed to append a new summary" );
+                lsmash_cleanup_summary( in_summary->summary );
+                in_summary->summary = NULL;
+                in_summary->active  = 0;
+            }
+        }
+    }
+    return in_summary->out_mapped_index;
 }
 
 static void update_largest_cts( output_track_t *out_track, uint64_t cts )
@@ -1141,6 +1203,9 @@ static int do_mux( lsmash_handler_t *hp )
         /* Append a sample if meeting a condition. */
         if( in_track->dts <= output->largest_dts || num_consecutive_sample_skip == num_active_input_tracks )
         {
+            output_track_t *out_track = &output->track[type];
+            sample[type]->index = get_output_sample_description_index( output, out_track, in_track, sample[type]->index );
+            uint64_t sample_cts = sample[type]->cts;    /* sample might be deleted internally after appending. */
             uint32_t sample_delta;
             if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number, &sample_delta ) )
             {
@@ -1149,29 +1214,37 @@ static int do_mux( lsmash_handler_t *hp )
                 break;
             }
             sample_delta *= in_track->timescale_integrator;
-            uint64_t sample_dts  = sample[type]->dts;       /* sample might be deleted internally after appending. */
-            uint64_t sample_cts  = sample[type]->cts;       /* same as above */
-            output_track_t *out_track = &output->track[type];
 #ifdef DEBUG
             char log_data[1024];
             sprintf( log_data, "sequence_number=%"PRIu32", file_id=%d, type=%s, source_sample_number=%"PRIu32", "
-                     "edit_offset=%"PRIu64", smallest_cts=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", sample_delta=%"PRIu32"\n",
+                     "edit_offset=%"PRIu64", smallest_cts=%"PRIu64", DTS=%"PRIu64", CTS=%"PRIu64", "
+                     "sample_delta=%"PRIu32", sample_description_index=%"PRIu32"\n",
                      sequence[type]->number, input->file_id, type ? "audio" : "video", sequence[type]->current_sample_number,
-                     out_track->edit_offset, sequence[type]->smallest_cts, sample[type]->dts, sample[type]->cts, sample_delta );
+                     out_track->edit_offset, sequence[type]->smallest_cts,
+                     sample[type]->dts, sample[type]->cts, sample_delta, sample[type]->index );
             fwrite( log_data, 1, strlen( log_data ), hp->log_file );
 #endif
-            /* Append a sample into output movie. */
-            if( lsmash_append_sample( output->root, out_track->track_ID, sample[type] ) )
+            if( sample[type]->index )
             {
+                /* Append the current sample into output movie. */
+                if( lsmash_append_sample( output->root, out_track->track_ID, sample[type] ) )
+                {
+                    lsmash_delete_sample( sample[type] );
+                    MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    break;
+                }
+                num_consecutive_sample_skip = 0;
+                ++ num_output_samples[type];
+            }
+            else
+            {
+                /* Drop the current invalid sample that doesn't have usable sample_description_index. */
                 lsmash_delete_sample( sample[type] );
-                MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
-                break;
+                --total_num_samples;
             }
             sample[type]                      = NULL;
-            num_consecutive_sample_skip       = 0;
             sequence[type]->last_sample_delta = sample_delta;
             output->largest_dts               = max( output->largest_dts, in_track->dts );
-            out_track->largest_dts            = sample_dts;
             update_largest_cts( out_track, sample_cts );
             if( sequence[type]->current_sample_number >= sequence[type]->presentation_start_sample_number
              && sequence[type]->current_sample_number <= sequence[type]->presentation_end_sample_number )
@@ -1183,7 +1256,6 @@ static int do_mux( lsmash_handler_t *hp )
                     sequence[type]->presentation_end_time   = sample_cts;
             }
             ++ sequence[type]->current_sample_number;
-            ++ num_output_samples[type];
             /* Update progress dialog.
              * Users can abort muxing by pressing Cancel button. */
             if( update_progress_dlg( &progress_dlg, "Muxing",
@@ -1338,6 +1410,16 @@ static void cleanup_handler( lsmash_handler_t *hp )
                 if( input->order_converter )
                     free( input->order_converter );
                 lsmash_destroy_root( input->root );
+                for( uint32_t j = 0; j < 2; j++ )
+                {
+                    input_track_t *in_track = &input->track[j];
+                    if( in_track->summaries )
+                    {
+                        for( uint32_t k = 0; k < in_track->number_of_summaries; k++ )
+                            lsmash_cleanup_summary( in_track->summaries[k].summary );
+                        free( in_track->summaries );
+                    }
+                }
             }
         }
     if( hp->sequence[VIDEO_TRACK] )
