@@ -93,7 +93,7 @@ typedef struct libav_handler_tag
     /* Video stuff */
     int                      video_error;
     int                      video_index;
-    enum CodecID             video_codec_id;
+    enum AVCodecID           video_codec_id;
     AVFormatContext         *video_format;
     AVCodecContext          *video_ctx;
     struct SwsContext       *sws_ctx;
@@ -123,7 +123,7 @@ typedef struct libav_handler_tag
     /* Audio stuff */
     int                      audio_error;
     int                      audio_index;
-    enum CodecID             audio_codec_id;
+    enum AVCodecID           audio_codec_id;
     AVFormatContext         *audio_format;
     AVCodecContext          *audio_ctx;
     AVIndexEntry            *audio_index_entries;
@@ -169,7 +169,7 @@ static void lavf_close_file( AVFormatContext **format_ctx )
     avformat_close_input( format_ctx );
 }
 
-static int open_decoder( AVCodecContext *ctx, enum CodecID codec_id, int threads )
+static int open_decoder( AVCodecContext *ctx, enum AVCodecID codec_id, int threads )
 {
     AVCodec *codec = avcodec_find_decoder( codec_id );
     if( !codec )
