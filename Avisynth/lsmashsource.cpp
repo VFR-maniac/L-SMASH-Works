@@ -549,7 +549,7 @@ static void flush_buffers( AVCodecContext *ctx, int *error )
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
-    AVCodec *codec = ctx->codec;
+    const AVCodec *codec = ctx->codec;
     avcodec_close( ctx );
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
         *error = 1;
