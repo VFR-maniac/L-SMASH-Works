@@ -574,7 +574,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( pkt_ctx->codec_type != AVMEDIA_TYPE_VIDEO
          && pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
             continue;
-        if( pkt_ctx->codec_id == CODEC_ID_NONE )
+        if( pkt_ctx->codec_id == AV_CODEC_ID_NONE )
             continue;
         if( !av_codec_is_decoder( pkt_ctx->codec ) && open_decoder( pkt_ctx, pkt_ctx->codec_id, hp->threads ) )
             continue;
@@ -583,7 +583,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
                 investigate_pix_fmt_by_decoding( pkt_ctx, &pkt );
             int dv_in_avi_init = 0;
-            if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
+            if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == AV_CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
             {
                 dv_in_avi_init  = 1;
                 hp->dv_in_avi   = 1;
@@ -982,8 +982,8 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         if( !audio_info )
             goto fail_parsing;
     }
-    hp->video_codec_id = CODEC_ID_NONE;
-    hp->audio_codec_id = CODEC_ID_NONE;
+    hp->video_codec_id = AV_CODEC_ID_NONE;
+    hp->audio_codec_id = AV_CODEC_ID_NONE;
     hp->pix_fmt        = PIX_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
@@ -1010,7 +1010,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         {
             if( !fgets( buf, sizeof(buf), index ) )
                 goto fail_parsing;
-            if( hp->dv_in_avi == -1 && codec_id == CODEC_ID_DVVIDEO && !opt->force_audio )
+            if( hp->dv_in_avi == -1 && codec_id == AV_CODEC_ID_DVVIDEO && !opt->force_audio )
             {
                 hp->dv_in_avi = 1;
                 if( hp->video_index == -1 )
@@ -1030,7 +1030,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 if( sscanf( buf, "Key=%d,Width=%d,Height=%d,PixelFormat=%s",
                     &key, &width, &height, pix_fmt ) != 4 )
                     goto fail_parsing;
-                if( hp->video_codec_id == CODEC_ID_NONE )
+                if( hp->video_codec_id == AV_CODEC_ID_NONE )
                     hp->video_codec_id = codec_id;
                 if( hp->video_width == 0 || hp->video_height == 0 )
                 {
@@ -1079,7 +1079,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 if( sscanf( buf, "Channels=%d,SampleRate=%d,BitsPerSample=%d,Length=%d",
                             &channels, &sample_rate, &bps, &frame_length ) != 4 )
                     goto fail_parsing;
-                if( hp->audio_codec_id == CODEC_ID_NONE )
+                if( hp->audio_codec_id == AV_CODEC_ID_NONE )
                     hp->audio_codec_id = codec_id;
                 if( (channels | sample_rate | bps) && audio_duration <= INT32_MAX )
                 {
