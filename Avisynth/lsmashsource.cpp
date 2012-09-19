@@ -966,6 +966,7 @@ static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_n
          * Guess the frame length from sample duration. */
         if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, frame_number, frame_length ) )
             return -1;
+        *frame_length *= hp->upsampling;
     }
     else
         /* constant frame length */
@@ -1094,13 +1095,13 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         {
             if( get_frame_length( &ah, frame_number, &frame_length ) )
                 break;
-            next_frame_pos += (uint64_t)frame_length * ah.upsampling;
+            next_frame_pos += (uint64_t)frame_length;
             if( start_frame_pos < next_frame_pos )
                 break;
             ++frame_number;
         } while( frame_number <= ah.frame_count );
         uint32_t preroll_samples = get_preroll_samples( &ah, &frame_number );
-        data_offset = (start_frame_pos + (preroll_samples + frame_length) * ah.upsampling - next_frame_pos) * block_align;
+        data_offset = (start_frame_pos + preroll_samples + frame_length - next_frame_pos) * block_align;
     }
     do
     {
