@@ -617,9 +617,11 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         Format->cbSize = 0;
     hp->audio_planes = av_sample_fmt_is_planar( hp->audio_ctx->sample_fmt ) ? Format->nChannels : 1;
     hp->audio_input_block_align = Format->nBlockAlign / hp->audio_planes;
-    DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_length = %"PRIu32", channels = %d, sampling_rate = %d, bits_per_sample = %d, block_align = %d, avg_bps = %d",
+    DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_length = %"PRIu32", channels = %d, sampling_rate = %d, "
+                                     "bits_per_sample = %d, block_align = %d, avg_bps = %d, up_samplling = %d",
                                      hp->audio_frame_length, Format->nChannels, Format->nSamplesPerSec,
-                                     Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
+                                     Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec,
+                                     hp->audio_upsampling );
     return 0;
 }
 
@@ -825,6 +827,7 @@ static inline int get_frame_length( libavsmash_handler_t *hp, uint32_t frame_num
          * Guess the frame length from sample duration. */
         if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->audio_track_ID, frame_number, frame_length ) )
             return -1;
+        *frame_length *= hp->audio_upsampling;
     }
     else
         /* constant frame length */
@@ -938,13 +941,13 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         {
             if( get_frame_length( hp, frame_number, &frame_length ) )
                 break;
-            next_frame_pos += (uint64_t)frame_length * hp->audio_upsampling;
+            next_frame_pos += (uint64_t)frame_length;
             if( start_frame_pos < next_frame_pos )
                 break;
             ++frame_number;
         } while( frame_number <= hp->audio_frame_count );
         uint32_t preroll_samples = get_preroll_samples( hp, &frame_number );
-        data_offset = (start_frame_pos + (preroll_samples + frame_length) * hp->audio_upsampling - next_frame_pos) * block_align;
+        data_offset = (start_frame_pos + preroll_samples + frame_length - next_frame_pos) * block_align;
     }
     do
     {
