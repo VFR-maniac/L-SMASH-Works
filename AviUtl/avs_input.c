@@ -135,6 +135,8 @@ static AVS_Value initialize_avisynth( avs_handler_t *hp, char *input )
             return avs_void;
         }
     }
+    if( hp->vi->sample_type & AVS_SAMPLE_FLOAT )
+        res = invoke_filter( hp, res, "ConvertAudioTo16bit" );
     return avs_is_rgb32( hp->vi ) ? invoke_filter( hp, res, "ConvertToRGB24" ) : res;
 }
 
