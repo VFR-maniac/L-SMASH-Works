@@ -217,6 +217,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     {
         Format->cbSize = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
         h->audio_format.Samples.wValidBitsPerSample = Format->wBitsPerSample;
+        h->audio_format.dwChannelMask               = 0;    /* unknown */
         h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
     }
     else
