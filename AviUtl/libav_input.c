@@ -24,11 +24,11 @@
 
 /* Libav
  * The binary file will be LGPLed or GPLed. */
-#include <libavformat/avformat.h>   /* Demuxer */
-#include <libavcodec/avcodec.h>     /* Decoder */
-#include <libswscale/swscale.h>     /* Colorspace converter */
+#include <libavformat/avformat.h>       /* Demuxer */
+#include <libavcodec/avcodec.h>         /* Decoder */
+#include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavresample/avresample.h>   /* Audio resampler */
-#include <libavutil/mathematics.h>  /* Timebase rescaler */
+#include <libavutil/mathematics.h>      /* Timebase rescaler */
 #include <libavutil/pixdesc.h>
 #include <libavutil/opt.h>
 
@@ -137,6 +137,8 @@ typedef struct libav_handler_tag
     enum AVSampleFormat      audio_output_sample_format;
     uint8_t                 *audio_input_buffer;
     uint32_t                 audio_input_buffer_size;
+    uint8_t                 *audio_resampled_buffer;
+    uint32_t                 audio_resampled_buffer_size;
     uint32_t                 audio_frame_count;
     uint32_t                 audio_delay_count;
     uint32_t                 audio_frame_length;
@@ -145,10 +147,12 @@ typedef struct libav_handler_tag
     uint32_t                 next_audio_pcm_sample_number;
     uint32_t                 last_audio_frame_number;
     uint32_t                 last_remainder_length;
-    uint32_t                 last_remainder_offset;
+    uint32_t                 last_remainder_sample_offset;
     int64_t                  av_gap;
     int                      audio_planes;
     int                      audio_input_block_align;
+    int                      audio_output_block_align;
+    int                      audio_s24_output;
 } libav_handler_t;
 
 static int lavf_open_file( AVFormatContext **format_ctx, char *file_path )
@@ -1778,23 +1782,43 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to open resampler." );
         return -1;
     }
+    /* Decide output Bits Per Sample. */
+    int output_bps;
+    if( hp->audio_output_sample_format != AV_SAMPLE_FMT_S32 || hp->audio_ctx->bits_per_raw_sample != 24 )
+        output_bps = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
+    else
+    {
+        /* 24bit signed integer output */
+        if( hp->audio_frame_length )
+        {
+            hp->audio_resampled_buffer_size = get_linesize( hp->audio_ctx->channels, hp->audio_frame_length, hp->audio_output_sample_format );
+            hp->audio_resampled_buffer      = av_malloc( hp->audio_resampled_buffer_size );
+            if( !hp->audio_resampled_buffer )
+            {
+                DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory for resampling." );
+                return -1;
+            }
+        }
+        hp->audio_s24_output = 1;
+        output_bps           = 24;
+    }
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->audio_ctx->channels;
     Format->nSamplesPerSec  = hp->audio_ctx->sample_rate;
-    Format->wBitsPerSample  = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
+    Format->wBitsPerSample  = output_bps;
     Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
     Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
     if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
     {
         Format->cbSize = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
-        h->audio_format.Samples.wValidBitsPerSample = hp->audio_ctx->bits_per_raw_sample;
+        h->audio_format.Samples.wValidBitsPerSample = Format->wBitsPerSample;
         h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
     }
     else
         Format->cbSize = 0;
-    /* Set up the number of planes and the block alignment of decoded data. */
+    /* Set up the number of planes and the block alignment of decoded and output data. */
     if( av_sample_fmt_is_planar( hp->audio_ctx->sample_fmt ) )
     {
         hp->audio_planes            = Format->nChannels;
@@ -1805,6 +1829,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         hp->audio_planes            = 1;
         hp->audio_input_block_align = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * Format->nChannels;
     }
+    hp->audio_output_block_align = Format->nBlockAlign;
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_length = %"PRIu32", channels = %d, sampling_rate = %d, bits_per_sample = %d, block_align = %d, avg_bps = %d",
                                      hp->audio_frame_length, Format->nChannels, Format->nSamplesPerSec,
                                      Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
@@ -2040,11 +2065,29 @@ static void seek_audio( libav_handler_t *hp, uint32_t frame_number, AVPacket *pk
     }
 }
 
-static inline void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data, int data_offset )
+static inline void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data, int sample_offset )
 {
+    int decoded_data_offset = sample_offset * hp->audio_input_block_align;
     uint8_t *in_data[ hp->audio_planes ];
     for( int i = 0; i < hp->audio_planes; i++ )
-        in_data[i] = hp->audio_frame_buffer.extended_data[i] + data_offset;
+        in_data[i] = hp->audio_frame_buffer.extended_data[i] + decoded_data_offset;
+    uint8_t *resampled_buffer = NULL;
+    if( hp->audio_s24_output )
+    {
+        int out_channels = av_get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
+        if( out_channels <= 0 )
+            out_channels = 1;
+        int out_linesize = get_linesize( out_channels, wasted_sample_count, hp->audio_output_sample_format );
+        if( !hp->audio_resampled_buffer || out_linesize > hp->audio_resampled_buffer_size )
+        {
+            uint8_t *temp = av_realloc( hp->audio_resampled_buffer, out_linesize );
+            if( !temp )
+                return;
+            hp->audio_resampled_buffer_size = out_linesize;
+            hp->audio_resampled_buffer      = temp;
+        }
+        resampled_buffer = hp->audio_resampled_buffer;
+    }
     audio_samples_t in;
     in.channel_layout = hp->audio_frame_buffer.channel_layout;
     in.sample_count   = wasted_sample_count;
@@ -2054,16 +2097,18 @@ static inline void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_
     out.channel_layout = hp->audio_frame_buffer.channel_layout;
     out.sample_count   = wasted_sample_count;
     out.sample_format  = hp->audio_output_sample_format;
-    out.data           = out_data;
+    out.data           = resampled_buffer ? &resampled_buffer : out_data;
     resample_audio( hp->avr_ctx, &out, &in );
+    if( resampled_buffer )
+        resample_s32_to_s24( out_data, hp->audio_resampled_buffer, resampled_buffer - hp->audio_resampled_buffer );
 }
 
 static inline void waste_remainder_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data )
 {
-    waste_decoded_audio_samples( hp, wasted_sample_count, out_data, hp->last_remainder_offset );
+    waste_decoded_audio_samples( hp, wasted_sample_count, out_data, hp->last_remainder_sample_offset );
     hp->last_remainder_length -= wasted_sample_count;
     if( hp->last_remainder_length == 0 )
-        hp->last_remainder_offset = 0;
+        hp->last_remainder_sample_offset = 0;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -2103,6 +2148,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             return 0;
         hp->audio_delay_count            = 0;
         hp->last_remainder_length        = 0;
+        hp->last_remainder_sample_offset = 0;
         hp->next_audio_pcm_sample_number = 0;
         hp->last_audio_frame_number      = 0;
         uint64_t start_frame_pos;
@@ -2111,7 +2157,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         else
         {
             int silence_length = -start;
-            put_silence_audio_samples( silence_length * h->audio_format.Format.nBlockAlign, (uint8_t **)&buf );
+            put_silence_audio_samples( silence_length * hp->audio_output_block_align, (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;
@@ -2145,8 +2191,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int output_audio = 0;
         do
         {
-            hp->last_remainder_length = 0;
-            hp->last_remainder_offset = 0;
+            hp->last_remainder_length        = 0;
+            hp->last_remainder_sample_offset = 0;
             copy_length = 0;
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
@@ -2168,7 +2214,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 if( decoded_length > seek_offset )
                 {
                     copy_length = min( decoded_length - seek_offset, wanted_length );
-                    waste_decoded_audio_samples( hp, copy_length, (uint8_t **)&buf, seek_offset * hp->audio_input_block_align );
+                    waste_decoded_audio_samples( hp, copy_length, (uint8_t **)&buf, seek_offset );
                     output_length += copy_length;
                     wanted_length -= copy_length;
                     seek_offset = 0;
@@ -2194,7 +2240,7 @@ audio_out:
     hp->next_audio_pcm_sample_number = start + output_length;
     hp->last_audio_frame_number = frame_number;
     if( hp->last_remainder_length )
-        hp->last_remainder_offset += copy_length * hp->audio_input_block_align;
+        hp->last_remainder_sample_offset += copy_length;
     return output_length;
 }
 
@@ -2249,6 +2295,8 @@ static void audio_cleanup( lsmash_handler_t *h )
         return;
     if( hp->audio_input_buffer )
         av_free( hp->audio_input_buffer );
+    if( hp->audio_resampled_buffer )
+        av_free( hp->audio_resampled_buffer );
     if( hp->audio_index_entries )
         av_free( hp->audio_index_entries );
     if( hp->avr_ctx )

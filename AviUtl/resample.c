@@ -27,13 +27,6 @@
 
 #include "resample.h"
 
-static inline int get_linesize( int channel_count, int sample_count, enum AVSampleFormat sample_format )
-{
-    int linesize;
-    av_samples_get_buffer_size( &linesize, channel_count, sample_count, sample_format, 0 );
-    return linesize;
-}
-
 void resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in )
 {
     int out_channels = av_get_channel_layout_nb_channels( out->channel_layout );
@@ -47,5 +40,5 @@ void resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_sa
     int sample_count = avresample_convert( avr, (void **)out->data, out_linesize, out->sample_count,
                                                 (void **) in->data,  in_linesize,  in->sample_count );
     if( sample_count > 0 )
-        *out->data += sample_count * av_get_bytes_per_sample( out->sample_format ) * out_channels;
+        out->data[0] += sample_count * av_get_bytes_per_sample( out->sample_format ) * out_channels;
 }

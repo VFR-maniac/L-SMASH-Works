@@ -52,4 +52,21 @@ static inline void put_silence_audio_samples( int silence_data_size, uint8_t **o
     *out_data += silence_data_size;
 }
 
+static inline int get_linesize( int channel_count, int sample_count, enum AVSampleFormat sample_format )
+{
+    int linesize;
+    av_samples_get_buffer_size( &linesize, channel_count, sample_count, sample_format, 0 );
+    return linesize;
+}
+
+static inline void resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
+{
+    /* Assume little endianess here.
+     *   in[0b00]  in[0b01]  in[0b10]  in[0b11]  in[0b100]  in[0b101]  in[0b110]  in[0b111] ...
+     *       X    out[0b00] out[0b01] out[0b10]      X     out[0b11]  out[0b100] out[0b101] ... */
+    for( int i = 0; i < data_size; i++ )
+        if( i & 0x3 )
+            *(out_data[0]++) = in_data[i];
+}
+
 void resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in );
