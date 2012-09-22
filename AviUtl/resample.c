@@ -33,6 +33,11 @@ int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_sam
     int out_linesize = get_linesize( out_channels, out->sample_count, out->sample_format );
     int in_channels  = get_channel_layout_nb_channels( in->channel_layout );
     int in_linesize  = get_linesize( in_channels, in->sample_count, in->sample_format );
-    return avresample_convert( avr, (void **)out->data, out_linesize, out->sample_count,
-                                    (void **) in->data,  in_linesize,  in->sample_count );
+    int resampled_count = avresample_convert( avr, (void **)out->data, out_linesize, out->sample_count,
+                                                   (void **) in->data,  in_linesize,  in->sample_count );
+    if( resampled_count <= 0 )
+        return 0;
+    int resampled_size = resampled_count * av_get_bytes_per_sample( out->sample_format ) * out_channels;
+    *out->data += resampled_size;
+    return resampled_size;
 }

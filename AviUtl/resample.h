@@ -74,7 +74,7 @@ static inline void resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, in
      *       X    out[0b00] out[0b01] out[0b10]      X     out[0b11]  out[0b100] out[0b101] ... */
     for( int i = 0; i < data_size; i++ )
         if( i & 0x3 )
-            *(*out_data++) = in_data[i];
+            *((*out_data)++) = in_data[i];
 }
 
 int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in );

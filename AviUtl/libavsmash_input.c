@@ -934,9 +934,9 @@ static void waste_decoded_audio_samples( libavsmash_handler_t *hp, int wasted_sa
     in.data           = in_data;
     /* Output */
     uint8_t *resampled_buffer = NULL;
-    int out_channels = get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
     if( hp->audio_s24_output )
     {
+        int out_channels = get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
         int out_linesize = get_linesize( out_channels, wasted_sample_count, hp->audio_output_sample_format );
         if( !hp->audio_resampled_buffer || out_linesize > hp->audio_resampled_buffer_size )
         {
@@ -954,12 +954,8 @@ static void waste_decoded_audio_samples( libavsmash_handler_t *hp, int wasted_sa
     out.sample_format  = hp->audio_output_sample_format;
     out.data           = resampled_buffer ? &resampled_buffer : out_data;
     /* Resample */
-    int resampled_count = resample_audio( hp->avr_ctx, &out, &in );
-    if( resampled_count <= 0 )
-        return;
-    int resampled_size = resampled_count * av_get_bytes_per_sample( out.sample_format ) * out_channels;
-    *out_data += resampled_size;
-    if( resampled_buffer )
+    int resampled_size = resample_audio( hp->avr_ctx, &out, &in );
+    if( resampled_buffer && resampled_size > 0 )
         resample_s32_to_s24( out_data, hp->audio_resampled_buffer, resampled_size );
 }
 
