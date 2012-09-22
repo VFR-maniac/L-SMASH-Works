@@ -1783,9 +1783,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         return -1;
     }
     /* Decide output Bits Per Sample. */
-    int output_bps;
+    int output_bits_per_sample;
     if( hp->audio_output_sample_format != AV_SAMPLE_FMT_S32 || hp->audio_ctx->bits_per_raw_sample != 24 )
-        output_bps = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
+        output_bits_per_sample = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
     else
     {
         /* 24bit signed integer output */
@@ -1799,14 +1799,14 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
                 return -1;
             }
         }
-        hp->audio_s24_output = 1;
-        output_bps           = 24;
+        hp->audio_s24_output   = 1;
+        output_bits_per_sample = 24;
     }
     /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->audio_ctx->channels;
     Format->nSamplesPerSec  = hp->audio_ctx->sample_rate;
-    Format->wBitsPerSample  = output_bps;
+    Format->wBitsPerSample  = output_bits_per_sample;
     Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
     Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
@@ -2066,18 +2066,23 @@ static void seek_audio( libav_handler_t *hp, uint32_t frame_number, AVPacket *pk
     }
 }
 
-static inline void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data, int sample_offset )
+static void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data, int sample_offset )
 {
+    /* Input */
     int decoded_data_offset = sample_offset * hp->audio_input_block_align;
     uint8_t *in_data[ hp->audio_planes ];
     for( int i = 0; i < hp->audio_planes; i++ )
         in_data[i] = hp->audio_frame_buffer.extended_data[i] + decoded_data_offset;
+    audio_samples_t in;
+    in.channel_layout = hp->audio_frame_buffer.channel_layout;
+    in.sample_count   = wasted_sample_count;
+    in.sample_format  = hp->audio_frame_buffer.format;
+    in.data           = in_data;
+    /* Output */
     uint8_t *resampled_buffer = NULL;
+    int out_channels = get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
     if( hp->audio_s24_output )
     {
-        int out_channels = av_get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
-        if( out_channels <= 0 )
-            out_channels = 1;
         int out_linesize = get_linesize( out_channels, wasted_sample_count, hp->audio_output_sample_format );
         if( !hp->audio_resampled_buffer || out_linesize > hp->audio_resampled_buffer_size )
         {
@@ -2089,19 +2094,19 @@ static inline void waste_decoded_audio_samples( libav_handler_t *hp, int wasted_
         }
         resampled_buffer = hp->audio_resampled_buffer;
     }
-    audio_samples_t in;
-    in.channel_layout = hp->audio_frame_buffer.channel_layout;
-    in.sample_count   = wasted_sample_count;
-    in.sample_format  = hp->audio_frame_buffer.format;
-    in.data           = in_data;
     audio_samples_t out;
     out.channel_layout = hp->audio_frame_buffer.channel_layout;
     out.sample_count   = wasted_sample_count;
     out.sample_format  = hp->audio_output_sample_format;
     out.data           = resampled_buffer ? &resampled_buffer : out_data;
-    resample_audio( hp->avr_ctx, &out, &in );
+    /* Resample */
+    int resampled_count = resample_audio( hp->avr_ctx, &out, &in );
+    if( resampled_count <= 0 )
+        return;
+    int resampled_size = resampled_count * av_get_bytes_per_sample( out.sample_format ) * out_channels;
+    *out_data += resampled_size;
     if( resampled_buffer )
-        resample_s32_to_s24( out_data, hp->audio_resampled_buffer, resampled_buffer - hp->audio_resampled_buffer );
+        resample_s32_to_s24( out_data, hp->audio_resampled_buffer, resampled_size );
 }
 
 static inline void waste_remainder_audio_samples( libav_handler_t *hp, int wasted_sample_count, uint8_t **out_data )
