@@ -18,13 +18,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
- /* This file is available under an ISC license.
+/* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
- #include <stdint.h>
+#include <stdint.h>
 
- #ifdef __GNUC__
+#ifdef __GNUC__
 #define AUI_ALIGN(x) __attribute__((aligned(x)))
 #define AUI_FUNC_ALIGN __attribute__((force_align_arg_pointer))
 #else
