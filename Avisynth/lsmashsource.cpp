@@ -40,7 +40,7 @@ extern "C"
 #include <libavformat/avformat.h>   /* Codec specific info importer */
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
-#include <libavutil/pixdesc.h>
+#include <libavutil/imgutils.h>
 }
 
 #pragma warning( disable:4996 )
@@ -331,23 +331,31 @@ static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_n
     return 0;
 }
 
-static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt )
+static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt, int width )
 {
     int src_size = 0;
-    for( int i = 0; i < 4; i++ )
+    const AVPixFmtDescriptor *desc = &av_pix_fmt_descriptors[src_pix_fmt];
+    int used_plane[4] = { 0, 0, 0, 0 };
+    for( int i = 0; i < desc->nb_components; i++ )
     {
-        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[src_pix_fmt].comp[i];
-        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
-            src_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+        int plane = desc->comp[i].plane;
+        if( used_plane[plane] )
+            continue;
+        src_size += av_image_get_linesize( src_pix_fmt, width, plane );
+        used_plane[plane] = 1;
     }
     if( src_size == 0 )
         return 1;
     int dst_size = 0;
-    for( int i = 0; i < 4; i++ )
+    desc = &av_pix_fmt_descriptors[dst_pix_fmt];
+    used_plane[0] = used_plane[1] = used_plane[2] = used_plane[3] = 0;
+    for( int i = 0; i < desc->nb_components; i++ )
     {
-        const AVComponentDescriptor *comp = &av_pix_fmt_descriptors[dst_pix_fmt].comp[i];
-        if( comp->plane | comp->step_minus1 | comp->offset_plus1 | comp->shift | comp->depth_minus1 )
-            dst_size += ((comp->depth_minus1 + 8) >> 3) << 3;
+        int plane = desc->comp[i].plane;
+        if( used_plane[plane] )
+            continue;
+        dst_size += av_image_get_linesize( dst_pix_fmt, width, plane );
+        used_plane[plane] = 1;
     }
     return (dst_size - 1) / src_size + 1;
 }
@@ -394,7 +402,7 @@ static int make_frame_rgba32( AVCodecContext *codec_ctx, struct SwsContext *sws_
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
         abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, codec_ctx->pix_fmt );
+    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, codec_ctx->pix_fmt, codec_ctx->width );
     const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * codec_ctx->height );
