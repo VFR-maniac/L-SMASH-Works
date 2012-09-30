@@ -44,7 +44,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     if( h->audio_pcm_sample_count == 0 || h->audio_format.Format.nSamplesPerSec == 0 )
         return -1;  /* Only available if audio stream is present. */
-    if( h->framerate_den == 0 )
+    if( opt->framerate_den == 0 )
         return -1;
     h->framerate_num = opt->framerate_num;
     h->framerate_den = opt->framerate_den;
