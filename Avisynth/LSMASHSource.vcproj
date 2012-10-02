@@ -171,6 +171,10 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath=".\libavsmash.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\libmingwex.lib"
 				>
 			</File>
@@ -186,6 +190,10 @@
 			>
 			<File
 				RelativePath=".\avisynth.h"
+				>
+			</File>
+			<File
+				RelativePath=".\libavsmash.h"
 				>
 			</File>
 		</Filter>

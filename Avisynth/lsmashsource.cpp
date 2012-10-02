@@ -43,6 +43,8 @@ extern "C"
 #include <libavutil/imgutils.h>
 }
 
+#include "libavsmash.h"
+
 #pragma warning( disable:4996 )
 
 #pragma comment( lib, "libgcc.a" )
@@ -65,6 +67,17 @@ extern "C"
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
 
+static void throw_error( void *message_priv, const char *message, ... )
+{
+    IScriptEnvironment *env = (IScriptEnvironment *)message_priv;
+    char temp[256];
+    va_list args;
+    va_start( args, message );
+    vsprintf( temp, message, args );
+    va_end( args );
+    env->ThrowError( (const char *)temp );
+}
+
 typedef enum
 {
     DECODE_REQUIRE_INITIAL = 0,
@@ -79,20 +92,17 @@ typedef struct
 
 typedef struct
 {
-    lsmash_root_t     *root;
-    uint32_t           track_ID;
-    uint32_t           forward_seek_threshold;
-    int                seek_mode;
-    AVCodecContext    *codec_ctx;
-    AVFormatContext   *format_ctx;
-    struct SwsContext *sws_ctx;
-    order_converter_t *order_converter;
-    uint8_t           *input_buffer;
-    uint32_t           last_sample_number;
-    uint32_t           last_rap_number;
-    uint32_t           delay_count;
-    int                error;
-    decode_status_t    decode_status;
+    lsmash_root_t        *root;
+    uint32_t              track_ID;
+    uint32_t              forward_seek_threshold;
+    int                   seek_mode;
+    codec_configuration_t config;
+    AVFormatContext      *format_ctx;
+    struct SwsContext    *sws_ctx;
+    order_converter_t    *order_converter;
+    uint32_t              last_sample_number;
+    uint32_t              last_rap_number;
+    decode_status_t       decode_status;
 } video_decode_handler_t;
 
 typedef int func_make_frame( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env );
@@ -136,12 +146,9 @@ LSMASHVideoSource::~LSMASHVideoSource()
         delete first_valid_frame;
     if( vh.order_converter )
         delete [] vh.order_converter;
-    if( vh.input_buffer )
-        av_free( vh.input_buffer );
     if( vh.sws_ctx )
         sws_freeContext( vh.sws_ctx );
-    if( vh.codec_ctx )
-        avcodec_close( vh.codec_ctx );
+    cleanup_configuration( &vh.config );
     if( vh.format_ctx )
         avformat_close_input( &vh.format_ctx );
     lsmash_destroy_root( vh.root );
@@ -165,6 +172,8 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
         env->ThrowError( "LSMASHVideoSource: failed to avformat_open_input." );
     if( avformat_find_stream_info( vh.format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to avformat_find_stream_info." );
+    /* */
+    vh.config.error_message = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -291,6 +300,8 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
     }
     if( lsmash_construct_timeline( vh.root, vh.track_ID ) )
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
+    if( get_summaries( vh.root, vh.track_ID, &vh.config ) )
+        env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
     vi.num_frames = lsmash_get_sample_count_in_media_timeline( vh.root, vh.track_ID );
     setup_timestamp_info( &vh, &vi, media_param.timescale, env );
     /* libavformat */
@@ -299,36 +310,14 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
     /* libavcodec */
     AVStream *stream = vh.format_ctx->streams[i];
-    vh.codec_ctx = stream->codec;
-    AVCodec *codec = avcodec_find_decoder( vh.codec_ctx->codec_id );
+    AVCodecContext *ctx = stream->codec;
+    vh.config.ctx = ctx;
+    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
     if( !codec )
         env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
-    vh.codec_ctx->thread_count = threads;
-    if( avcodec_open2( vh.codec_ctx, codec, NULL ) < 0 )
+    ctx->thread_count = threads;
+    if( avcodec_open2( ctx, codec, NULL ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
-}
-
-static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
-{
-    return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
-}
-
-static int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, uint8_t *buffer, AVPacket *pkt )
-{
-    av_init_packet( pkt );
-    lsmash_sample_t *sample = lsmash_get_sample_from_media_timeline( root, track_ID, sample_number );
-    if( !sample )
-    {
-        pkt->data = NULL;
-        pkt->size = 0;
-        return 1;
-    }
-    pkt->flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
-    pkt->size  = sample->length;
-    pkt->data  = buffer;
-    memcpy( pkt->data, sample->data, sample->length );
-    lsmash_delete_sample( sample );
-    return 0;
 }
 
 static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt, int width )
@@ -467,51 +456,49 @@ func_make_frame *determine_colorspace_conversion( enum PixelFormat *input_pixel_
 
 void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 {
-    /* Note: the input buffer for avcodec_decode_video2 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    uint32_t input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( vh.root, vh.track_ID );
-    if( input_buffer_size == 0 )
-        env->ThrowError( "LSMASHVideoSource: no valid video sample found." );
-    vh.input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
-    if( !vh.input_buffer )
-        env->ThrowError( "LSMASHVideoSource: failed to allocate memory to the input buffer for video." );
+    /* Initialize the video decoder configuration. */
+    codec_configuration_t *config = &vh.config;
+    config->message_priv = env;
+    if( initialize_decoder_configuration( vh.root, vh.track_ID, config ) )
+        env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* swscale */
-    enum PixelFormat input_pixel_format = vh.codec_ctx->pix_fmt;
+    enum PixelFormat input_pixel_format = config->ctx->pix_fmt;
     enum PixelFormat output_pixel_format;
-    make_frame = determine_colorspace_conversion( &vh.codec_ctx->pix_fmt, &output_pixel_format, &vi.pixel_type );
+    make_frame = determine_colorspace_conversion( &config->ctx->pix_fmt, &output_pixel_format, &vi.pixel_type );
     if( !make_frame )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
-    vi.width  = vh.codec_ctx->width;
-    vi.height = vh.codec_ctx->height;
+    vi.width  = config->ctx->width;
+    vi.height = config->ctx->height;
     vh.sws_ctx = sws_getCachedContext( NULL,
-                                       vh.codec_ctx->width, vh.codec_ctx->height, vh.codec_ctx->pix_fmt,
-                                       vh.codec_ctx->width, vh.codec_ctx->height, output_pixel_format,
+                                       config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
+                                       config->ctx->width, config->ctx->height, output_pixel_format,
                                        SWS_FAST_BILINEAR, NULL, NULL, NULL );
     if( !vh.sws_ctx )
         env->ThrowError( "LSMASHVideoSource: failed to get swscale context." );
     /* Find the first valid video sample. */
-    for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vh.codec_ctx ); i++ )
+    for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt;
-        get_sample( vh.root, vh.track_ID, i, vh.input_buffer, &pkt );
+        get_sample( vh.root, vh.track_ID, i, &vh.config, &pkt );
         AVFrame picture;
         avcodec_get_frame_defaults( &picture );
         int got_picture;
-        if( avcodec_decode_video2( vh.codec_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( config->ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            first_valid_frame_number = i - min( get_decoder_delay( vh.codec_ctx ), vh.delay_count );
+            first_valid_frame_number = i - min( get_decoder_delay( config->ctx ), config->delay_count );
             if( first_valid_frame_number > 1 || vi.num_frames == 1 )
             {
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( vh.codec_ctx, vh.sws_ctx, &picture, temp, env ) )
+                if( make_frame( config->ctx, vh.sws_ctx, &picture, temp, env ) )
                     continue;
                 first_valid_frame = new PVideoFrame( temp );
             }
             break;
         }
         else if( pkt.data )
-            ++ vh.delay_count;
+            ++ config->delay_count;
     }
     vh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
 }
@@ -519,12 +506,13 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 static int decode_video_sample( video_decode_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
     AVPacket pkt;
-    if( get_sample( hp->root, hp->track_ID, sample_number, hp->input_buffer, &pkt ) )
-        return 1;
+    int ret = get_sample( hp->root, hp->track_ID, sample_number, &hp->config, &pkt );
+    if( ret )
+        return ret;
     if( pkt.flags == AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
     avcodec_get_frame_defaults( picture );
-    if( avcodec_decode_video2( hp->codec_ctx, picture, got_picture, &pkt ) < 0 )
+    if( avcodec_decode_video2( hp->config.ctx, picture, got_picture, &pkt ) < 0 )
         return -1;
     return 0;
 }
@@ -550,66 +538,109 @@ static int find_random_accessible_point( video_decode_handler_t *hp, uint32_t co
     int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
     if( (roll_recovery || is_leading) && *rap_number > distance )
         *rap_number -= distance;
+    /* Check whether random accessible point has the same decoder configuration or not. */
+    decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
+    do
+    {
+        lsmash_sample_t sample;
+        lsmash_sample_t rap_sample;
+        if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &sample )
+         || lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, *rap_number, &rap_sample ) )
+        {
+            /* Fatal error. */
+            *rap_number = hp->last_rap_number;
+            return 0;
+        }
+        if( sample.index == rap_sample.index )
+            break;
+        uint32_t sample_index = sample.index;
+        for( uint32_t i = decoding_sample_number - 1; i; i-- )
+        {
+            if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, i, &sample ) )
+            {
+                /* Fatal error. */
+                *rap_number = hp->last_rap_number;
+                return 0;
+            }
+            if( sample.index != sample_index )
+            {
+                if( distance )
+                {
+                    *rap_number += distance;
+                    distance = 0;
+                    continue;
+                }
+                else
+                    *rap_number = i + 1;
+            }
+        }
+        break;
+    } while( 1 );
     return roll_recovery;
-}
-
-static void flush_buffers( AVCodecContext *ctx, int *error )
-{
-    /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
-     * It seems this brings about more stable composition when seeking. */
-    const AVCodec *codec = ctx->codec;
-    avcodec_close( ctx );
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-        *error = 1;
 }
 
 static uint32_t seek_video( video_decode_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number, int error_ignorance )
 {
     /* Prepare to decode from random accessible sample. */
-    flush_buffers( hp->codec_ctx, &hp->error );
-    if( hp->error )
+    codec_configuration_t *config = &hp->config;
+    if( config->update_pending )
+        /* Update the decoder configuration. */
+        update_configuration( hp->root, hp->track_ID, config );
+    else
+        flush_buffers( config );
+    if( config->error )
         return 0;
-    hp->delay_count = 0;
     hp->decode_status = DECODE_REQUIRE_INITIAL;
     int dummy;
     uint32_t i;
-    for( i = rap_number; i < composition_sample_number + get_decoder_delay( hp->codec_ctx ); i++ )
+    uint32_t decoder_delay = get_decoder_delay( config->ctx );
+    for( i = rap_number; i < composition_sample_number + decoder_delay; )
     {
+        if( config->index == config->queue.index )
+            config->delay_count = min( decoder_delay, i - rap_number );
         int ret = decode_video_sample( hp, picture, &dummy, i );
         if( ret == -1 && !error_ignorance )
             return 0;
-        else if( ret == 1 )
-            break;      /* Sample doesn't exist. */
+        else if( ret >= 1 )
+            /* No decoding occurs. */
+            break;
+        ++i;
     }
-    hp->delay_count = min( get_decoder_delay( hp->codec_ctx ), i - rap_number );
+    if( config->index == config->queue.index )
+        config->delay_count = min( decoder_delay, i - rap_number );
     return i;
 }
 
 static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t sample_count )
 {
+    codec_configuration_t *config = &hp->config;
     if( hp->decode_status == DECODE_INITIALIZING )
     {
-        if( hp->delay_count > get_decoder_delay( hp->codec_ctx ) )
-            -- hp->delay_count;
+        if( config->delay_count > get_decoder_delay( config->ctx ) )
+            -- config->delay_count;
         else
             hp->decode_status = DECODE_INITIALIZED;
     }
-    int got_picture = 0;
+    int got_picture = (current > goal);
     while( current <= goal )
     {
         int ret = decode_video_sample( hp, picture, &got_picture, current );
         if( ret == -1 )
             return -1;
         else if( ret == 1 )
-            break;      /* Sample doesn't exist. */
+            /* Sample doesn't exist. */
+            break;
         ++current;
+        if( config->update_pending )
+            /* A new decoder configuration is needed. Anyway, stop getting picture. */
+            break;
         if( !got_picture )
-            ++ hp->delay_count;
-        if( hp->delay_count > get_decoder_delay( hp->codec_ctx ) && hp->decode_status == DECODE_INITIALIZED )
+            ++ config->delay_count;
+        if( config->delay_count > get_decoder_delay( config->ctx ) && hp->decode_status == DECODE_INITIALIZED )
             break;
     }
     /* Flush the last frames. */
-    if( current > sample_count && get_decoder_delay( hp->codec_ctx ) )
+    if( current > sample_count && get_decoder_delay( config->ctx ) )
         while( current <= goal )
         {
             AVPacket pkt;
@@ -617,7 +648,7 @@ static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t c
             pkt.data = NULL;
             pkt.size = 0;
             avcodec_get_frame_defaults( picture );
-            if( avcodec_decode_video2( hp->codec_ctx, picture, &got_picture, &pkt ) < 0 )
+            if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
                 return -1;
             ++current;
         }
@@ -636,8 +667,10 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
         vh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the next access for valid video sample. */
         return *first_valid_frame;
     }
+    codec_configuration_t *config = &vh.config;
+    config->message_priv = env;
     PVideoFrame frame = env->NewVideoFrame( vi );
-    if( vh.error )
+    if( config->error )
         return frame;
     AVFrame picture;            /* Decoded video data will be stored here. */
     uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
@@ -647,7 +680,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     if( sample_number > vh.last_sample_number
      && sample_number <= vh.last_sample_number + vh.forward_seek_threshold )
     {
-        start_number = vh.last_sample_number + 1 + vh.delay_count;
+        start_number = vh.last_sample_number + 1 + config->delay_count;
         rap_number = vh.last_rap_number;
     }
     else
@@ -656,7 +689,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
         if( rap_number == vh.last_rap_number && sample_number > vh.last_sample_number )
         {
             roll_recovery = 0;
-            start_number = vh.last_sample_number + 1 + vh.delay_count;
+            start_number = vh.last_sample_number + 1 + config->delay_count;
         }
         else
         {
@@ -667,28 +700,40 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     }
     /* Get desired picture. */
     int error_count = 0;
-    while( start_number == 0 || get_picture( &vh, &picture, start_number, sample_number + vh.delay_count, vi.num_frames ) )
+    while( start_number == 0    /* Failed to seek. */
+     || config->update_pending  /* Need to update the decoder configuration to decode pictures. */
+     || get_picture( &vh, &picture, start_number, sample_number + config->delay_count, vi.num_frames ) )
     {
-        /* Failed to get desired picture. */
-        if( vh.error || seek_mode == SEEK_MODE_AGGRESSIVE )
-            env->ThrowError( "LSMASHVideoSource: fatal error of decoding." );
-        if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
+        if( config->update_pending )
         {
-            if( seek_mode == SEEK_MODE_UNSAFE )
-                env->ThrowError( "LSMASHVideoSource: fatal error of decoding." );
-            /* Retry to decode from the same random accessible sample with error ignorance. */
-            seek_mode = SEEK_MODE_AGGRESSIVE;
+            roll_recovery = find_random_accessible_point( &vh, sample_number, 0, &rap_number );
+            vh.last_rap_number = rap_number;
         }
         else
         {
-            /* Retry to decode from more past random accessible sample. */
-            roll_recovery = find_random_accessible_point( &vh, sample_number, rap_number - 1, &rap_number );
-            vh.last_rap_number = rap_number;
+            /* Failed to get desired picture. */
+            if( config->error || seek_mode == SEEK_MODE_AGGRESSIVE )
+                env->ThrowError( "LSMASHVideoSource: fatal error of decoding." );
+            if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
+            {
+                if( seek_mode == SEEK_MODE_UNSAFE )
+                    env->ThrowError( "LSMASHVideoSource: fatal error of decoding." );
+                /* Retry to decode from the same random accessible sample with error ignorance. */
+                seek_mode = SEEK_MODE_AGGRESSIVE;
+            }
+            else
+            {
+                /* Retry to decode from more past random accessible sample. */
+                roll_recovery = find_random_accessible_point( &vh, sample_number, rap_number - 1, &rap_number );
+                if( vh.last_rap_number == rap_number )
+                    env->ThrowError( "LSMASHVideoSource: fatal error of decoding." );
+                vh.last_rap_number = rap_number;
+            }
         }
         start_number = seek_video( &vh, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     vh.last_sample_number = sample_number;
-    if( make_frame( vh.codec_ctx, vh.sws_ctx, &picture, frame, env ) )
+    if( make_frame( config->ctx, vh.sws_ctx, &picture, frame, env ) )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return frame;
 #undef MAX_ERROR_COUNT
@@ -696,27 +741,24 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
 
 typedef struct
 {
-    lsmash_root_t     *root;
-    uint32_t           track_ID;
-    AVCodecContext    *codec_ctx;
-    AVFormatContext   *format_ctx;
-    uint8_t           *input_buffer;
-    AVFrame            frame_buffer;
-    AVPacket           packet;
-    uint32_t           frame_count;
-    uint32_t           delay_count;
-    uint32_t           frame_length;
-    uint32_t           last_frame_number;
-    uint64_t           last_remainder_size;
-    uint64_t           last_remainder_offset;
-    uint64_t           next_pcm_sample_number;
-    uint64_t           skip_samples;
-    int                implicit_preroll;
-    int                upsampling;
-    int                planes;
-    int                input_block_align;
-    int                output_block_align;
-    int                error;
+    lsmash_root_t        *root;
+    uint32_t              track_ID;
+    codec_configuration_t config;
+    AVFormatContext      *format_ctx;
+    AVFrame               frame_buffer;
+    AVPacket              packet;
+    uint32_t              frame_count;
+    uint32_t              frame_length;
+    uint32_t              last_frame_number;
+    uint64_t              last_remainder_size;
+    uint64_t              last_remainder_offset;
+    uint64_t              next_pcm_sample_number;
+    uint64_t              skip_samples;
+    int                   implicit_preroll;
+    int                   upsampling;
+    int                   planes;
+    int                   input_block_align;
+    int                   output_block_align;
 } audio_decode_handler_t;
 
 class LSMASHAudioSource : public IClip
@@ -748,10 +790,7 @@ LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number,
 
 LSMASHAudioSource::~LSMASHAudioSource()
 {
-    if( ah.input_buffer )
-        av_free( ah.input_buffer );
-    if( ah.codec_ctx )
-        avcodec_close( ah.codec_ctx );
+    cleanup_configuration( &ah.config );
     if( ah.format_ctx )
         avformat_close_input( &ah.format_ctx );
     lsmash_destroy_root( ah.root );
@@ -775,6 +814,8 @@ uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *e
         env->ThrowError( "LSMASHAudioSource: failed to avformat_open_input." );
     if( avformat_find_stream_info( ah.format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avformat_find_stream_info." );
+    /* */
+    ah.config.error_message = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -844,6 +885,8 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     }
     if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
+    if( get_summaries( ah.root, ah.track_ID, &ah.config ) )
+        env->ThrowError( "LSMASHAudioSource: failed to get summaries." );
     ah.frame_count = lsmash_get_sample_count_in_media_timeline( ah.root, ah.track_ID );
     vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( ah.root, ah.track_ID );
     if( skip_priming )
@@ -907,26 +950,25 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
     /* libavcodec */
     AVStream *stream = ah.format_ctx->streams[i];
-    ah.codec_ctx = stream->codec;
-    AVCodec *codec = avcodec_find_decoder( ah.codec_ctx->codec_id );
+    AVCodecContext *ctx = stream->codec;
+    ah.config.ctx = ctx;
+    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
     if( !codec )
         env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
-    ah.codec_ctx->thread_count = 0;
-    if( avcodec_open2( ah.codec_ctx, codec, NULL ) < 0 )
+    ctx->thread_count = 0;
+    if( avcodec_open2( ctx, codec, NULL ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
-    /* Note: the input buffer for avcodec_decode_audio4 must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
-    uint32_t input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( ah.root, ah.track_ID );
-    if( input_buffer_size == 0 )
-        env->ThrowError( "LSMASHAudioSource: No valid audio sample found." );
-    ah.input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
-    if( !ah.input_buffer )
-        env->ThrowError( "LSMASHAudioSource: failed to allocate memory to the input buffer for audio." );
+    /* Initialize the audio decoder configuration. */
+    codec_configuration_t *config = &ah.config;
+    config->message_priv = env;
+    if( initialize_decoder_configuration( ah.root, ah.track_ID, config ) )
+        env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
     avcodec_get_frame_defaults( &ah.frame_buffer );
-    ah.frame_length = ah.codec_ctx->frame_size;
+    ah.frame_length = config->ctx->frame_size;
     if( vi.num_audio_samples * 2 <= ah.frame_count * ah.frame_length )
     {
         /* for HE-AAC upsampling */
@@ -937,13 +979,13 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     else
         ah.upsampling = 1;
     vi.num_audio_samples       -= ah.skip_samples;
-    vi.nchannels                = ah.codec_ctx->channels;
-    vi.audio_samples_per_second = ah.codec_ctx->sample_rate;
+    vi.nchannels                = config->ctx->channels;
+    vi.audio_samples_per_second = config->ctx->sample_rate;
     ah.next_pcm_sample_number   = vi.num_audio_samples + 1;   /* Force seeking at the first reading. */
-    ah.planes                   = av_sample_fmt_is_planar( ah.codec_ctx->sample_fmt ) ? vi.nchannels : 1;
-    ah.output_block_align       = vi.nchannels * av_get_bytes_per_sample( ah.codec_ctx->sample_fmt );
+    ah.planes                   = av_sample_fmt_is_planar( config->ctx->sample_fmt ) ? vi.nchannels : 1;
+    ah.output_block_align       = vi.nchannels * av_get_bytes_per_sample( config->ctx->sample_fmt );
     ah.input_block_align        = ah.output_block_align / ah.planes;
-    switch ( ah.codec_ctx->sample_fmt )
+    switch ( config->ctx->sample_fmt )
     {
         case AV_SAMPLE_FMT_U8 :
         case AV_SAMPLE_FMT_U8P :
@@ -962,7 +1004,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
             vi.sample_type = SAMPLE_FLOAT;
             break;
         default :
-            env->ThrowError( "LSMASHAudioSource: %s is not supported.", av_get_sample_fmt_name( ah.codec_ctx->sample_fmt ) );
+            env->ThrowError( "LSMASHAudioSource: %s is not supported.", av_get_sample_fmt_name( config->ctx->sample_fmt ) );
     }
 }
 
@@ -1027,7 +1069,7 @@ static inline void waste_decoded_audio_samples( audio_decode_handler_t *hp, uint
         for( int j = 0; j < hp->planes; j++ )
             for( uint64_t k = 0; k < hp->input_block_align; k++ )
             {
-                **p_buf = hp->frame_buffer.data[j][i + k + data_offset];
+                **p_buf = hp->frame_buffer.extended_data[j][i + k + data_offset];
                 ++(*p_buf);
             }
 }
@@ -1056,10 +1098,11 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
     uint64_t copy_size;
     uint64_t output_length = 0;
     uint64_t block_align = ah.input_block_align;
+    codec_configuration_t *config = &ah.config;
     if( start > 0 && start == ah.next_pcm_sample_number )
     {
         frame_number = ah.last_frame_number;
-        if( ah.last_remainder_size && ah.frame_buffer.data[0] )
+        if( ah.last_remainder_size && ah.frame_buffer.extended_data[0] )
         {
             copy_size = min( ah.last_remainder_size, wanted_length * block_align );
             waste_remainder_audio_samples( &ah, copy_size, (uint8_t **)&buf );
@@ -1076,12 +1119,11 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
     else
     {
         /* Seek audio stream. */
-        flush_buffers( ah.codec_ctx, &ah.error );
-        if( ah.error )
+        flush_buffers( config );
+        if( config->error )
             return;
-        ah.delay_count            = 0;
-        ah.last_remainder_size          = 0;
-        ah.last_remainder_offset        = 0;
+        ah.last_remainder_size    = 0;
+        ah.last_remainder_offset  = 0;
         ah.next_pcm_sample_number = 0;
         ah.last_frame_number      = 0;
         uint64_t start_frame_pos;
@@ -1116,13 +1158,13 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         AVPacket *pkt = &ah.packet;
         if( frame_number > ah.frame_count )
         {
-            if( ah.delay_count )
+            if( config->delay_count )
             {
                 /* Null packet */
                 av_init_packet( pkt );
                 pkt->data = NULL;
                 pkt->size = 0;
-                -- ah.delay_count;
+                -- config->delay_count;
             }
             else
             {
@@ -1131,7 +1173,10 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             }
         }
         else if( pkt->size <= 0 )
-            get_sample( ah.root, ah.track_ID, frame_number, ah.input_buffer, pkt );
+            while( get_sample( ah.root, ah.track_ID, frame_number, config, pkt ) == 2 )
+                if( config->update_pending )
+                    /* Update the decoder configuration. */
+                    update_configuration( ah.root, ah.track_ID, config );
         int output_audio = 0;
         do
         {
@@ -1139,7 +1184,7 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             ah.last_remainder_offset = 0;
             copy_size = 0;
             int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( ah.codec_ctx, &ah.frame_buffer, &decode_complete, pkt );
+            int wasted_data_length = avcodec_decode_audio4( config->ctx, &ah.frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
             {
                 pkt->size = 0;  /* Force to get the next sample. */
@@ -1152,7 +1197,7 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             }
             else if( !decode_complete )
                 goto audio_out;
-            if( decode_complete && ah.frame_buffer.data[0] )
+            if( decode_complete && ah.frame_buffer.extended_data[0] )
             {
                 uint64_t decoded_data_size = ah.frame_buffer.nb_samples * block_align;
                 if( decoded_data_size > data_offset )
@@ -1175,7 +1220,7 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             }
         } while( pkt->size > 0 );
         if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
-            ++ ah.delay_count;
+            ++ config->delay_count;
         ++frame_number;
     } while( 1 );
 audio_out:
