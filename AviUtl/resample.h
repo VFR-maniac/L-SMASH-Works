@@ -25,6 +25,7 @@
 typedef struct
 {
     int                 channel_layout;
+    int                 sample_rate;
     int                 sample_count;
     enum AVSampleFormat sample_format;
     uint8_t           **data;
@@ -67,14 +68,21 @@ static inline int get_linesize( int channel_count, int sample_count, enum AVSamp
     return linesize;
 }
 
-static inline void resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
+static inline int resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
 {
     /* Assume little endianess here.
      *   in[0b00]  in[0b01]  in[0b10]  in[0b11]  in[0b100]  in[0b101]  in[0b110]  in[0b111] ...
      *       X    out[0b00] out[0b01] out[0b10]      X     out[0b11]  out[0b100] out[0b101] ... */
+    int resampled_size = 0;
     for( int i = 0; i < data_size; i++ )
         if( i & 0x3 )
-            *((*out_data)++) = in_data[i];
+            *((*out_data) + resampled_size++) = in_data[i];
+    *out_data += resampled_size;
+    return resampled_size;
 }
 
+int flush_resampler_buffers( AVAudioResampleContext *avr );
+int update_resampler_configuration( AVAudioResampleContext *avr,
+                                    AVFrame *out, AVFrame *in,
+                                    int *input_planes, int *input_block_align );
 int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in );

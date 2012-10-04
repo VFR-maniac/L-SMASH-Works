@@ -22,22 +22,91 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include <libavutil/samplefmt.h>
+#include <libavcodec/avcodec.h>
 #include <libavresample/avresample.h>
+#include <libavutil/samplefmt.h>
+#include <libavutil/opt.h>
 
 #include "resample.h"
 
+int flush_resampler_buffers( AVAudioResampleContext *avr )
+{
+    int64_t in_channel_layout;
+    int64_t in_sample_fmt;
+    int64_t in_sample_rate;
+    int64_t out_channel_layout;
+    int64_t out_sample_fmt;
+    int64_t out_sample_rate;
+    av_opt_get_int( avr, "in_channel_layout",   0, &in_channel_layout );
+    av_opt_get_int( avr, "in_sample_fmt",       0, &in_sample_fmt );
+    av_opt_get_int( avr, "in_sample_rate",      0, &in_sample_rate );
+    av_opt_get_int( avr, "out_channel_layout",  0, &out_channel_layout );
+    av_opt_get_int( avr, "out_sample_fmt",      0, &out_sample_fmt );
+    av_opt_get_int( avr, "out_sample_rate",     0, &out_sample_rate );
+    avresample_close( avr );
+    av_opt_set_int( avr, "in_channel_layout",   in_channel_layout,  0 );
+    av_opt_set_int( avr, "in_sample_fmt",       in_sample_fmt,      0 );
+    av_opt_set_int( avr, "in_sample_rate",      in_sample_rate,     0 );
+    av_opt_set_int( avr, "out_channel_layout",  out_channel_layout, 0 );
+    av_opt_set_int( avr, "out_sample_fmt",      out_sample_fmt,     0 );
+    av_opt_set_int( avr, "out_sample_rate",     out_sample_rate,    0 );
+    av_opt_set_int( avr, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP, 0 );
+    return avresample_open( avr ) < 0 ? -1 : 0;
+}
+
+int update_resampler_configuration( AVAudioResampleContext *avr,
+                                    AVFrame *out, AVFrame *in,
+                                    int *input_planes, int *input_block_align )
+{
+    /* Reopen the resampler. */
+    avresample_close( avr );
+    av_opt_set_int( avr, "in_channel_layout",   in->channel_layout,  0 );
+    av_opt_set_int( avr, "in_sample_fmt",       in->format,          0 );
+    av_opt_set_int( avr, "in_sample_rate",      in->sample_rate,     0 );
+    av_opt_set_int( avr, "out_channel_layout",  out->channel_layout, 0 );
+    av_opt_set_int( avr, "out_sample_fmt",      out->format,         0 );
+    av_opt_set_int( avr, "out_sample_rate",     out->sample_rate,    0 );
+    av_opt_set_int( avr, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,  0 );
+    if( avresample_open( avr ) < 0 )
+        return -1;
+    /* Set up the number of planes and the block alignment of input audio frame. */
+    int input_channels = av_get_channel_layout_nb_channels( in->channel_layout );
+    if( av_sample_fmt_is_planar( in->format ) )
+    {
+        *input_planes      = input_channels;
+        *input_block_align = av_get_bytes_per_sample( in->format );
+    }
+    else
+    {
+        *input_planes      = 1;
+        *input_block_align = av_get_bytes_per_sample( in->format ) * input_channels;
+    }
+    return 0;
+}
+
 int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in )
 {
+    /* Don't call this function over different block aligns. */
+    uint8_t *out_orig = *out->data;
     int out_channels = get_channel_layout_nb_channels( out->channel_layout );
-    int out_linesize = get_linesize( out_channels, out->sample_count, out->sample_format );
+    int block_align = av_get_bytes_per_sample( out->sample_format ) * out_channels;
+    int request_sample_count = out->sample_count;
+    if( avresample_available( avr ) > 0 )
+    {
+        int resampled_count = avresample_read( avr, (void **)out->data, request_sample_count );
+        if( resampled_count < 0 )
+            return 0;
+        request_sample_count -= resampled_count;
+        *out->data += resampled_count * block_align;
+    }
+    uint8_t **in_data = in->sample_count > 0 ? in->data : NULL;
     int in_channels  = get_channel_layout_nb_channels( in->channel_layout );
     int in_linesize  = get_linesize( in_channels, in->sample_count, in->sample_format );
-    int resampled_count = avresample_convert( avr, (void **)out->data, out_linesize, out->sample_count,
-                                                   (void **) in->data,  in_linesize,  in->sample_count );
-    if( resampled_count <= 0 )
+    int out_linesize = get_linesize( out_channels, request_sample_count, out->sample_format );
+    int resampled_count = avresample_convert( avr, (void **)out->data, out_linesize, request_sample_count,
+                                                   (void **)  in_data,  in_linesize,     in->sample_count );
+    if( resampled_count < 0 )
         return 0;
-    int resampled_size = resampled_count * av_get_bytes_per_sample( out->sample_format ) * out_channels;
-    *out->data += resampled_size;
-    return resampled_size;
+    *out->data += resampled_count * block_align;
+    return *out->data - out_orig;
 }
