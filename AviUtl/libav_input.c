@@ -1752,9 +1752,6 @@ static uint32_t count_overall_pcm_samples( libav_handler_t *hp )
         if( (current_sample_rate != frame_list[i].sample_rate && frame_list[i].sample_rate > 0)
          || current_frame_length != frame_list[i].length )
         {
-            if( pcm_sample_count * 2 <= audio_frame_count * current_frame_length )
-                /* for HE-AAC upsampling */
-                pcm_sample_count *= 2;
             uint32_t resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate
                                             ? pcm_sample_count
                                             : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
@@ -1770,8 +1767,10 @@ static uint32_t count_overall_pcm_samples( libav_handler_t *hp )
     if( pcm_sample_count * 2 <= audio_frame_count * frame_list[ hp->audio_frame_count ].length )
         /* for HE-AAC upsampling */
         pcm_sample_count *= 2;
-    overall_pcm_sample_count += (pcm_sample_count * hp->audio_output_sample_rate - 1)
-                              / frame_list[ hp->audio_frame_count ].sample_rate + 1;
+    current_sample_rate = frame_list[ hp->audio_frame_count ].sample_rate > 0
+                        ? frame_list[ hp->audio_frame_count ].sample_rate
+                        : hp->audio_ctx->sample_rate;
+    overall_pcm_sample_count += (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
     return overall_pcm_sample_count;
 }
 
@@ -2071,11 +2070,10 @@ video_fail:
 static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
 {
     audio_frame_info_t *frame_list = hp->audio_frame_list;
-    int      frame_number                    = 1;
+    uint32_t frame_number                    = 1;
     uint64_t current_frame_pos               = 0;
     int      current_sample_rate             = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : hp->audio_ctx->sample_rate;
     uint32_t current_frame_length            = frame_list[frame_number].length;
-    uint32_t audio_frame_count               = 0;   /* the number of frames per sequence */
     uint64_t resampled_sample_count          = 0;   /* the number of accumulated PCM samples after resampling per sequence */
     uint64_t pcm_sample_count                = 0;   /* the number of accumulated PCM samples before resampling per sequence */
     uint64_t prior_sequences_resampled_count = 0;   /* the number of accumulated PCM samples of all prior sequences */
@@ -2087,13 +2085,11 @@ static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos
         {
             /* Encountered a new sequence. */
             prior_sequences_resampled_count += resampled_sample_count;
-            audio_frame_count = 0;
-            pcm_sample_count  = 0;
+            pcm_sample_count = 0;
             current_sample_rate  = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : hp->audio_ctx->sample_rate;
             current_frame_length = frame_list[frame_number].length;
         }
-        int upsampling = 1 + (pcm_sample_count * 2 <= audio_frame_count * current_frame_length);
-        pcm_sample_count += frame_list[frame_number].length * upsampling;
+        pcm_sample_count += current_frame_length;
         resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate
                                ? pcm_sample_count
                                : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
