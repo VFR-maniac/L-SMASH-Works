@@ -2072,6 +2072,7 @@ static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos
     audio_frame_info_t *frame_list = hp->audio_frame_list;
     uint32_t frame_number                    = 1;
     uint64_t current_frame_pos               = 0;
+    uint64_t next_frame_pos                  = 0;
     int      current_sample_rate             = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : hp->audio_ctx->sample_rate;
     uint32_t current_frame_length            = frame_list[frame_number].length;
     uint64_t resampled_sample_count          = 0;   /* the number of accumulated PCM samples after resampling per sequence */
@@ -2079,7 +2080,7 @@ static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos
     uint64_t prior_sequences_resampled_count = 0;   /* the number of accumulated PCM samples of all prior sequences */
     do
     {
-        current_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
+        current_frame_pos = next_frame_pos;
         if( (current_sample_rate != frame_list[frame_number].sample_rate && frame_list[frame_number].sample_rate > 0)
          || current_frame_length != frame_list[frame_number].length )
         {
@@ -2093,11 +2094,14 @@ static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos
         resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate
                                ? pcm_sample_count
                                : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
-        if( start_frame_pos < prior_sequences_resampled_count + resampled_sample_count )
+        next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
+        if( start_frame_pos < next_frame_pos )
             break;
         ++frame_number;
     } while( frame_number <= hp->audio_frame_count );
     *start_offset = start_frame_pos - current_frame_pos;
+    if( current_sample_rate != hp->audio_output_sample_rate )
+         *start_offset = (*start_offset * current_sample_rate - 1) / hp->audio_output_sample_rate + 1;
     return frame_number;
 }
 
