@@ -597,7 +597,7 @@ static uint32_t count_overall_pcm_samples( libavsmash_handler_t *hp )
                     skip_samples += (hp->audio_skip_samples - prior_sequences_sample_count) * s->extended.upsampling;
                 prior_sequences_sample_count += pcm_sample_count;
                 pcm_sample_count *= s->extended.upsampling;
-                uint32_t resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate
+                uint32_t resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                                 ? pcm_sample_count
                                                 : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
                 overall_pcm_sample_count += resampled_sample_count;
@@ -618,13 +618,16 @@ static uint32_t count_overall_pcm_samples( libavsmash_handler_t *hp )
     current_sample_rate = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
     if( current_sample_rate == hp->audio_output_sample_rate )
     {
-        hp->audio_skip_samples    = skip_samples;
-        overall_pcm_sample_count += pcm_sample_count;
+        hp->audio_skip_samples = skip_samples;
+        if( pcm_sample_count )
+            overall_pcm_sample_count += pcm_sample_count;
     }
     else
     {
-        hp->audio_skip_samples    = ((uint64_t)skip_samples * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
-        overall_pcm_sample_count += (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
+        if( skip_samples )
+            hp->audio_skip_samples = ((uint64_t)skip_samples * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
+        if( pcm_sample_count )
+            overall_pcm_sample_count += (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
     }
     return overall_pcm_sample_count - hp->audio_skip_samples;
 }
@@ -1068,7 +1071,7 @@ static int find_start_audio_frame( libavsmash_handler_t *hp, uint64_t start_fram
             current_frame_length = frame_length;
         }
         pcm_sample_count += frame_length;
-        resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate
+        resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                ? pcm_sample_count
                                : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
         next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
@@ -1077,8 +1080,8 @@ static int find_start_audio_frame( libavsmash_handler_t *hp, uint64_t start_fram
         ++frame_number;
     } while( frame_number <= hp->audio_frame_count );
     *start_offset = start_frame_pos - current_frame_pos;
-    if( current_sample_rate != hp->audio_output_sample_rate )
-         *start_offset = (*start_offset * current_sample_rate - 1) / hp->audio_output_sample_rate + 1;
+    if( *start_offset && current_sample_rate != hp->audio_output_sample_rate )
+        *start_offset = (*start_offset * current_sample_rate - 1) / hp->audio_output_sample_rate + 1;
     *start_offset += get_preroll_samples( hp, &frame_number );
     return frame_number;
 }
