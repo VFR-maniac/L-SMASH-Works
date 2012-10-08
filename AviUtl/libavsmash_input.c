@@ -32,6 +32,7 @@
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavresample/avresample.h>   /* Audio resampler */
+#include <libavutil/mathematics.h>
 #include <libavutil/opt.h>
 
 #include "lsmashinput.h"
