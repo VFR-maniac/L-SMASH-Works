@@ -690,7 +690,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         uint32_t i = current_sample_number;
         do
         {
-            AVPacket pkt;
+            AVPacket pkt = { 0 };
             int ret = get_sample( root, track_ID, i++, config, &pkt );
             if( ret > 0 || config->index != config->queue.index )
                 break;
@@ -702,7 +702,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                     strcpy( error_string, "Failed to set up resolution.\n" );
                 goto fail;
             }
-            AVFrame picture;
+            AVFrame picture = { { 0 } };
             avcodec_get_frame_defaults( &picture );
             int dummy;
             avcodec_decode_video2( ctx, &picture, &dummy, &pkt );
@@ -713,7 +713,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         uint32_t i = current_sample_number;
         do
         {
-            AVPacket pkt;
+            AVPacket pkt = { 0 };
             int ret = get_sample( root, track_ID, i++, config, &pkt );
             if( ret > 0 || config->index != config->queue.index )
                 break;
@@ -725,7 +725,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                     strcpy( error_string, "Failed to set up channels.\n" );
                 goto fail;
             }
-            AVFrame picture;
+            AVFrame picture = { { 0 } };
             avcodec_get_frame_defaults( &picture );
             int dummy;
             avcodec_decode_audio4( ctx, &picture, &dummy, &pkt );
@@ -755,7 +755,7 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     config->input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
     if( !config->input_buffer )
         return -1;
-    AVPacket dummy;
+    AVPacket dummy = { 0 };
     for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
     update_configuration( root, track_ID, config );
     return config->error ? -1 : 0;

@@ -479,9 +479,9 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
-        AVPacket pkt;
+        AVPacket pkt = { 0 };
         get_sample( vh.root, vh.track_ID, i, &vh.config, &pkt );
-        AVFrame picture;
+        AVFrame picture = { { 0 } };
         avcodec_get_frame_defaults( &picture );
         int got_picture;
         if( avcodec_decode_video2( config->ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
@@ -506,7 +506,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 
 static int decode_video_sample( video_decode_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
-    AVPacket pkt;
+    AVPacket pkt = { 0 };
     int ret = get_sample( hp->root, hp->track_ID, sample_number, &hp->config, &pkt );
     if( ret )
         return ret;
@@ -644,7 +644,7 @@ static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t c
     if( current > sample_count && get_decoder_delay( config->ctx ) )
         while( current <= goal )
         {
-            AVPacket pkt;
+            AVPacket pkt = { 0 };
             av_init_packet( &pkt );
             pkt.data = NULL;
             pkt.size = 0;
@@ -673,9 +673,9 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     PVideoFrame frame = env->NewVideoFrame( vi );
     if( config->error )
         return frame;
-    AVFrame picture;            /* Decoded video data will be stored here. */
-    uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    AVFrame picture = { { 0 } };    /* Decoded video data will be stored here. */
+    uint32_t start_number;          /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;            /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = vh.seek_mode;
     int roll_recovery = 0;
     if( sample_number > vh.last_sample_number
