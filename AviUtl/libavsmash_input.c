@@ -527,9 +527,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
     {
-        AVPacket pkt;
+        AVPacket pkt = { 0 };
         get_sample( hp->root, hp->video_track_ID, i, config, &pkt );
-        AVFrame picture;
+        AVFrame picture = { { 0 } };
         avcodec_get_frame_defaults( &picture );
         int got_picture;
         if( avcodec_decode_video2( config->ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
@@ -747,7 +747,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
-    AVPacket pkt;
+    AVPacket pkt = { 0 };
     int ret = get_sample( hp->root, hp->video_track_ID, sample_number, &hp->video_config, &pkt );
     if( ret )
         return ret;
@@ -889,7 +889,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
     if( current > video_sample_count && get_decoder_delay( config->ctx ) )
         while( current <= goal )
         {
-            AVPacket pkt;
+            AVPacket pkt = { 0 };
             av_init_packet( &pkt );
             pkt.data = NULL;
             pkt.size = 0;
@@ -923,9 +923,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         hp->last_video_sample_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video sample. */
         return hp->first_valid_video_sample_size;
     }
-    AVFrame picture;            /* Decoded video data will be stored here. */
-    uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    AVFrame picture = { { 0 } };    /* Decoded video data will be stored here. */
+    uint32_t start_number;          /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;            /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
     int roll_recovery = 0;
     if( sample_number > hp->last_video_sample_number
@@ -1233,7 +1233,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
-                    AVFrame output_audio_frame;
+                    AVFrame output_audio_frame = { { 0 } };
                     output_audio_frame.channel_layout = hp->audio_output_channel_layout;
                     output_audio_frame.sample_rate    = hp->audio_output_sample_rate;
                     output_audio_frame.format         = hp->audio_output_sample_format;

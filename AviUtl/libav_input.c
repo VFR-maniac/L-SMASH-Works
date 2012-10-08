@@ -448,7 +448,7 @@ static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, A
 static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket *pkt )
 {
     int got_picture;
-    AVFrame picture;
+    AVFrame picture = { { 0 } };
     avcodec_get_frame_defaults( &picture );
     avcodec_decode_video2( video_ctx, &picture, &got_picture, pkt );
 }
@@ -563,7 +563,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         audio_index_pos = ftell( index );
         fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", -1 );
     }
-    AVPacket pkt;
+    AVPacket pkt = { 0 };
     av_init_packet( &pkt );
     int       video_resolution      = 0;
     uint32_t  video_sample_count    = 0;
@@ -812,7 +812,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 continue;
             for( uint32_t i = 1; i <= audio_delay_count[stream_index]; i++ )
             {
-                AVPacket null_pkt;
+                AVPacket null_pkt = { 0 };
                 av_init_packet( &null_pkt );
                 null_pkt.data = NULL;
                 null_pkt.size = 0;
@@ -1601,7 +1601,7 @@ static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
 
 static int get_sample( AVFormatContext *format_ctx, int stream_index, uint8_t **buffer, uint32_t *buffer_size, AVPacket *pkt )
 {
-    AVPacket temp;
+    AVPacket temp = { 0 };
     av_init_packet( &temp );
     while( read_frame( format_ctx, &temp ) >= 0 )
     {
@@ -1712,9 +1712,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( hp->video_ctx ); i++ )
     {
-        AVPacket pkt;
+        AVPacket pkt = { 0 };
         get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
-        AVFrame picture;
+        AVFrame picture = { { 0 } };
         avcodec_get_frame_defaults( &picture );
         int got_picture;
         if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
@@ -1888,7 +1888,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
 {
-    AVPacket pkt;
+    AVPacket pkt = { 0 };
     if( get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
         return 1;
     if( pkt.flags == AV_PKT_FLAG_KEY )
@@ -1975,7 +1975,7 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
     if( current > video_sample_count && get_decoder_delay( hp->video_ctx ) )
         while( current <= goal )
         {
-            AVPacket pkt;
+            AVPacket pkt = { 0 };
             av_init_packet( &pkt );
             pkt.data = NULL;
             pkt.size = 0;
@@ -2008,9 +2008,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video frame. */
         return hp->first_valid_video_frame_size;
     }
-    AVFrame picture;            /* Decoded video data will be stored here. */
-    uint32_t start_number;      /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;        /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    AVFrame picture = { { 0 } };    /* Decoded video data will be stored here. */
+    uint32_t start_number;          /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;            /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
     int64_t rap_pos = INT64_MIN;
     if( sample_number > hp->last_video_frame_number
@@ -2285,7 +2285,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
-                    AVFrame output_audio_frame;
+                    AVFrame output_audio_frame = { { 0 } };
                     output_audio_frame.channel_layout = hp->audio_output_channel_layout;
                     output_audio_frame.sample_rate    = hp->audio_output_sample_rate;
                     output_audio_frame.format         = hp->audio_output_sample_format;
