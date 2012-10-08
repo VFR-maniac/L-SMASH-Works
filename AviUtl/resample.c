@@ -93,7 +93,7 @@ int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_sam
     int request_sample_count = out->sample_count;
     if( avresample_available( avr ) > 0 )
     {
-        int resampled_count = avresample_read( avr, (void **)out->data, request_sample_count );
+        int resampled_count = avresample_read( avr, out->data, request_sample_count );
         if( resampled_count < 0 )
             return 0;
         request_sample_count -= resampled_count;
@@ -103,8 +103,8 @@ int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_sam
     int in_channels  = get_channel_layout_nb_channels( in->channel_layout );
     int in_linesize  = get_linesize( in_channels, in->sample_count, in->sample_format );
     int out_linesize = get_linesize( out_channels, request_sample_count, out->sample_format );
-    int resampled_count = avresample_convert( avr, (void **)out->data, out_linesize, request_sample_count,
-                                                   (void **)  in_data,  in_linesize,     in->sample_count );
+    int resampled_count = avresample_convert( avr, out->data, out_linesize, request_sample_count,
+                                                     in_data,  in_linesize,     in->sample_count );
     if( resampled_count < 0 )
         return 0;
     *out->data += resampled_count * block_align;
