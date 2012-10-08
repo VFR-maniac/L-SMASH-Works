@@ -28,11 +28,15 @@
 
 #define _CRT_SECURE_NO_WARNINGS
 
+#include <stdlib.h>
+#include <string.h>
+
 extern "C"
 {
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/mem.h>
 }
 
 #include "libavsmash.h"

@@ -22,12 +22,12 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include <windows.h>
-#include "avisynth.h"
-
 #ifndef __STDC_CONSTANT_MACROS
 #define __STDC_CONSTANT_MACROS
 #endif
+
+#include <windows.h>
+#include "avisynth.h"
 
 extern "C"
 {
@@ -41,6 +41,7 @@ extern "C"
 #include <libavcodec/avcodec.h>     /* Decoder */
 #include <libswscale/swscale.h>     /* Colorspace converter */
 #include <libavutil/imgutils.h>
+#include <libavutil/mem.h>
 }
 
 #include "libavsmash.h"
