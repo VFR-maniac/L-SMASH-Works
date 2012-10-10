@@ -99,6 +99,7 @@ typedef struct
     int                   seek_mode;
     codec_configuration_t config;
     AVFormatContext      *format_ctx;
+    AVFrame              *frame_buffer;
     struct SwsContext    *sws_ctx;
     order_converter_t    *order_converter;
     uint32_t              last_sample_number;
@@ -147,6 +148,8 @@ LSMASHVideoSource::~LSMASHVideoSource()
         delete first_valid_frame;
     if( vh.order_converter )
         delete [] vh.order_converter;
+    if( vh.frame_buffer )
+        avcodec_free_frame( &vh.frame_buffer );
     if( vh.sws_ctx )
         sws_freeContext( vh.sws_ctx );
     cleanup_configuration( &vh.config );
@@ -457,6 +460,9 @@ func_make_frame *determine_colorspace_conversion( enum PixelFormat *input_pixel_
 
 void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 {
+    vh.frame_buffer = avcodec_alloc_frame();
+    if( !vh.frame_buffer )
+        env->ThrowError( "LSMASHAudioSource: failed to allocate video frame buffer." );
     /* Initialize the video decoder configuration. */
     codec_configuration_t *config = &vh.config;
     config->message_priv = env;
@@ -481,10 +487,10 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     {
         AVPacket pkt = { 0 };
         get_sample( vh.root, vh.track_ID, i, &vh.config, &pkt );
-        AVFrame picture = { { 0 } };
-        avcodec_get_frame_defaults( &picture );
+        AVFrame *picture = vh.frame_buffer;
+        avcodec_get_frame_defaults( picture );
         int got_picture;
-        if( avcodec_decode_video2( config->ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
             first_valid_frame_number = i - min( get_decoder_delay( config->ctx ), config->delay_count );
             if( first_valid_frame_number > 1 || vi.num_frames == 1 )
@@ -492,7 +498,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( config->ctx, vh.sws_ctx, &picture, temp, env ) )
+                if( make_frame( config->ctx, vh.sws_ctx, picture, temp, env ) )
                     continue;
                 first_valid_frame = new PVideoFrame( temp );
             }
@@ -673,9 +679,9 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     PVideoFrame frame = env->NewVideoFrame( vi );
     if( config->error )
         return frame;
-    AVFrame picture = { { 0 } };    /* Decoded video data will be stored here. */
-    uint32_t start_number;          /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;            /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    AVFrame *picture = vh.frame_buffer;
+    uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = vh.seek_mode;
     int roll_recovery = 0;
     if( sample_number > vh.last_sample_number
@@ -696,14 +702,14 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
         {
             /* Require starting to decode from random accessible sample. */
             vh.last_rap_number = rap_number;
-            start_number = seek_video( &vh, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
+            start_number = seek_video( &vh, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
         }
     }
     /* Get desired picture. */
     int error_count = 0;
     while( start_number == 0    /* Failed to seek. */
      || config->update_pending  /* Need to update the decoder configuration to decode pictures. */
-     || get_picture( &vh, &picture, start_number, sample_number + config->delay_count, vi.num_frames ) )
+     || get_picture( &vh, picture, start_number, sample_number + config->delay_count, vi.num_frames ) )
     {
         if( config->update_pending )
         {
@@ -731,10 +737,10 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
                 vh.last_rap_number = rap_number;
             }
         }
-        start_number = seek_video( &vh, &picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
+        start_number = seek_video( &vh, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     vh.last_sample_number = sample_number;
-    if( make_frame( config->ctx, vh.sws_ctx, &picture, frame, env ) )
+    if( make_frame( config->ctx, vh.sws_ctx, picture, frame, env ) )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return frame;
 #undef MAX_ERROR_COUNT
@@ -746,7 +752,7 @@ typedef struct
     uint32_t              track_ID;
     codec_configuration_t config;
     AVFormatContext      *format_ctx;
-    AVFrame               frame_buffer;
+    AVFrame              *frame_buffer;
     AVPacket              packet;
     uint32_t              frame_count;
     uint32_t              frame_length;
@@ -791,6 +797,8 @@ LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number,
 
 LSMASHAudioSource::~LSMASHAudioSource()
 {
+    if( ah.frame_buffer )
+        avcodec_free_frame( &ah.frame_buffer );
     cleanup_configuration( &ah.config );
     if( ah.format_ctx )
         avformat_close_input( &ah.format_ctx );
@@ -963,12 +971,14 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
 
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
+    ah.frame_buffer = avcodec_alloc_frame();
+    if( !ah.frame_buffer )
+        env->ThrowError( "LSMASHAudioSource: failed to allocate audio frame buffer." );
     /* Initialize the audio decoder configuration. */
     codec_configuration_t *config = &ah.config;
     config->message_priv = env;
     if( initialize_decoder_configuration( ah.root, ah.track_ID, config ) )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
-    avcodec_get_frame_defaults( &ah.frame_buffer );
     ah.frame_length = config->ctx->frame_size;
     if( vi.num_audio_samples * 2 <= ah.frame_count * ah.frame_length )
     {
@@ -1070,7 +1080,7 @@ static inline void waste_decoded_audio_samples( audio_decode_handler_t *hp, uint
         for( int j = 0; j < hp->planes; j++ )
             for( uint64_t k = 0; k < hp->input_block_align; k++ )
             {
-                **p_buf = hp->frame_buffer.extended_data[j][i + k + data_offset];
+                **p_buf = hp->frame_buffer->extended_data[j][i + k + data_offset];
                 ++(*p_buf);
             }
 }
@@ -1103,7 +1113,7 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
     if( start > 0 && start == ah.next_pcm_sample_number )
     {
         frame_number = ah.last_frame_number;
-        if( ah.last_remainder_size && ah.frame_buffer.extended_data[0] )
+        if( ah.last_remainder_size && ah.frame_buffer->extended_data[0] )
         {
             copy_size = min( ah.last_remainder_size, wanted_length * block_align );
             waste_remainder_audio_samples( &ah, copy_size, (uint8_t **)&buf );
@@ -1184,8 +1194,9 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             ah.last_remainder_size   = 0;
             ah.last_remainder_offset = 0;
             copy_size = 0;
+            avcodec_get_frame_defaults( ah.frame_buffer );
             int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( config->ctx, &ah.frame_buffer, &decode_complete, pkt );
+            int wasted_data_length = avcodec_decode_audio4( config->ctx, ah.frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
             {
                 pkt->size = 0;  /* Force to get the next sample. */
@@ -1198,9 +1209,9 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             }
             else if( !decode_complete )
                 goto audio_out;
-            if( decode_complete && ah.frame_buffer.extended_data[0] )
+            if( decode_complete && ah.frame_buffer->extended_data[0] )
             {
-                uint64_t decoded_data_size = ah.frame_buffer.nb_samples * block_align;
+                uint64_t decoded_data_size = ah.frame_buffer->nb_samples * block_align;
                 if( decoded_data_size > data_offset )
                 {
                     copy_size = min( decoded_data_size - data_offset, wanted_length * block_align );
