@@ -106,6 +106,7 @@ typedef struct libav_handler_tag
     int                      video_width;
     int                      video_height;
     enum PixelFormat         pix_fmt;
+    AVFrame                 *video_frame_buffer;
     uint8_t                 *video_input_buffer;
     uint32_t                 video_input_buffer_size;
     uint32_t                 video_frame_count;
@@ -133,7 +134,7 @@ typedef struct libav_handler_tag
     AVAudioResampleContext  *avr_ctx;
     AVIndexEntry            *audio_index_entries;
     int                      audio_index_entries_count;
-    AVFrame                  audio_frame_buffer;
+    AVFrame                 *audio_frame_buffer;
     AVPacket                 audio_packet;
     enum AVSampleFormat      audio_output_sample_format;
     uint8_t                 *audio_input_buffer;
@@ -445,12 +446,11 @@ static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, A
                    - av_rescale_q( video_ts, video_time_base, audio_sample_base );
 }
 
-static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket *pkt )
+static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket *pkt, AVFrame *picture )
 {
     int got_picture;
-    AVFrame picture = { { 0 } };
-    avcodec_get_frame_defaults( &picture );
-    avcodec_decode_video2( video_ctx, &picture, &got_picture, pkt );
+    avcodec_get_frame_defaults( picture );
+    avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
 }
 
 static inline void print_index( FILE *index, const char *format, ... )
@@ -520,7 +520,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         free( video_info );
         return;
     }
-    avcodec_get_frame_defaults( &hp->audio_frame_buffer );
+    avcodec_get_frame_defaults( hp->audio_frame_buffer );
     /*
         # Structure of Libav reader index file
         <LibavReaderIndexFile=4>
@@ -591,7 +591,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
         {
             if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
-                investigate_pix_fmt_by_decoding( pkt_ctx, &pkt );
+                investigate_pix_fmt_by_decoding( pkt_ctx, &pkt, hp->video_frame_buffer );
             int dv_in_avi_init = 0;
             if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == AV_CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
             {
@@ -695,18 +695,18 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 while( temp.size > 0 )
                 {
                     int decode_complete;
-                    int wasted_data_length = avcodec_decode_audio4( pkt_ctx, &hp->audio_frame_buffer, &decode_complete, &temp );
+                    int wasted_data_length = avcodec_decode_audio4( pkt_ctx, hp->audio_frame_buffer, &decode_complete, &temp );
                     if( wasted_data_length < 0 )
                     {
-                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( hp->audio_frame_buffer.channel_layout );
-                        pkt_ctx->sample_rate = hp->audio_frame_buffer.sample_rate;
+                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( hp->audio_frame_buffer->channel_layout );
+                        pkt_ctx->sample_rate = hp->audio_frame_buffer->sample_rate;
                         break;
                     }
                     temp.size -= wasted_data_length;
                     temp.data += wasted_data_length;
                     if( decode_complete )
                     {
-                        frame_length += hp->audio_frame_buffer.nb_samples;
+                        frame_length += hp->audio_frame_buffer->nb_samples;
                         output_audio = 1;
                     }
                 }
@@ -817,9 +817,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 null_pkt.data = NULL;
                 null_pkt.size = 0;
                 int decode_complete;
-                if( avcodec_decode_audio4( pkt_ctx, &hp->audio_frame_buffer, &decode_complete, &null_pkt ) >= 0 )
+                if( avcodec_decode_audio4( pkt_ctx, hp->audio_frame_buffer, &decode_complete, &null_pkt ) >= 0 )
                 {
-                    frame_length = decode_complete ? hp->audio_frame_buffer.nb_samples : 0;
+                    frame_length = decode_complete ? hp->audio_frame_buffer->nb_samples : 0;
                     if( stream_index == hp->audio_index )
                     {
                         audio_duration += frame_length;
@@ -1299,6 +1299,19 @@ static void *open_file( char *file_path, reader_option_t *opt )
     libav_handler_t *hp = malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
+    hp->video_frame_buffer = avcodec_alloc_frame();
+    if( !hp->video_frame_buffer )
+    {
+        free( hp );
+        return NULL;
+    }
+    hp->audio_frame_buffer = avcodec_alloc_frame();
+    if( !hp->audio_frame_buffer )
+    {
+        avcodec_free_frame( &hp->video_frame_buffer );
+        free( hp );
+        return NULL;
+    }
     /* Try to open the index file. */
     int file_path_length = strlen( file_path );
     char index_file_path[file_path_length + 7];
@@ -1331,10 +1344,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     {
         hp->file_path = malloc( file_path_length + 1 );
         if( !hp->file_path )
-        {
-            free( hp );
-            return NULL;
-        }
+            goto fail;
         memcpy( hp->file_path, file_path, file_path_length );
         hp->file_path[file_path_length] = '\0';
     }
@@ -1345,9 +1355,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     {
         if( format_ctx )
             lavf_close_file( &format_ctx );
-        free( hp->file_path );
-        free( hp );
-        return NULL;
+        goto fail;
     }
     hp->threads     = opt->threads;
     hp->video_index = -1;
@@ -1359,6 +1367,15 @@ static void *open_file( char *file_path, reader_option_t *opt )
     hp->video_ctx = NULL;
     hp->audio_ctx = NULL;
     return hp;
+fail:
+    if( hp->video_frame_buffer )
+        avcodec_free_frame( &hp->video_frame_buffer );
+    if( hp->audio_frame_buffer )
+        avcodec_free_frame( &hp->audio_frame_buffer );
+    if( hp->file_path )
+        free( hp->file_path );
+    free( hp );
+    return NULL;
 }
 
 static int get_video_track( lsmash_handler_t *h )
@@ -1714,10 +1731,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     {
         AVPacket pkt = { 0 };
         get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
-        AVFrame picture = { { 0 } };
-        avcodec_get_frame_defaults( &picture );
+        AVFrame *picture = hp->video_frame_buffer;
+        avcodec_get_frame_defaults( picture );
         int got_picture;
-        if( avcodec_decode_video2( hp->video_ctx, &picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
             hp->first_valid_video_frame_number = i - min( get_decoder_delay( hp->video_ctx ), hp->video_delay_count );
             if( hp->first_valid_video_frame_number > 1 || h->video_sample_count == 1 )
@@ -1727,7 +1744,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
                 hp->first_valid_video_frame_data = malloc( hp->first_valid_video_frame_size );
                 if( !hp->first_valid_video_frame_data )
                     return -1;
-                if( hp->first_valid_video_frame_size > hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, hp->first_valid_video_frame_data ) )
+                if( hp->first_valid_video_frame_size > hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, picture, hp->first_valid_video_frame_data ) )
                     continue;
             }
             break;
@@ -1806,7 +1823,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         av_free( hp->audio_index_entries );
         hp->audio_index_entries = NULL;
     }
-    avcodec_get_frame_defaults( &hp->audio_frame_buffer );
+    avcodec_get_frame_defaults( hp->audio_frame_buffer );
     /* Set up resampler. */
     hp->avr_ctx = avresample_alloc_context();
     if( !hp->avr_ctx )
@@ -2008,9 +2025,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video frame. */
         return hp->first_valid_video_frame_size;
     }
-    AVFrame picture = { { 0 } };    /* Decoded video data will be stored here. */
-    uint32_t start_number;          /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;            /* number of sample, for seeking, where decoding starts excluding decoding delay */
+    AVFrame *picture = hp->video_frame_buffer;
+    uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
+    uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = hp->seek_mode;
     int64_t rap_pos = INT64_MIN;
     if( sample_number > hp->last_video_frame_number
@@ -2029,12 +2046,12 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             /* Require starting to decode from random accessible sample. */
             rap_pos = get_random_accessible_point_position( h, rap_number );
             hp->last_rap_number = rap_number;
-            start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+            start_number = seek_video( hp, picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
         }
     }
     /* Get desired picture. */
     int error_count = 0;
-    while( start_number == 0 || get_picture( hp, &picture, start_number, sample_number + hp->video_delay_count, h->video_sample_count ) )
+    while( start_number == 0 || get_picture( hp, picture, start_number, sample_number + hp->video_delay_count, h->video_sample_count ) )
     {
         /* Failed to get desired picture. */
         if( hp->video_error || seek_mode == SEEK_MODE_AGGRESSIVE )
@@ -2053,12 +2070,10 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             rap_pos = get_random_accessible_point_position( h, rap_number );
             hp->last_rap_number = rap_number;
         }
-        start_number = seek_video( hp, &picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+        start_number = seek_video( hp, picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
     }
     hp->last_video_frame_number = sample_number;
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "src_linesize[0] = %d, src_linesize[1] = %d, src_linesize[2] = %d, src_linesize[3] = %d",
-                                     picture.linesize[0], picture.linesize[1], picture.linesize[2], picture.linesize[3] );
-    return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, &picture, buf );
+    return hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, picture, buf );
 video_fail:
     /* fatal error of decoding */
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
@@ -2142,11 +2157,11 @@ static int waste_decoded_audio_samples( libav_handler_t *hp, int input_sample_co
     uint8_t *in_data[ hp->audio_planes ];
     int decoded_data_offset = sample_offset * hp->audio_input_block_align;
     for( int i = 0; i < hp->audio_planes; i++ )
-        in_data[i] = hp->audio_frame_buffer.extended_data[i] + decoded_data_offset;
+        in_data[i] = hp->audio_frame_buffer->extended_data[i] + decoded_data_offset;
     audio_samples_t in;
-    in.channel_layout = hp->audio_frame_buffer.channel_layout;
+    in.channel_layout = hp->audio_frame_buffer->channel_layout;
     in.sample_count   = input_sample_count;
-    in.sample_format  = hp->audio_frame_buffer.format;
+    in.sample_format  = hp->audio_frame_buffer->format;
     in.data           = in_data;
     /* Output */
     uint8_t *resampled_buffer = NULL;
@@ -2190,7 +2205,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     if( start > 0 && start == hp->next_audio_pcm_sample_number )
     {
         frame_number = hp->last_audio_frame_number;
-        if( hp->audio_frame_buffer.extended_data[0] )
+        if( hp->audio_frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
             int resampled_length = waste_decoded_audio_samples( hp, 0, wanted_length, (uint8_t **)&buf, 0 );
@@ -2257,11 +2272,12 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int output_audio = 0;
         do
         {
-            uint64_t            channel_layout = hp->audio_frame_buffer.channel_layout;
-            int                 sample_rate    = hp->audio_frame_buffer.sample_rate;
-            enum AVSampleFormat sample_format  = hp->audio_frame_buffer.format;
+            uint64_t            channel_layout = hp->audio_frame_buffer->channel_layout;
+            int                 sample_rate    = hp->audio_frame_buffer->sample_rate;
+            enum AVSampleFormat sample_format  = hp->audio_frame_buffer->format;
+            avcodec_get_frame_defaults( hp->audio_frame_buffer );
             int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, &hp->audio_frame_buffer, &decode_complete, pkt );
+            int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, hp->audio_frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
             {
                 pkt->size = 0;  /* Force to get the next sample. */
@@ -2274,24 +2290,26 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             }
             else if( !decode_complete )
                 goto audio_out;
-            if( decode_complete && hp->audio_frame_buffer.extended_data[0] )
+            if( decode_complete && hp->audio_frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
-                if( hp->audio_frame_buffer.channel_layout == 0 )
-                    hp->audio_frame_buffer.channel_layout = av_get_default_channel_layout( hp->audio_ctx->channels );
-                if( hp->audio_frame_buffer.channel_layout != channel_layout
-                 || hp->audio_frame_buffer.sample_rate    != sample_rate
-                 || hp->audio_frame_buffer.format         != sample_format )
+                if( hp->audio_frame_buffer->channel_layout == 0 )
+                    hp->audio_frame_buffer->channel_layout = av_get_default_channel_layout( hp->audio_ctx->channels );
+                if( hp->audio_frame_buffer->channel_layout != channel_layout
+                 || hp->audio_frame_buffer->sample_rate    != sample_rate
+                 || hp->audio_frame_buffer->format         != sample_format )
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
-                    AVFrame output_audio_frame = { { 0 } };
-                    output_audio_frame.channel_layout = hp->audio_output_channel_layout;
-                    output_audio_frame.sample_rate    = hp->audio_output_sample_rate;
-                    output_audio_frame.format         = hp->audio_output_sample_format;
                     if( update_resampler_configuration( hp->avr_ctx,
-                                                        &output_audio_frame, &hp->audio_frame_buffer,
-                                                        &hp->audio_planes, &hp->audio_input_block_align ) < 0 )
+                                                        hp->audio_output_channel_layout,
+                                                        hp->audio_output_sample_rate,
+                                                        hp->audio_output_sample_format,
+                                                        hp->audio_frame_buffer->channel_layout,
+                                                        hp->audio_frame_buffer->sample_rate,
+                                                        hp->audio_frame_buffer->format,
+                                                        &hp->audio_planes,
+                                                        &hp->audio_input_block_align ) < 0 )
                     {
                         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to reconfigure resampler.\nIt is recommended you reopen the file." );
                         hp->audio_error = 1;
@@ -2299,7 +2317,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                     }
                 }
                 /* Process decoded audio samples. */
-                int decoded_length = hp->audio_frame_buffer.nb_samples;
+                int decoded_length = hp->audio_frame_buffer->nb_samples;
                 if( decoded_length > seek_offset )
                 {
                     /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
@@ -2319,7 +2337,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
             ++ hp->audio_delay_count;
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, output_length = %d",
-                                         frame_number, hp->audio_frame_buffer.nb_samples, output_length );
+                                         frame_number, hp->audio_frame_buffer->nb_samples, output_length );
         ++frame_number;
     } while( 1 );
 audio_out:
@@ -2397,6 +2415,10 @@ static void close_file( void *private_stuff )
     libav_handler_t *hp = (libav_handler_t *)private_stuff;
     if( !hp )
         return;
+    if( hp->video_frame_buffer )
+        avcodec_free_frame( &hp->video_frame_buffer );
+    if( hp->audio_frame_buffer )
+        avcodec_free_frame( &hp->audio_frame_buffer );
     if( hp->file_path )
         free( hp->file_path );
     free( hp );

@@ -675,6 +675,12 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     config->delay_count       = 0;
     config->queue.delay_count = 0;
     /* Set up decoder basic settings by actual decoding. */
+    AVFrame *picture = avcodec_alloc_frame();
+    if( !picture )
+    {
+        strcpy( error_string, "Failed to alloc AVFrame to set up a decoder configuration.\n" );
+        goto fail;
+    }
     uint32_t current_sample_number = config->queue.sample_number;
     if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
     {
@@ -691,12 +697,12 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                     strcpy( error_string, "Failed to set up pixel format.\n" );
                 else
                     strcpy( error_string, "Failed to set up resolution.\n" );
+                avcodec_free_frame( &picture );
                 goto fail;
             }
-            AVFrame picture = { { 0 } };
-            avcodec_get_frame_defaults( &picture );
+            avcodec_get_frame_defaults( picture );
             int dummy;
-            avcodec_decode_video2( ctx, &picture, &dummy, &pkt );
+            avcodec_decode_video2( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == PIX_FMT_NONE );
     }
     else
@@ -717,13 +723,13 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                     strcpy( error_string, "Failed to set up channels.\n" );
                 else
                     strcpy( error_string, "Failed to set up sample format.\n" );
+                avcodec_free_frame( &picture );
                 goto fail;
             }
-            AVFrame picture = { { 0 } };
-            avcodec_get_frame_defaults( &picture );
+            avcodec_get_frame_defaults( picture );
             int dummy;
-            avcodec_decode_audio4( ctx, &picture, &dummy, &pkt );
-            if( upsampling == 0 && picture.nb_samples > 0 )
+            avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
+            if( upsampling == 0 && picture->nb_samples > 0 )
             {
                 if( ctx->frame_size )
                     /* Libavcodec returns upsampled length. */
@@ -734,7 +740,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                     if( lsmash_get_sample_delta_from_media_timeline( root, track_ID, i - 1, &frame_length ) )
                         continue;
                     if( frame_length )
-                        upsampling = picture.nb_samples / frame_length;
+                        upsampling = picture->nb_samples / frame_length;
                 }
             }
         } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
@@ -745,6 +751,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         extended->frame_length   = ctx->frame_size;
         extended->upsampling     = upsampling > 0 ? upsampling : 1;
     }
+    avcodec_free_frame( &picture );
     /* Reopen/flush with the requested number of threads. */
     ctx->thread_count = thread_count;
     flush_buffers( config );

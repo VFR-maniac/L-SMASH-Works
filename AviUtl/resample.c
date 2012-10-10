@@ -55,31 +55,32 @@ int flush_resampler_buffers( AVAudioResampleContext *avr )
 }
 
 int update_resampler_configuration( AVAudioResampleContext *avr,
-                                    AVFrame *out, AVFrame *in,
+                                    uint64_t out_channel_layout, int out_sample_rate, enum AVSampleFormat out_sample_fmt,
+                                    uint64_t  in_channel_layout, int  in_sample_rate, enum AVSampleFormat  in_sample_fmt,
                                     int *input_planes, int *input_block_align )
 {
     /* Reopen the resampler. */
     avresample_close( avr );
-    av_opt_set_int( avr, "in_channel_layout",   in->channel_layout,  0 );
-    av_opt_set_int( avr, "in_sample_fmt",       in->format,          0 );
-    av_opt_set_int( avr, "in_sample_rate",      in->sample_rate,     0 );
-    av_opt_set_int( avr, "out_channel_layout",  out->channel_layout, 0 );
-    av_opt_set_int( avr, "out_sample_fmt",      out->format,         0 );
-    av_opt_set_int( avr, "out_sample_rate",     out->sample_rate,    0 );
-    av_opt_set_int( avr, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,  0 );
+    av_opt_set_int( avr, "in_channel_layout",   in_channel_layout,  0 );
+    av_opt_set_int( avr, "in_sample_fmt",       in_sample_fmt,      0 );
+    av_opt_set_int( avr, "in_sample_rate",      in_sample_rate,     0 );
+    av_opt_set_int( avr, "out_channel_layout",  out_channel_layout, 0 );
+    av_opt_set_int( avr, "out_sample_fmt",      out_sample_fmt,     0 );
+    av_opt_set_int( avr, "out_sample_rate",     out_sample_rate,    0 );
+    av_opt_set_int( avr, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP, 0 );
     if( avresample_open( avr ) < 0 )
         return -1;
     /* Set up the number of planes and the block alignment of input audio frame. */
-    int input_channels = av_get_channel_layout_nb_channels( in->channel_layout );
-    if( av_sample_fmt_is_planar( in->format ) )
+    int input_channels = av_get_channel_layout_nb_channels( in_channel_layout );
+    if( av_sample_fmt_is_planar( in_sample_fmt ) )
     {
         *input_planes      = input_channels;
-        *input_block_align = av_get_bytes_per_sample( in->format );
+        *input_block_align = av_get_bytes_per_sample( in_sample_fmt );
     }
     else
     {
         *input_planes      = 1;
-        *input_block_align = av_get_bytes_per_sample( in->format ) * input_channels;
+        *input_block_align = av_get_bytes_per_sample( in_sample_fmt ) * input_channels;
     }
     return 0;
 }
