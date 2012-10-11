@@ -24,16 +24,32 @@
 
 typedef struct
 {
-    int                error;
-    int                update_pending;
-    int                dequeue_packet;
-    uint32_t           count;
-    uint32_t           index;       /* index of the current decoder configuration */
-    uint32_t           delay_count;
-    uint8_t           *input_buffer;
-    AVCodecContext    *ctx;
-    lsmash_summary_t **entries;
-    void              *message_priv;
+    uint64_t            channel_layout;
+    enum AVSampleFormat sample_format;
+    int                 sample_rate;
+    int                 frame_length;
+    int                 upsampling;
+} extended_summary_t;
+
+typedef struct
+{
+    lsmash_summary_t  *summary;
+    extended_summary_t extended;
+} libavsmash_summary_t;
+
+typedef struct
+{
+    int                   error;
+    int                   update_pending;
+    int                   dequeue_packet;
+    uint32_t              count;
+    uint32_t              index;    /* index of the current decoder configuration */
+    uint32_t              delay_count;
+    uint8_t              *input_buffer;
+    AVCodecContext       *ctx;
+    libavsmash_summary_t *entries;
+    extended_summary_t    prefer;
+    void                 *message_priv;
     void (*error_message)( void *message_priv, const char *message, ... );
     struct
     {

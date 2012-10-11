@@ -36,6 +36,7 @@ extern "C"
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/audioconvert.h>
 #include <libavutil/mem.h>
 }
 
@@ -53,19 +54,19 @@ int get_summaries( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t
         strcpy( error_string, "Failed to find valid summaries.\n" );
         goto fail;
     }
-    lsmash_summary_t **summaries = (lsmash_summary_t **)malloc( summary_count * sizeof(lsmash_summary_t *) );
+    libavsmash_summary_t *summaries = (libavsmash_summary_t *)malloc( summary_count * sizeof(libavsmash_summary_t) );
     if( !summaries )
     {
         strcpy( error_string, "Failed to alloc input summaries.\n" );
         goto fail;
     }
-    memset( summaries, 0, summary_count * sizeof(lsmash_summary_t *) );
+    memset( summaries, 0, summary_count * sizeof(libavsmash_summary_t) );
     for( uint32_t i = 0; i < summary_count; i++ )
     {
         lsmash_summary_t *summary = lsmash_get_summary( root, track_ID, i + 1 );
         if( !summary )
             continue;
-        summaries[i] = summary;
+        summaries[i].summary = summary;
     }
     config->entries = summaries;
     config->count   = summary_count;
@@ -350,7 +351,7 @@ static int queue_extradata( codec_configuration_t *config, uint8_t *extradata, i
 {
     if( extradata && extradata_size > 0 )
     {
-        uint8_t *temp = (uint8_t *)av_malloc( extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
+        uint8_t *temp = (uint8_t *)av_mallocz( extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
         if( !temp )
         {
             config->error = 1;
@@ -376,7 +377,7 @@ static int prepare_new_decoder_configuration( codec_configuration_t *config, uin
 {
     if( new_index == 0 )
         new_index = 1;
-    lsmash_summary_t *summary = new_index <= config->count ? config->entries[new_index - 1] : NULL;
+    lsmash_summary_t *summary = new_index <= config->count ? config->entries[new_index - 1].summary : NULL;
     enum AVCodecID new_codec_id = summary ? get_codec_id_from_description_fourcc( summary ) : AV_CODEC_ID_NONE;
     config->queue.codec_id    = new_codec_id;
     config->queue.delay_count = config->delay_count;
@@ -557,6 +558,7 @@ int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, 
     pkt->size  = sample->length;
     pkt->data  = config->input_buffer;
     memcpy( pkt->data, sample->data, sample->length );
+    /* TODO: add handling invalid indexes. */
     if( sample->index != config->index )
     {
         if( prepare_new_decoder_configuration( config, sample->index ) )
@@ -608,7 +610,7 @@ void flush_buffers( codec_configuration_t *config )
 
 void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )
 {
-    if( config->queue.codec_id == AV_CODEC_ID_NONE )
+    if( !config->update_pending || config->queue.codec_id == AV_CODEC_ID_NONE )
     {
         /* Don't update the decoder configuration if L-SMASH cannot recognize CODEC or extract its specific info correctly. */
         config->index = config->queue.index;
@@ -640,7 +642,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         goto fail;
     }
     /* Set up decoder basic settings. */
-    lsmash_summary_t *summary = (lsmash_summary_t *)config->entries[ config->queue.index - 1 ];
+    lsmash_summary_t *summary = config->entries[ config->queue.index - 1 ].summary;
     if( codec->type == AVMEDIA_TYPE_VIDEO )
     {
         lsmash_video_summary_t *video = (lsmash_video_summary_t *)summary;
@@ -716,6 +718,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     }
     else
     {
+        int upsampling = 0;
         uint32_t i = current_sample_number;
         do
         {
@@ -727,15 +730,37 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             {
                 if( ctx->sample_rate == 0 )
                     strcpy( error_string, "Failed to set up sample rate.\n" );
-                else
+                else if( ctx->channel_layout == 0 && ctx->channels == 0 )
                     strcpy( error_string, "Failed to set up channels.\n" );
+                else
+                    strcpy( error_string, "Failed to set up sample format.\n" );
                 avcodec_free_frame( &picture );
                 goto fail;
             }
             avcodec_get_frame_defaults( picture );
             int dummy;
             avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
-        } while( ctx->sample_rate == 0 || ctx->channels == 0 );
+            if( upsampling == 0 && picture->nb_samples > 0 )
+            {
+                if( ctx->frame_size )
+                    /* Libavcodec returns upsampled length. */
+                    upsampling = 1;
+                else
+                {
+                    uint32_t frame_length;
+                    if( lsmash_get_sample_delta_from_media_timeline( root, track_ID, i - 1, &frame_length ) )
+                        continue;
+                    if( frame_length )
+                        upsampling = picture->nb_samples / frame_length;
+                }
+            }
+        } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
+        extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
+        extended->channel_layout = ctx->channel_layout ? ctx->channel_layout : av_get_default_channel_layout( ctx->channels );
+        extended->sample_rate    = ctx->sample_rate;
+        extended->sample_format  = ctx->sample_fmt;
+        extended->frame_length   = ctx->frame_size;
+        extended->upsampling     = upsampling > 0 ? upsampling : 1;
     }
     avcodec_free_frame( &picture );
     /* Reopen/flush with the requested number of threads. */
@@ -762,7 +787,75 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     config->input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
     if( !config->input_buffer )
         return -1;
+    /* Initialize decoder configuration at the first valid sample. */
     AVPacket dummy = { 0 };
+    for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
+    update_configuration( root, track_ID, config );
+    /* Decide preferred settings. */
+    config->prefer.sample_rate    = config->ctx->sample_rate;
+    config->prefer.sample_format  = config->ctx->sample_fmt;
+    config->prefer.channel_layout = config->ctx->channel_layout
+                                  ? config->ctx->channel_layout
+                                  : av_get_default_channel_layout( config->ctx->channels );
+    if( config->count <= 1 )
+        return config->error ? -1 : 0;
+    /* Investigate other decoder configurations and pick preferred settings from them. */
+    uint8_t *index_list = (uint8_t *)malloc( config->count );
+    if( !index_list )
+    {
+        config->error = 1;
+        return -1;
+    }
+    memset( index_list, 0, config->count );
+    uint32_t valid_index_count = (config->index <= config->count);
+    uint32_t sample_count = lsmash_get_sample_count_in_media_timeline( root, track_ID );
+    for( uint32_t i = 2; i <= sample_count && valid_index_count < config->count; i++ )
+    {
+        lsmash_sample_t sample;
+        if( lsmash_get_sample_info_from_media_timeline( root, track_ID, i, &sample ) )
+            continue;
+        if( config->index == sample.index )
+            continue;
+        if( sample.index <= config->count && !index_list[ sample.index - 1 ] )
+        {
+            for( uint32_t j = i; get_sample( root, track_ID, j, config, &dummy ) < 0; j++ );
+            update_configuration( root, track_ID, config );
+            index_list[ sample.index - 1 ] = 1;
+            if( av_get_channel_layout_nb_channels( config->ctx->channel_layout )
+              > av_get_channel_layout_nb_channels( config->prefer.channel_layout ) )
+                config->prefer.channel_layout = config->ctx->channel_layout;
+            if( config->ctx->sample_rate > config->prefer.sample_rate )
+                config->prefer.sample_rate = config->ctx->sample_rate;
+            switch( config->prefer.sample_format )
+            {
+                case AV_SAMPLE_FMT_U8 :
+                case AV_SAMPLE_FMT_U8P :
+                    if( config->ctx->sample_fmt != AV_SAMPLE_FMT_U8 && config->ctx->sample_fmt != AV_SAMPLE_FMT_U8P )
+                    {
+                        if( config->ctx->sample_fmt == AV_SAMPLE_FMT_FLT || config->ctx->sample_fmt == AV_SAMPLE_FMT_FLTP
+                         || config->ctx->sample_fmt == AV_SAMPLE_FMT_DBL || config->ctx->sample_fmt == AV_SAMPLE_FMT_DBLP )
+                            config->prefer.sample_format = AV_SAMPLE_FMT_S16;
+                        else
+                            config->prefer.sample_format = config->ctx->sample_fmt;
+                    }
+                    break;
+                case AV_SAMPLE_FMT_S16 :
+                case AV_SAMPLE_FMT_S16P :
+                case AV_SAMPLE_FMT_FLT :
+                case AV_SAMPLE_FMT_FLTP :
+                case AV_SAMPLE_FMT_DBL :
+                case AV_SAMPLE_FMT_DBLP :
+                    if( config->ctx->sample_fmt == AV_SAMPLE_FMT_S32 || config->ctx->sample_fmt == AV_SAMPLE_FMT_S32P )
+                        config->prefer.sample_format = config->ctx->sample_fmt;
+                    break;
+                default :
+                    break;
+            }
+            ++valid_index_count;
+        }
+    }
+    free( index_list );
+    /* Reinitialize decoder configuration at the first valid sample. */
     for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
     update_configuration( root, track_ID, config );
     return config->error ? -1 : 0;
@@ -773,7 +866,7 @@ void cleanup_configuration( codec_configuration_t *config )
     if( config->entries )
     {
         for( uint32_t i = 0; i < config->count; i++ )
-            lsmash_cleanup_summary( config->entries[i] );
+            lsmash_cleanup_summary( config->entries[i].summary );
         free( config->entries );
     }
     if( config->queue.extradata )

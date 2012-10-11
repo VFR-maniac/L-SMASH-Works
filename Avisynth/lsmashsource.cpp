@@ -37,14 +37,17 @@ extern "C"
 
 /* Libav
  * The binary file will be LGPLed or GPLed. */
-#include <libavformat/avformat.h>   /* Codec specific info importer */
-#include <libavcodec/avcodec.h>     /* Decoder */
-#include <libswscale/swscale.h>     /* Colorspace converter */
+#include <libavformat/avformat.h>       /* Codec specific info importer */
+#include <libavcodec/avcodec.h>         /* Decoder */
+#include <libswscale/swscale.h>         /* Colorspace converter */
+#include <libavresample/avresample.h>   /* Audio resampler */
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
+#include <libavutil/opt.h>
 }
 
 #include "libavsmash.h"
+#include "resample.h"
 
 #pragma warning( disable:4996 )
 
@@ -56,6 +59,7 @@ extern "C"
 #pragma comment( lib, "libavcodec.a" )
 #pragma comment( lib, "libavformat.a" )
 #pragma comment( lib, "libswscale.a" )
+#pragma comment( lib, "libavresample.a" )
 #pragma comment( lib, "libwsock32.a" )
 
 #ifndef INT32_MAX
@@ -748,24 +752,27 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
 
 typedef struct
 {
-    lsmash_root_t        *root;
-    uint32_t              track_ID;
-    codec_configuration_t config;
-    AVFormatContext      *format_ctx;
-    AVFrame              *frame_buffer;
-    AVPacket              packet;
-    uint32_t              frame_count;
-    uint32_t              frame_length;
-    uint32_t              last_frame_number;
-    uint64_t              last_remainder_size;
-    uint64_t              last_remainder_offset;
-    uint64_t              next_pcm_sample_number;
-    uint64_t              skip_samples;
-    int                   implicit_preroll;
-    int                   upsampling;
-    int                   planes;
-    int                   input_block_align;
-    int                   output_block_align;
+    lsmash_root_t          *root;
+    uint32_t                track_ID;
+    codec_configuration_t   config;
+    AVFormatContext        *format_ctx;
+    AVFrame                *frame_buffer;
+    AVAudioResampleContext *avr_ctx;
+    uint8_t                *resampled_buffer;
+    int                     resampled_buffer_size;
+    AVPacket                packet;
+    enum AVSampleFormat     output_sample_format;
+    uint32_t                frame_count;
+    uint32_t                last_frame_number;
+    uint64_t                output_channel_layout;
+    uint64_t                next_pcm_sample_number;
+    uint64_t                skip_samples;
+    int                     implicit_preroll;
+    int                     planes;
+    int                     input_block_align;
+    int                     output_block_align;
+    int                     output_sample_rate;
+    int                     s24_output;
 } audio_decode_handler_t;
 
 class LSMASHAudioSource : public IClip
@@ -797,8 +804,12 @@ LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number,
 
 LSMASHAudioSource::~LSMASHAudioSource()
 {
+    if( ah.resampled_buffer )
+        av_free( ah.resampled_buffer );
     if( ah.frame_buffer )
         avcodec_free_frame( &ah.frame_buffer );
+    if( ah.avr_ctx )
+        avresample_free( &ah.avr_ctx );
     cleanup_configuration( &ah.config );
     if( ah.format_ctx )
         avformat_close_input( &ah.format_ctx );
@@ -969,6 +980,84 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
+static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp )
+{
+    codec_configuration_t *config = &hp->config;
+    libavsmash_summary_t  *s      = NULL;
+    int      current_sample_rate          = 0;
+    uint32_t current_index                = 0;
+    uint32_t current_frame_length         = 0;
+    uint32_t audio_frame_count            = 0;
+    uint64_t pcm_sample_count             = 0;
+    uint64_t overall_pcm_sample_count     = 0;
+    uint64_t skip_samples                 = 0;
+    uint64_t prior_sequences_sample_count = 0;
+    for( uint32_t i = 1; i <= hp->frame_count; i++ )
+    {
+        /* Get configuration index. */
+        lsmash_sample_t sample;
+        if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, i, &sample ) )
+            continue;
+        if( current_index != sample.index )
+        {
+            s = &config->entries[ sample.index - 1 ];
+            current_index = sample.index;
+        }
+        else if( !s )
+            continue;
+        /* Get audio frame length. */
+        uint32_t frame_length;
+        if( s->extended.frame_length )
+            frame_length = s->extended.frame_length;
+        else if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, i, &frame_length ) )
+            continue;
+        /* */
+        if( (current_sample_rate != s->extended.sample_rate && s->extended.sample_rate > 0)
+         || current_frame_length != frame_length )
+        {
+            if( current_sample_rate > 0 )
+            {
+                if( hp->skip_samples > pcm_sample_count )
+                    skip_samples += pcm_sample_count * s->extended.upsampling;
+                else if( hp->skip_samples > prior_sequences_sample_count )
+                    skip_samples += (hp->skip_samples - prior_sequences_sample_count) * s->extended.upsampling;
+                prior_sequences_sample_count += pcm_sample_count;
+                pcm_sample_count *= s->extended.upsampling;
+                uint64_t resampled_sample_count = hp->output_sample_rate == current_sample_rate || pcm_sample_count == 0
+                                                ? pcm_sample_count
+                                                : (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+                overall_pcm_sample_count += resampled_sample_count;
+                audio_frame_count = 0;
+                pcm_sample_count  = 0;
+            }
+            current_sample_rate  = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
+            current_frame_length = frame_length;
+        }
+        pcm_sample_count += frame_length;
+        ++audio_frame_count;
+    }
+    if( !s || (pcm_sample_count == 0 && overall_pcm_sample_count == 0) )
+        return 0;
+    if( hp->skip_samples > prior_sequences_sample_count )
+        skip_samples += (hp->skip_samples - prior_sequences_sample_count) * s->extended.upsampling;
+    pcm_sample_count *= s->extended.upsampling;
+    current_sample_rate = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
+    if( current_sample_rate == hp->output_sample_rate )
+    {
+        hp->skip_samples = skip_samples;
+        if( pcm_sample_count )
+            overall_pcm_sample_count += pcm_sample_count;
+    }
+    else
+    {
+        if( skip_samples )
+            hp->skip_samples = ((uint64_t)skip_samples * hp->output_sample_rate - 1) / current_sample_rate + 1;
+        if( pcm_sample_count )
+            overall_pcm_sample_count += (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+    }
+    return overall_pcm_sample_count - hp->skip_samples;
+}
+
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
     ah.frame_buffer = avcodec_alloc_frame();
@@ -979,24 +1068,52 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     config->message_priv = env;
     if( initialize_decoder_configuration( ah.root, ah.track_ID, config ) )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
-    ah.frame_length = config->ctx->frame_size;
-    if( vi.num_audio_samples * 2 <= ah.frame_count * ah.frame_length )
-    {
-        /* for HE-AAC upsampling */
-        ah.upsampling         = 2;
-        ah.skip_samples      *= ah.upsampling;
-        vi.num_audio_samples *= ah.upsampling;
-    }
+    ah.output_channel_layout = config->prefer.channel_layout;
+    ah.output_sample_format  = config->prefer.sample_format;
+    ah.output_sample_rate    = config->prefer.sample_rate;
+    /* */
+    vi.num_audio_samples = count_overall_pcm_samples( &ah );
+    if( vi.num_audio_samples == 0 )
+        env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
+    ah.next_pcm_sample_number = vi.num_audio_samples + 1;   /* Force seeking at the first reading. */
+    /* Set up resampler. */
+    ah.avr_ctx = avresample_alloc_context();
+    if( !ah.avr_ctx )
+        env->ThrowError( "LSMASHAudioSource: failed to avresample_alloc_context." );
+    if( config->ctx->channel_layout == 0 )
+        config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
+    ah.output_sample_format = decide_audio_output_sample_format( config->ctx->sample_fmt );
+    av_opt_set_int( ah.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
+    av_opt_set_int( ah.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
+    av_opt_set_int( ah.avr_ctx, "in_sample_rate",      config->ctx->sample_rate,    0 );
+    av_opt_set_int( ah.avr_ctx, "out_channel_layout",  ah.output_channel_layout,    0 );
+    av_opt_set_int( ah.avr_ctx, "out_sample_fmt",      ah.output_sample_format,     0 );
+    av_opt_set_int( ah.avr_ctx, "out_sample_rate",     ah.output_sample_rate,       0 );
+    av_opt_set_int( ah.avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
+    if( avresample_open( ah.avr_ctx ) < 0 )
+        env->ThrowError( "LSMASHAudioSource: failed to open resampler." );
+    /* Decide output Bits Per Sample. */
+    int output_channels = av_get_channel_layout_nb_channels( ah.output_channel_layout );
+    int output_bits_per_sample;
+    if( ah.output_sample_format != AV_SAMPLE_FMT_S32 || config->ctx->bits_per_raw_sample != 24 )
+        output_bits_per_sample = av_get_bytes_per_sample( ah.output_sample_format ) * 8;
     else
-        ah.upsampling = 1;
-    vi.num_audio_samples       -= ah.skip_samples;
-    vi.nchannels                = config->ctx->channels;
-    vi.audio_samples_per_second = config->ctx->sample_rate;
-    ah.next_pcm_sample_number   = vi.num_audio_samples + 1;   /* Force seeking at the first reading. */
-    ah.planes                   = av_sample_fmt_is_planar( config->ctx->sample_fmt ) ? vi.nchannels : 1;
-    ah.output_block_align       = vi.nchannels * av_get_bytes_per_sample( config->ctx->sample_fmt );
-    ah.input_block_align        = ah.output_block_align / ah.planes;
-    switch ( config->ctx->sample_fmt )
+    {
+        /* 24bit signed integer output */
+        if( config->ctx->frame_size )
+        {
+            ah.resampled_buffer_size = get_linesize( output_channels, config->ctx->frame_size, ah.output_sample_format );
+            ah.resampled_buffer      = (uint8_t *)av_malloc( ah.resampled_buffer_size );
+            if( !ah.resampled_buffer )
+                env->ThrowError( "LSMASHAudioSource: failed to allocate memory for resampling." );
+        }
+        ah.s24_output          = 1;
+        output_bits_per_sample = 24;
+    }
+    /* */
+    vi.nchannels                = output_channels;
+    vi.audio_samples_per_second = ah.output_sample_rate;
+    switch ( ah.output_sample_format )
     {
         case AV_SAMPLE_FMT_U8 :
         case AV_SAMPLE_FMT_U8P :
@@ -1008,7 +1125,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
             break;
         case AV_SAMPLE_FMT_S32 :
         case AV_SAMPLE_FMT_S32P :
-            vi.sample_type = SAMPLE_INT32;
+            vi.sample_type = ah.s24_output ? SAMPLE_INT24 : SAMPLE_INT32;
             break;
         case AV_SAMPLE_FMT_FLT :
         case AV_SAMPLE_FMT_FLTP :
@@ -1017,21 +1134,39 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         default :
             env->ThrowError( "LSMASHAudioSource: %s is not supported.", av_get_sample_fmt_name( config->ctx->sample_fmt ) );
     }
+    /* Set up the number of planes and the block alignment of decoded and output data. */
+    int input_channels = av_get_channel_layout_nb_channels( config->ctx->channel_layout );
+    if( av_sample_fmt_is_planar( config->ctx->sample_fmt ) )
+    {
+        ah.planes            = input_channels;
+        ah.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt );
+    }
+    else
+    {
+        ah.planes            = 1;
+        ah.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt ) * input_channels;
+    }
+    ah.output_block_align = (output_channels * output_bits_per_sample) / 8;
 }
 
-static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_number, uint32_t *frame_length )
+static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_number, uint32_t *frame_length, libavsmash_summary_t **sp )
 {
-    if( hp->frame_length == 0 )
+    lsmash_sample_t sample;
+    if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, frame_number, &sample ) )
+        return -1;
+    *sp = &hp->config.entries[ sample.index - 1 ];
+    libavsmash_summary_t *s = *sp;
+    if( s->extended.frame_length == 0 )
     {
         /* variable frame length
          * Guess the frame length from sample duration. */
         if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, frame_number, frame_length ) )
             return -1;
-        *frame_length *= hp->upsampling;
+        *frame_length *= s->extended.upsampling;
     }
     else
         /* constant frame length */
-        *frame_length = hp->frame_length;
+        *frame_length = s->extended.frame_length;
     return 0;
 }
 
@@ -1049,8 +1184,9 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
         uint64_t skip_samples = hp->skip_samples;
         for( uint32_t i = 1; i <= hp->frame_count || skip_samples; i++ )
         {
+            libavsmash_summary_t *dummy = NULL;
             uint32_t frame_length;
-            if( get_frame_length( hp, i, &frame_length ) )
+            if( get_frame_length( hp, i, &frame_length, &dummy ) )
                 break;
             if( skip_samples < frame_length )
                 skip_samples = 0;
@@ -1066,75 +1202,141 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
             --(*frame_number);
         else
             break;
+        libavsmash_summary_t *dummy = NULL;
         uint32_t frame_length;
-        if( get_frame_length( hp, *frame_number, &frame_length ) )
+        if( get_frame_length( hp, *frame_number, &frame_length, &dummy ) )
             break;
         preroll_samples += frame_length;
     }
     return preroll_samples;
 }
 
-static inline void waste_decoded_audio_samples( audio_decode_handler_t *hp, uint64_t wasted_data_size, uint8_t **p_buf, uint64_t data_offset )
+static int find_start_audio_frame( audio_decode_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
 {
-    for( uint64_t i = 0; i < wasted_data_size; i += hp->input_block_align )
-        for( int j = 0; j < hp->planes; j++ )
-            for( uint64_t k = 0; k < hp->input_block_align; k++ )
-            {
-                **p_buf = hp->frame_buffer->extended_data[j][i + k + data_offset];
-                ++(*p_buf);
-            }
-}
-
-static inline void waste_remainder_audio_samples( audio_decode_handler_t *hp, uint64_t wasted_data_size, uint8_t **p_buf )
-{
-    waste_decoded_audio_samples( hp, wasted_data_size, p_buf, hp->last_remainder_offset );
-    hp->last_remainder_size -= wasted_data_size;
-    if( hp->last_remainder_size == 0 )
-        hp->last_remainder_offset = 0;
-}
-
-static inline void put_silence_audio_samples( uint64_t silence_data_size, uint8_t **p_buf )
-{
-    for( uint64_t i = 0; i < silence_data_size; i++ )
+    uint32_t frame_number                    = 1;
+    uint64_t current_frame_pos               = 0;
+    uint64_t next_frame_pos                  = 0;
+    int      current_sample_rate             = 0;
+    uint32_t current_frame_length            = 0;
+    uint64_t pcm_sample_count                = 0;   /* the number of accumulated PCM samples before resampling per sequence */
+    uint64_t resampled_sample_count          = 0;   /* the number of accumulated PCM samples after resampling per sequence */
+    uint64_t prior_sequences_resampled_count = 0;   /* the number of accumulated PCM samples of all prior sequences */
+    do
     {
-        **p_buf = 0;
-        ++(*p_buf);
+        current_frame_pos = next_frame_pos;
+        libavsmash_summary_t *s = NULL;
+        uint32_t frame_length;
+        if( get_frame_length( hp, frame_number, &frame_length, &s ) )
+        {
+            ++frame_number;
+            continue;
+        }
+        if( (current_sample_rate != s->extended.sample_rate && s->extended.sample_rate > 0)
+         || current_frame_length != frame_length )
+        {
+            /* Encountered a new sequence. */
+            prior_sequences_resampled_count += resampled_sample_count;
+            pcm_sample_count = 0;
+            current_sample_rate  = s->extended.sample_rate > 0 ? s->extended.sample_rate : hp->config.ctx->sample_rate;
+            current_frame_length = frame_length;
+        }
+        pcm_sample_count += frame_length;
+        resampled_sample_count = hp->output_sample_rate == current_sample_rate || pcm_sample_count == 0
+                               ? pcm_sample_count
+                               : (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+        next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
+        if( start_frame_pos < next_frame_pos )
+            break;
+        ++frame_number;
+    } while( frame_number <= hp->frame_count );
+    *start_offset = start_frame_pos - current_frame_pos;
+    if( *start_offset && current_sample_rate != hp->output_sample_rate )
+        *start_offset = (*start_offset * current_sample_rate - 1) / hp->output_sample_rate + 1;
+    *start_offset += get_preroll_samples( hp, &frame_number );
+    return frame_number;
+}
+
+static int waste_decoded_audio_samples( audio_decode_handler_t *hp, int input_sample_count, int wanted_sample_count, uint8_t **out_data, int sample_offset )
+{
+    /* Input */
+    uint8_t **in_data = new uint8_t *[ hp->planes ];
+    if( !in_data )
+        return 0;
+    int decoded_data_offset = sample_offset * hp->input_block_align;
+    for( int i = 0; i < hp->planes; i++ )
+        in_data[i] = hp->frame_buffer->extended_data[i] + decoded_data_offset;
+    audio_samples_t in;
+    in.channel_layout = hp->frame_buffer->channel_layout;
+    in.sample_count   = input_sample_count;
+    in.sample_format  = (enum AVSampleFormat)hp->frame_buffer->format;
+    in.data           = in_data;
+    /* Output */
+    uint8_t *resampled_buffer = NULL;
+    if( hp->s24_output )
+    {
+        int out_channels = get_channel_layout_nb_channels( hp->output_channel_layout );
+        int out_linesize = get_linesize( out_channels, wanted_sample_count, hp->output_sample_format );
+        if( !hp->resampled_buffer || out_linesize > hp->resampled_buffer_size )
+        {
+            uint8_t *temp = (uint8_t *)av_realloc( hp->resampled_buffer, out_linesize );
+            if( !temp )
+            {
+                delete [] in_data;
+                return 0;
+            }
+            hp->resampled_buffer_size = out_linesize;
+            hp->resampled_buffer      = temp;
+        }
+        resampled_buffer = hp->resampled_buffer;
     }
+    audio_samples_t out;
+    out.channel_layout = hp->output_channel_layout;
+    out.sample_count   = wanted_sample_count;
+    out.sample_format  = hp->output_sample_format;
+    out.data           = resampled_buffer ? &resampled_buffer : out_data;
+    /* Resample */
+    int resampled_size = resample_audio( hp->avr_ctx, &out, &in );
+    if( resampled_buffer && resampled_size > 0 )
+        resampled_size = resample_s32_to_s24( out_data, hp->resampled_buffer, resampled_size );
+    delete [] in_data;
+    return resampled_size > 0 ? resampled_size / hp->output_block_align : 0;
 }
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    uint32_t frame_number;
-    uint64_t data_offset;
-    uint64_t copy_size;
-    uint64_t output_length = 0;
-    uint64_t block_align = ah.input_block_align;
     codec_configuration_t *config = &ah.config;
+    if( config->error )
+        return;
+    uint32_t frame_number;
+    uint64_t seek_offset;
+    uint64_t output_length = 0;
     if( start > 0 && start == ah.next_pcm_sample_number )
     {
         frame_number = ah.last_frame_number;
-        if( ah.last_remainder_size && ah.frame_buffer->extended_data[0] )
+        if( ah.frame_buffer->extended_data[0] )
         {
-            copy_size = min( ah.last_remainder_size, wanted_length * block_align );
-            waste_remainder_audio_samples( &ah, copy_size, (uint8_t **)&buf );
-            uint64_t copied_length = copy_size / block_align;
-            output_length += copied_length;
-            wanted_length -= copied_length;
+            /* Flush remaing audio samples. */
+            int resampled_length = waste_decoded_audio_samples( &ah, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
+            output_length += resampled_length;
+            wanted_length -= resampled_length;
             if( wanted_length <= 0 )
                 goto audio_out;
         }
         if( ah.packet.size <= 0 )
             ++frame_number;
-        data_offset = 0;
+        seek_offset = 0;
     }
     else
     {
         /* Seek audio stream. */
+        if( flush_resampler_buffers( ah.avr_ctx ) < 0 )
+        {
+            config->error = 1;
+            return;
+        }
         flush_buffers( config );
         if( config->error )
             return;
-        ah.last_remainder_size    = 0;
-        ah.last_remainder_offset  = 0;
         ah.next_pcm_sample_number = 0;
         ah.last_frame_number      = 0;
         uint64_t start_frame_pos;
@@ -1143,26 +1345,13 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         else
         {
             uint64_t silence_length = -start;
-            put_silence_audio_samples( silence_length * ah.output_block_align, (uint8_t **)&buf );
+            put_silence_audio_samples( (int)(silence_length * ah.output_block_align), (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;
         }
         start_frame_pos += ah.skip_samples;
-        frame_number = 1;
-        uint64_t next_frame_pos = 0;
-        uint32_t frame_length   = 0;
-        do
-        {
-            if( get_frame_length( &ah, frame_number, &frame_length ) )
-                break;
-            next_frame_pos += (uint64_t)frame_length;
-            if( start_frame_pos < next_frame_pos )
-                break;
-            ++frame_number;
-        } while( frame_number <= ah.frame_count );
-        uint32_t preroll_samples = get_preroll_samples( &ah, &frame_number );
-        data_offset = (start_frame_pos + preroll_samples + frame_length - next_frame_pos) * block_align;
+        frame_number = find_start_audio_frame( &ah, start_frame_pos, &seek_offset );
     }
     do
     {
@@ -1178,12 +1367,10 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
                 -- config->delay_count;
             }
             else
-            {
-                copy_size = 0;
                 goto audio_out;
-            }
         }
         else if( pkt->size <= 0 )
+            /* Getting a sample must be after flushing all remaining samples in resampler's FIFO buffer. */
             while( get_sample( ah.root, ah.track_ID, frame_number, config, pkt ) == 2 )
                 if( config->update_pending )
                     /* Update the decoder configuration. */
@@ -1191,9 +1378,9 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         int output_audio = 0;
         do
         {
-            ah.last_remainder_size   = 0;
-            ah.last_remainder_offset = 0;
-            copy_size = 0;
+            uint64_t            channel_layout = ah.frame_buffer->channel_layout;
+            int                 sample_rate    = ah.frame_buffer->sample_rate;
+            enum AVSampleFormat sample_format  = (enum AVSampleFormat)ah.frame_buffer->format;
             avcodec_get_frame_defaults( ah.frame_buffer );
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( config->ctx, ah.frame_buffer, &decode_complete, pkt );
@@ -1211,23 +1398,44 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
                 goto audio_out;
             if( decode_complete && ah.frame_buffer->extended_data[0] )
             {
-                uint64_t decoded_data_size = ah.frame_buffer->nb_samples * block_align;
-                if( decoded_data_size > data_offset )
+                /* Check channel layout, sample rate and sample format of decoded audio samples. */
+                if( ah.frame_buffer->channel_layout == 0 )
+                    ah.frame_buffer->channel_layout = av_get_default_channel_layout( config->ctx->channels );
+                if( ah.frame_buffer->channel_layout != channel_layout
+                 || ah.frame_buffer->sample_rate    != sample_rate
+                 || ah.frame_buffer->format         != sample_format )
                 {
-                    copy_size = min( decoded_data_size - data_offset, wanted_length * block_align );
-                    waste_decoded_audio_samples( &ah, copy_size, (uint8_t **)&buf, data_offset );
-                    uint64_t copied_length = copy_size / block_align;
-                    output_length += copied_length;
-                    wanted_length -= copied_length;
-                    data_offset = 0;
-                    if( wanted_length <= 0 )
+                    /* Detected a change of channel layout, sample rate or sample format.
+                     * Reconfigure audio resampler. */
+                    if( update_resampler_configuration( ah.avr_ctx,
+                                                        ah.output_channel_layout,
+                                                        ah.output_sample_rate,
+                                                        ah.output_sample_format,
+                                                        ah.frame_buffer->channel_layout,
+                                                        ah.frame_buffer->sample_rate,
+                                                        (enum AVSampleFormat)ah.frame_buffer->format,
+                                                        &ah.planes,
+                                                        &ah.input_block_align ) < 0 )
                     {
-                        ah.last_remainder_size = decoded_data_size - copy_size;
+                        config->error = 1;
                         goto audio_out;
                     }
                 }
+                /* Process decoded audio samples. */
+                int decoded_length = ah.frame_buffer->nb_samples;
+                if( decoded_length > seek_offset )
+                {
+                    /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
+                    int useful_length = (int)(decoded_length - seek_offset);
+                    int resampled_length = waste_decoded_audio_samples( &ah, useful_length, (int)wanted_length, (uint8_t **)&buf, (int)seek_offset );
+                    output_length += resampled_length;
+                    wanted_length -= resampled_length;
+                    seek_offset = 0;
+                    if( wanted_length <= 0 )
+                        goto audio_out;
+                }
                 else
-                    data_offset -= decoded_data_size;
+                    seek_offset -= decoded_length;
                 output_audio = 1;
             }
         } while( pkt->size > 0 );
@@ -1238,8 +1446,6 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
 audio_out:
     ah.next_pcm_sample_number = start + output_length;
     ah.last_frame_number = frame_number;
-    if( ah.last_remainder_size )
-        ah.last_remainder_offset += copy_size;
 }
 
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )

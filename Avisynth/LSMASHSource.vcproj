@@ -182,6 +182,10 @@
 				RelativePath=".\lsmashsource.cpp"
 				>
 			</File>
+			<File
+				RelativePath=".\resample.cpp"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"
