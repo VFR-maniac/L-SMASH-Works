@@ -26,7 +26,7 @@
 
 typedef struct
 {
-    int                 channel_layout;
+    uint64_t            channel_layout;
     int                 sample_rate;
     int                 sample_count;
     enum AVSampleFormat sample_format;
@@ -73,8 +73,8 @@ static inline int get_linesize( int channel_count, int sample_count, enum AVSamp
 static inline int resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
 {
     /* Assume little endianess here.
-     *   in[0b00]  in[0b01]  in[0b10]  in[0b11]  in[0b100]  in[0b101]  in[0b110]  in[0b111] ...
-     *       X    out[0b00] out[0b01] out[0b10]      X     out[0b11]  out[0b100] out[0b101] ... */
+     *   in[0b000]  in[0b001]  in[0b010]  in[0b011]  in[0b100]  in[0b101]   in[0b110]  in[0b111] ...
+     *       X     out[0b000] out[0b001] out[0b010]      X     out[0b011]  out[0b100] out[0b101] ... */
     int resampled_size = 0;
     for( int i = 0; i < data_size; i++ )
         if( i & 0x3 )
