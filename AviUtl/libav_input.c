@@ -154,6 +154,7 @@ typedef struct libav_handler_tag
     int                      audio_input_block_align;
     int                      audio_output_block_align;
     int                      audio_output_sample_rate;
+    int                      audio_output_bits_per_sample;
     int                      audio_s24_output;
 } libav_handler_t;
 
@@ -683,6 +684,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 memset( audio_delay_count + max_audio_index + 1, 0, (pkt.stream_index - max_audio_index) * sizeof(uint32_t) );
                 max_audio_index = pkt.stream_index;
             }
+            int bits_per_sample = pkt_ctx->bits_per_raw_sample   > 0 ? pkt_ctx->bits_per_raw_sample
+                                : pkt_ctx->bits_per_coded_sample > 0 ? pkt_ctx->bits_per_coded_sample
+                                : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3;
             uint32_t *delay_count = &audio_delay_count[ pkt.stream_index ];
             /* Get frame_length. */
             frame_length = format_ctx->streams[ pkt.stream_index ]->parser
@@ -754,8 +758,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     if( av_get_channel_layout_nb_channels( pkt_ctx->channel_layout )
                       > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
                         hp->audio_output_channel_layout = pkt_ctx->channel_layout;
-                    hp->audio_output_sample_rate = max( hp->audio_output_sample_rate, audio_sample_rate );
-                    hp->audio_input_buffer_size  = max( hp->audio_input_buffer_size, pkt.size );
+                    hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
+                    hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
+                    hp->audio_input_buffer_size      = max( hp->audio_input_buffer_size, pkt.size );
                 }
             }
             /* Write an audio packet info to the index file. */
@@ -766,8 +771,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                          format_ctx->streams[ pkt.stream_index ]->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts,
                          pkt_ctx->channels, pkt_ctx->channel_layout, pkt_ctx->sample_rate,
-                         pkt_ctx->bits_per_raw_sample > 0 ? pkt_ctx->bits_per_raw_sample : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3,
-                         frame_length );
+                         bits_per_sample, frame_length );
         }
         /* Update progress dialog if packet's DTS is valid. */
         if( first_dts == AV_NOPTS_VALUE )
@@ -1092,14 +1096,14 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 uint64_t layout;
                 int      channels;
                 int      sample_rate;
-                int      bps;
+                int      bits_per_sample;
                 int      frame_length;
                 if( sscanf( buf, "Channels=%d:0x%"SCNx64",SampleRate=%d,BitsPerSample=%d,Length=%d",
-                            &channels, &layout, &sample_rate, &bps, &frame_length ) != 5 )
+                            &channels, &layout, &sample_rate, &bits_per_sample, &frame_length ) != 5 )
                     goto fail_parsing;
                 if( hp->audio_codec_id == AV_CODEC_ID_NONE )
                     hp->audio_codec_id = codec_id;
-                if( (channels | layout | sample_rate | bps) && audio_duration <= INT32_MAX )
+                if( (channels | layout | sample_rate | bits_per_sample) && audio_duration <= INT32_MAX )
                 {
                     if( audio_sample_rate == 0 )
                         audio_sample_rate = sample_rate;
@@ -1113,7 +1117,8 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     if( av_get_channel_layout_nb_channels( layout )
                       > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
                         hp->audio_output_channel_layout = layout;
-                    hp->audio_output_sample_rate = max( hp->audio_output_sample_rate, audio_sample_rate );
+                    hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
+                    hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
                     ++audio_sample_count;
                     audio_info[audio_sample_count].pts           = pts;
                     audio_info[audio_sample_count].dts           = dts;
@@ -1833,7 +1838,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     }
     if( hp->audio_ctx->channel_layout == 0 )
         hp->audio_ctx->channel_layout = av_get_default_channel_layout( hp->audio_ctx->channels );
-    hp->audio_output_sample_format = decide_audio_output_sample_format( hp->audio_ctx->sample_fmt );
+    hp->audio_output_sample_format = decide_audio_output_sample_format( hp->audio_output_sample_format, hp->audio_output_bits_per_sample );
     av_opt_set_int( hp->avr_ctx, "in_channel_layout",   hp->audio_ctx->channel_layout,   0 );
     av_opt_set_int( hp->avr_ctx, "in_sample_fmt",       hp->audio_ctx->sample_fmt,       0 );
     av_opt_set_int( hp->avr_ctx, "in_sample_rate",      hp->audio_ctx->sample_rate,      0 );
@@ -1848,10 +1853,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     }
     /* Decide output Bits Per Sample. */
     int output_channels = av_get_channel_layout_nb_channels( hp->audio_output_channel_layout );
-    int output_bits_per_sample;
-    if( hp->audio_output_sample_format != AV_SAMPLE_FMT_S32 || hp->audio_ctx->bits_per_raw_sample != 24 )
-        output_bits_per_sample = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
-    else
+    if( hp->audio_output_sample_format == AV_SAMPLE_FMT_S32
+     && (hp->audio_output_bits_per_sample == 0 || hp->audio_output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
         if( hp->audio_frame_length )
@@ -1864,26 +1867,20 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
                 return -1;
             }
         }
-        hp->audio_s24_output   = 1;
-        output_bits_per_sample = 24;
+        hp->audio_s24_output             = 1;
+        hp->audio_output_bits_per_sample = 24;
     }
-    /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
+    else
+        hp->audio_output_bits_per_sample = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
+    /* Support of WAVEFORMATEXTENSIBLE is much restrictive on AviUtl, so we always use WAVEFORMATEX instead. */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = output_channels;
     Format->nSamplesPerSec  = hp->audio_output_sample_rate;
-    Format->wBitsPerSample  = output_bits_per_sample;
+    Format->wBitsPerSample  = hp->audio_output_bits_per_sample;
     Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
-    Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
-    if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
-    {
-        Format->cbSize = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
-        h->audio_format.Samples.wValidBitsPerSample = Format->wBitsPerSample;
-        h->audio_format.dwChannelMask               = hp->audio_ctx->channel_layout;
-        h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
-    }
-    else
-        Format->cbSize = 0;
+    Format->wFormatTag      = WAVE_FORMAT_PCM;
+    Format->cbSize          = 0;
     /* Set up the number of planes and the block alignment of decoded and output data. */
     int input_channels = av_get_channel_layout_nb_channels( hp->audio_ctx->channel_layout );
     if( av_sample_fmt_is_planar( hp->audio_ctx->sample_fmt ) )
@@ -1897,9 +1894,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         hp->audio_input_block_align = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * input_channels;
     }
     hp->audio_output_block_align = Format->nBlockAlign;
-    DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_length = %"PRIu32", channels = %d, sampling_rate = %d, bits_per_sample = %d, block_align = %d, avg_bps = %d",
-                                     hp->audio_frame_length, Format->nChannels, Format->nSamplesPerSec,
-                                     Format->wBitsPerSample, Format->nBlockAlign, Format->nAvgBytesPerSec );
     return 0;
 }
 

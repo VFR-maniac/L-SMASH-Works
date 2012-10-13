@@ -205,23 +205,15 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     avs_handler_t *hp = (avs_handler_t *)h->audio_private;
     h->audio_pcm_sample_count = hp->vi->num_audio_samples;
-    /* WAVEFORMATEXTENSIBLE (WAVEFORMATEX) */
+    /* Support of WAVEFORMATEXTENSIBLE is much restrictive on AviUtl, so we always use WAVEFORMATEX instead. */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = hp->vi->nchannels;
     Format->nSamplesPerSec  = hp->vi->audio_samples_per_second;
     Format->wBitsPerSample  = avs_bytes_per_channel_sample( hp->vi ) * 8;
     Format->nBlockAlign     = avs_bytes_per_audio_sample( hp->vi );
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
-    Format->wFormatTag      = Format->wBitsPerSample == 8 || Format->wBitsPerSample == 16 ? WAVE_FORMAT_PCM : WAVE_FORMAT_EXTENSIBLE;
-    if( Format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
-    {
-        Format->cbSize = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
-        h->audio_format.Samples.wValidBitsPerSample = Format->wBitsPerSample;
-        h->audio_format.dwChannelMask               = 0;    /* unknown */
-        h->audio_format.SubFormat                   = KSDATAFORMAT_SUBTYPE_PCM;
-    }
-    else
-        Format->cbSize = 0;
+    Format->wFormatTag      = WAVE_FORMAT_PCM;
+    Format->cbSize          = 0;
     return 0;
 }
 

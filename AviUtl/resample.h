@@ -33,7 +33,8 @@ typedef struct
     uint8_t           **data;
 } audio_samples_t;
 
-static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
+static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format,
+                                                                     int input_bits_per_sample )
 {
     /* AviUtl doesn't support IEEE floating point format. */
     switch ( input_sample_format )
@@ -41,11 +42,21 @@ static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSamp
         case AV_SAMPLE_FMT_U8 :
         case AV_SAMPLE_FMT_U8P :
             return AV_SAMPLE_FMT_U8;
+        case AV_SAMPLE_FMT_S16 :
+        case AV_SAMPLE_FMT_S16P :
+            return AV_SAMPLE_FMT_S16;
         case AV_SAMPLE_FMT_S32 :
         case AV_SAMPLE_FMT_S32P :
             return AV_SAMPLE_FMT_S32;
         default :
-            return AV_SAMPLE_FMT_S16;
+            if( input_bits_per_sample == 0 )
+                return AV_SAMPLE_FMT_S32;
+            else if( input_bits_per_sample <= 8 )
+                return AV_SAMPLE_FMT_U8;
+            else if( input_bits_per_sample <= 16 )
+                return AV_SAMPLE_FMT_S16;
+            else
+                return AV_SAMPLE_FMT_S32;
     }
 }
 
