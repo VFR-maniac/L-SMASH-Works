@@ -27,6 +27,7 @@ typedef struct
     uint64_t            channel_layout;
     enum AVSampleFormat sample_format;
     int                 sample_rate;
+    int                 bits_per_sample;
     int                 frame_length;
     int                 upsampling;
 } extended_summary_t;

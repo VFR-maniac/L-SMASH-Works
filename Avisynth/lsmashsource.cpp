@@ -772,6 +772,7 @@ typedef struct
     int                     input_block_align;
     int                     output_block_align;
     int                     output_sample_rate;
+    int                     output_bits_per_sample;
     int                     s24_output;
 } audio_decode_handler_t;
 
@@ -1058,6 +1059,25 @@ static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp )
     return overall_pcm_sample_count - hp->skip_samples;
 }
 
+static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
+{
+    /* Avisynth doesn't support IEEE double precision floating point format. */
+    switch( input_sample_format )
+    {
+        case AV_SAMPLE_FMT_U8 :
+        case AV_SAMPLE_FMT_U8P :
+            return AV_SAMPLE_FMT_U8;
+        case AV_SAMPLE_FMT_S16 :
+        case AV_SAMPLE_FMT_S16P :
+            return AV_SAMPLE_FMT_S16;
+        case AV_SAMPLE_FMT_S32 :
+        case AV_SAMPLE_FMT_S32P :
+            return AV_SAMPLE_FMT_S32;
+        default :
+            return AV_SAMPLE_FMT_FLT;
+    }
+}
+
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
     ah.frame_buffer = avcodec_alloc_frame();
@@ -1068,9 +1088,10 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     config->message_priv = env;
     if( initialize_decoder_configuration( ah.root, ah.track_ID, config ) )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
-    ah.output_channel_layout = config->prefer.channel_layout;
-    ah.output_sample_format  = config->prefer.sample_format;
-    ah.output_sample_rate    = config->prefer.sample_rate;
+    ah.output_channel_layout  = config->prefer.channel_layout;
+    ah.output_sample_format   = config->prefer.sample_format;
+    ah.output_sample_rate     = config->prefer.sample_rate;
+    ah.output_bits_per_sample = config->prefer.bits_per_sample;
     /* */
     vi.num_audio_samples = count_overall_pcm_samples( &ah );
     if( vi.num_audio_samples == 0 )
@@ -1082,7 +1103,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHAudioSource: failed to avresample_alloc_context." );
     if( config->ctx->channel_layout == 0 )
         config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
-    ah.output_sample_format = decide_audio_output_sample_format( config->ctx->sample_fmt );
+    ah.output_sample_format = decide_audio_output_sample_format( ah.output_sample_format );
     av_opt_set_int( ah.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
     av_opt_set_int( ah.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
     av_opt_set_int( ah.avr_ctx, "in_sample_rate",      config->ctx->sample_rate,    0 );
@@ -1094,10 +1115,8 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHAudioSource: failed to open resampler." );
     /* Decide output Bits Per Sample. */
     int output_channels = av_get_channel_layout_nb_channels( ah.output_channel_layout );
-    int output_bits_per_sample;
-    if( ah.output_sample_format != AV_SAMPLE_FMT_S32 || config->ctx->bits_per_raw_sample != 24 )
-        output_bits_per_sample = av_get_bytes_per_sample( ah.output_sample_format ) * 8;
-    else
+    if( ah.output_sample_format == AV_SAMPLE_FMT_S32
+     && (ah.output_bits_per_sample == 0 || ah.output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
         if( config->ctx->frame_size )
@@ -1107,9 +1126,11 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
             if( !ah.resampled_buffer )
                 env->ThrowError( "LSMASHAudioSource: failed to allocate memory for resampling." );
         }
-        ah.s24_output          = 1;
-        output_bits_per_sample = 24;
+        ah.s24_output             = 1;
+        ah.output_bits_per_sample = 24;
     }
+    else
+        ah.output_bits_per_sample = av_get_bytes_per_sample( ah.output_sample_format ) * 8;
     /* */
     vi.nchannels                = output_channels;
     vi.audio_samples_per_second = ah.output_sample_rate;
@@ -1146,7 +1167,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         ah.planes            = 1;
         ah.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt ) * input_channels;
     }
-    ah.output_block_align = (output_channels * output_bits_per_sample) / 8;
+    ah.output_block_align = (output_channels * ah.output_bits_per_sample) / 8;
 }
 
 static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_number, uint32_t *frame_length, libavsmash_summary_t **sp )

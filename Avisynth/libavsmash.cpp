@@ -664,7 +664,10 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             ctx->channels              = config->queue.channels        ? config->queue.channels        : audio->channels;
         }
         if( codec->id == AV_CODEC_ID_DTS )
-            ctx->request_sample_fmt = config->queue.bits_per_sample == 16 ? AV_SAMPLE_FMT_S16 : AV_SAMPLE_FMT_FLT;
+        {
+            ctx->bits_per_coded_sample = config->queue.bits_per_sample;
+            ctx->request_sample_fmt    = config->queue.bits_per_sample == 16 ? AV_SAMPLE_FMT_S16 : AV_SAMPLE_FMT_FLT;
+        }
     }
     /* This is needed by some CODECs such as UtVideo and raw video. */
     ctx->codec_tag = BYTE_SWAP_32( summary->sample_type );
@@ -792,11 +795,14 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
     update_configuration( root, track_ID, config );
     /* Decide preferred settings. */
-    config->prefer.sample_rate    = config->ctx->sample_rate;
-    config->prefer.sample_format  = config->ctx->sample_fmt;
-    config->prefer.channel_layout = config->ctx->channel_layout
-                                  ? config->ctx->channel_layout
-                                  : av_get_default_channel_layout( config->ctx->channels );
+    config->prefer.sample_rate     = config->ctx->sample_rate;
+    config->prefer.sample_format   = config->ctx->sample_fmt;
+    config->prefer.bits_per_sample = config->ctx->bits_per_raw_sample   > 0 ? config->ctx->bits_per_raw_sample
+                                   : config->ctx->bits_per_coded_sample > 0 ? config->ctx->bits_per_coded_sample
+                                   : av_get_bytes_per_sample( config->ctx->sample_fmt ) << 3;
+    config->prefer.channel_layout  = config->ctx->channel_layout
+                                   ? config->ctx->channel_layout
+                                   : av_get_default_channel_layout( config->ctx->channels );
     if( config->count <= 1 )
         return config->error ? -1 : 0;
     /* Investigate other decoder configurations and pick preferred settings from them. */
@@ -831,26 +837,34 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
                 case AV_SAMPLE_FMT_U8 :
                 case AV_SAMPLE_FMT_U8P :
                     if( config->ctx->sample_fmt != AV_SAMPLE_FMT_U8 && config->ctx->sample_fmt != AV_SAMPLE_FMT_U8P )
-                    {
-                        if( config->ctx->sample_fmt == AV_SAMPLE_FMT_FLT || config->ctx->sample_fmt == AV_SAMPLE_FMT_FLTP
-                         || config->ctx->sample_fmt == AV_SAMPLE_FMT_DBL || config->ctx->sample_fmt == AV_SAMPLE_FMT_DBLP )
-                            config->prefer.sample_format = AV_SAMPLE_FMT_S16;
-                        else
-                            config->prefer.sample_format = config->ctx->sample_fmt;
-                    }
+                        config->prefer.sample_format = config->ctx->sample_fmt;
                     break;
                 case AV_SAMPLE_FMT_S16 :
                 case AV_SAMPLE_FMT_S16P :
+                    if( config->ctx->sample_fmt != AV_SAMPLE_FMT_U8  && config->ctx->sample_fmt != AV_SAMPLE_FMT_U8P
+                     && config->ctx->sample_fmt != AV_SAMPLE_FMT_S16 && config->ctx->sample_fmt != AV_SAMPLE_FMT_S16P )
+                        config->prefer.sample_format = config->ctx->sample_fmt;
+                    break;
+                case AV_SAMPLE_FMT_S32 :
+                case AV_SAMPLE_FMT_S32P :
+                    if( config->ctx->sample_fmt != AV_SAMPLE_FMT_U8  && config->ctx->sample_fmt != AV_SAMPLE_FMT_U8P
+                     && config->ctx->sample_fmt != AV_SAMPLE_FMT_S16 && config->ctx->sample_fmt != AV_SAMPLE_FMT_S16P
+                     && config->ctx->sample_fmt != AV_SAMPLE_FMT_S32 && config->ctx->sample_fmt != AV_SAMPLE_FMT_S32P )
+                        config->prefer.sample_format = config->ctx->sample_fmt;
+                    break;
                 case AV_SAMPLE_FMT_FLT :
                 case AV_SAMPLE_FMT_FLTP :
-                case AV_SAMPLE_FMT_DBL :
-                case AV_SAMPLE_FMT_DBLP :
-                    if( config->ctx->sample_fmt == AV_SAMPLE_FMT_S32 || config->ctx->sample_fmt == AV_SAMPLE_FMT_S32P )
+                    if( config->ctx->sample_fmt == AV_SAMPLE_FMT_DBL || config->ctx->sample_fmt == AV_SAMPLE_FMT_DBLP )
                         config->prefer.sample_format = config->ctx->sample_fmt;
                     break;
                 default :
                     break;
             }
+            int bits_per_sample = config->ctx->bits_per_raw_sample   > 0 ? config->ctx->bits_per_raw_sample
+                                : config->ctx->bits_per_coded_sample > 0 ? config->ctx->bits_per_coded_sample
+                                : av_get_bytes_per_sample( config->ctx->sample_fmt ) << 3;
+            if( bits_per_sample > config->prefer.bits_per_sample )
+                config->prefer.bits_per_sample = bits_per_sample;
             ++valid_index_count;
         }
     }
