@@ -813,14 +813,16 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
         return -1;
     }
     memset( index_list, 0, config->count );
-    uint32_t valid_index_count = (config->index <= config->count);
+    uint32_t valid_index_count = (config->index && config->index <= config->count);
+    if( valid_index_count )
+        index_list[ config->index - 1 ] = 1;
     uint32_t sample_count = lsmash_get_sample_count_in_media_timeline( root, track_ID );
     for( uint32_t i = 2; i <= sample_count && valid_index_count < config->count; i++ )
     {
         lsmash_sample_t sample;
         if( lsmash_get_sample_info_from_media_timeline( root, track_ID, i, &sample ) )
             continue;
-        if( config->index == sample.index )
+        if( sample.index == config->index || sample.index == 0 )
             continue;
         if( sample.index <= config->count && !index_list[ sample.index - 1 ] )
         {
