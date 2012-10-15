@@ -1399,9 +1399,6 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         int output_audio = 0;
         do
         {
-            uint64_t            channel_layout = ah.frame_buffer->channel_layout;
-            int                 sample_rate    = ah.frame_buffer->sample_rate;
-            enum AVSampleFormat sample_format  = (enum AVSampleFormat)ah.frame_buffer->format;
             avcodec_get_frame_defaults( ah.frame_buffer );
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( config->ctx, ah.frame_buffer, &decode_complete, pkt );
@@ -1420,11 +1417,17 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             if( decode_complete && ah.frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
+                int64_t channel_layout;
+                int64_t sample_rate;
+                int64_t sample_format;
+                av_opt_get_int( ah.avr_ctx, "in_channel_layout", 0, &channel_layout );
+                av_opt_get_int( ah.avr_ctx, "in_sample_rate",    0, &sample_rate );
+                av_opt_get_int( ah.avr_ctx, "in_sample_fmt",     0, &sample_format );
                 if( ah.frame_buffer->channel_layout == 0 )
                     ah.frame_buffer->channel_layout = av_get_default_channel_layout( config->ctx->channels );
-                if( ah.frame_buffer->channel_layout != channel_layout
-                 || ah.frame_buffer->sample_rate    != sample_rate
-                 || ah.frame_buffer->format         != sample_format )
+                if( ah.frame_buffer->channel_layout != (uint64_t)channel_layout
+                 || ah.frame_buffer->sample_rate    != (int)sample_rate
+                 || ah.frame_buffer->format         != (enum AVSampleFormat)sample_format )
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
