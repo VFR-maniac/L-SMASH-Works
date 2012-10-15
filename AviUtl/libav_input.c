@@ -2461,6 +2461,8 @@ static void video_cleanup( lsmash_handler_t *h )
         return;
     if( hp->video_input_buffer )
         av_free( hp->video_input_buffer );
+    if( hp->video_back_ground )
+        free( hp->video_back_ground );
     if( hp->first_valid_video_frame_data )
         free( hp->first_valid_video_frame_data );
     if( hp->video_frame_list )

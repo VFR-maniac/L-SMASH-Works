@@ -1347,6 +1347,8 @@ static void video_cleanup( lsmash_handler_t *h )
         free( hp->order_converter );
     if( hp->keyframe_list )
         free( hp->keyframe_list );
+    if( hp->video_back_ground )
+        free( hp->video_back_ground );
     if( hp->first_valid_video_sample_data )
         free( hp->first_valid_video_sample_data );
     if( hp->video_frame_buffer )
