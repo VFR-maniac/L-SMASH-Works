@@ -46,7 +46,7 @@
 #define SEEK_PTS_BASED         0x00000002
 #define SEEK_FILE_OFFSET_BASED 0x00000004
 
-#define INDEX_FILE_VERSION 4
+#define INDEX_FILE_VERSION 5
 
 typedef struct
 {
@@ -452,6 +452,43 @@ static void investigate_pix_fmt_by_decoding( AVCodecContext *video_ctx, AVPacket
     avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
 }
 
+static enum AVSampleFormat select_better_sample_format( enum AVSampleFormat a, enum AVSampleFormat b )
+{
+    switch( a )
+    {
+        case AV_SAMPLE_FMT_NONE :
+            if( b != AV_SAMPLE_FMT_NONE )
+                a = b;
+            break;
+        case AV_SAMPLE_FMT_U8 :
+        case AV_SAMPLE_FMT_U8P :
+            if( b != AV_SAMPLE_FMT_U8 && b != AV_SAMPLE_FMT_U8P )
+                a = b;
+            break;
+        case AV_SAMPLE_FMT_S16 :
+        case AV_SAMPLE_FMT_S16P :
+            if( b != AV_SAMPLE_FMT_U8  && b != AV_SAMPLE_FMT_U8P
+             && b != AV_SAMPLE_FMT_S16 && b != AV_SAMPLE_FMT_S16P )
+                a = b;
+            break;
+        case AV_SAMPLE_FMT_S32 :
+        case AV_SAMPLE_FMT_S32P :
+            if( b != AV_SAMPLE_FMT_U8  && b != AV_SAMPLE_FMT_U8P
+             && b != AV_SAMPLE_FMT_S16 && b != AV_SAMPLE_FMT_S16P
+             && b != AV_SAMPLE_FMT_S32 && b != AV_SAMPLE_FMT_S32P )
+                a = b;
+            break;
+        case AV_SAMPLE_FMT_FLT :
+        case AV_SAMPLE_FMT_FLTP :
+            if( b == AV_SAMPLE_FMT_DBL || b == AV_SAMPLE_FMT_DBLP )
+                a = b;
+            break;
+        default :
+            break;
+    }
+    return a;
+}
+
 static inline void print_index( FILE *index, const char *format, ... )
 {
     if( !index )
@@ -522,7 +559,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     avcodec_get_frame_defaults( hp->audio_frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=4>
+        <LibavReaderIndexFile=5>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
@@ -764,6 +801,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     if( av_get_channel_layout_nb_channels( pkt_ctx->channel_layout )
                       > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
                         hp->audio_output_channel_layout = pkt_ctx->channel_layout;
+                    hp->audio_output_sample_format   = select_better_sample_format( hp->audio_output_sample_format, pkt_ctx->sample_fmt );
                     hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
                     hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
                     hp->audio_input_buffer_size      = max( hp->audio_input_buffer_size, pkt.size );
@@ -771,12 +809,13 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             }
             /* Write an audio packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                         "Channels=%d:0x%"PRIx64",SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                         "Channels=%d:0x%"PRIx64",SampleRate=%d,SampleFormat=%s,BitsPerSample=%d,Length=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                          format_ctx->streams[ pkt.stream_index ]->time_base.num,
                          format_ctx->streams[ pkt.stream_index ]->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts,
                          pkt_ctx->channels, pkt_ctx->channel_layout, pkt_ctx->sample_rate,
+                         av_get_sample_fmt_name( pkt_ctx->sample_fmt ) ? av_get_sample_fmt_name( pkt_ctx->sample_fmt ) : "none",
                          bits_per_sample, frame_length );
         }
         /* Update progress dialog if packet's DTS is valid. */
@@ -839,12 +878,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                             constant_frame_length = 0;
                     }
                     print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                                 "Channels=%d:0x%"PRIx64",SampleRate=%d,BitsPerSample=%d,Length=%d\n",
+                                 "Channels=%d:0x%"PRIx64",SampleRate=%d,SampleFormat=%s,BitsPerSample=%d,Length=%d\n",
                                  stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                                  format_ctx->streams[stream_index]->time_base.num,
                                  format_ctx->streams[stream_index]->time_base.den,
                                  -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
-                                 0, 0, 0, 0, frame_length );
+                                 0, 0, 0, "none", 0, frame_length );
                 }
             }
         }
@@ -1007,9 +1046,10 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         if( !audio_info )
             goto fail_parsing;
     }
-    hp->video_codec_id = AV_CODEC_ID_NONE;
-    hp->audio_codec_id = AV_CODEC_ID_NONE;
-    hp->pix_fmt        = PIX_FMT_NONE;
+    hp->video_codec_id             = AV_CODEC_ID_NONE;
+    hp->audio_codec_id             = AV_CODEC_ID_NONE;
+    hp->pix_fmt                    = PIX_FMT_NONE;
+    hp->audio_output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
@@ -1109,10 +1149,11 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 uint64_t layout;
                 int      channels;
                 int      sample_rate;
+                char     sample_fmt[64];
                 int      bits_per_sample;
                 int      frame_length;
-                if( sscanf( buf, "Channels=%d:0x%"SCNx64",SampleRate=%d,BitsPerSample=%d,Length=%d",
-                            &channels, &layout, &sample_rate, &bits_per_sample, &frame_length ) != 5 )
+                if( sscanf( buf, "Channels=%d:0x%"SCNx64",SampleRate=%d,SampleFormat=%[^,],BitsPerSample=%d,Length=%d",
+                            &channels, &layout, &sample_rate, sample_fmt, &bits_per_sample, &frame_length ) != 6 )
                     goto fail_parsing;
                 if( hp->audio_codec_id == AV_CODEC_ID_NONE )
                     hp->audio_codec_id = codec_id;
@@ -1130,6 +1171,8 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     if( av_get_channel_layout_nb_channels( layout )
                       > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
                         hp->audio_output_channel_layout = layout;
+                    hp->audio_output_sample_format   = select_better_sample_format( hp->audio_output_sample_format,
+                                                                                    av_get_sample_fmt( (const char *)sample_fmt ) );
                     hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
                     hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
                     ++audio_sample_count;
