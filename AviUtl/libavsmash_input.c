@@ -1237,9 +1237,6 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         int output_audio = 0;
         do
         {
-            uint64_t            channel_layout = hp->audio_frame_buffer->channel_layout;
-            int                 sample_rate    = hp->audio_frame_buffer->sample_rate;
-            enum AVSampleFormat sample_format  = hp->audio_frame_buffer->format;
             avcodec_get_frame_defaults( hp->audio_frame_buffer );
             int decode_complete;
             int wasted_data_length = avcodec_decode_audio4( config->ctx, hp->audio_frame_buffer, &decode_complete, pkt );
@@ -1258,6 +1255,12 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             if( decode_complete && hp->audio_frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
+                int64_t channel_layout;
+                int64_t sample_rate;
+                int64_t sample_format;
+                av_opt_get_int( hp->avr_ctx, "in_channel_layout", 0, &channel_layout );
+                av_opt_get_int( hp->avr_ctx, "in_sample_rate",    0, &sample_rate );
+                av_opt_get_int( hp->avr_ctx, "in_sample_fmt",     0, &sample_format );
                 if( hp->audio_frame_buffer->channel_layout == 0 )
                     hp->audio_frame_buffer->channel_layout = av_get_default_channel_layout( config->ctx->channels );
                 if( hp->audio_frame_buffer->channel_layout != channel_layout
