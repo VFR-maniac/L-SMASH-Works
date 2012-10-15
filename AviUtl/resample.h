@@ -60,9 +60,9 @@ static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSamp
     }
 }
 
-static inline void put_silence_audio_samples( int silence_data_size, uint8_t **out_data )
+static inline void put_silence_audio_samples( int silence_data_size, int is_u8, uint8_t **out_data )
 {
-    memset( *out_data, 0, silence_data_size );
+    memset( *out_data, is_u8 ? 128 : 0, silence_data_size );
     *out_data += silence_data_size;
 }
 

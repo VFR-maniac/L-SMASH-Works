@@ -2280,7 +2280,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
         else
         {
             int silence_length = -start;
-            put_silence_audio_samples( silence_length * hp->audio_output_block_align, (uint8_t **)&buf );
+            put_silence_audio_samples( silence_length * hp->audio_output_block_align, hp->audio_output_bits_per_sample == 8, (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;

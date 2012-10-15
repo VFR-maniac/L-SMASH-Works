@@ -396,7 +396,8 @@ int func_read_audio( INPUT_HANDLE ih, int start, int length, void *buf )
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     if( hp->read_audio && hp->delay_audio( hp, &start, length, audio_delay ) )
         return hp->read_audio( hp, start, length, buf );
-    memset( buf, 0, length * hp->audio_format.Format.nBlockAlign );
+    uint8_t silence = hp->audio_format.Format.wBitsPerSample == 8 ? 128 : 0;
+    memset( buf, silence, length * hp->audio_format.Format.nBlockAlign );
     return length;
 }
 
