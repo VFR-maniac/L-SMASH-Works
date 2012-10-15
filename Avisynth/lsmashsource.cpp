@@ -83,13 +83,6 @@ static void throw_error( void *message_priv, const char *message, ... )
     env->ThrowError( (const char *)temp );
 }
 
-typedef enum
-{
-    DECODE_REQUIRE_INITIAL = 0,
-    DECODE_INITIALIZING    = 1,
-    DECODE_INITIALIZED     = 2
-} decode_status_t;
-
 typedef struct
 {
     uint32_t composition_to_decoding;
@@ -108,7 +101,6 @@ typedef struct
     order_converter_t    *order_converter;
     uint32_t              last_sample_number;
     uint32_t              last_rap_number;
-    decode_status_t       decode_status;
 } video_decode_handler_t;
 
 typedef int func_make_frame( AVCodecContext *codec_ctx, struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env );
@@ -601,7 +593,6 @@ static uint32_t seek_video( video_decode_handler_t *hp, AVFrame *picture, uint32
         flush_buffers( config );
     if( config->error )
         return 0;
-    hp->decode_status = DECODE_REQUIRE_INITIAL;
     int dummy;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( config->ctx );
@@ -625,13 +616,6 @@ static uint32_t seek_video( video_decode_handler_t *hp, AVFrame *picture, uint32
 static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t sample_count )
 {
     codec_configuration_t *config = &hp->config;
-    if( hp->decode_status == DECODE_INITIALIZING )
-    {
-        if( config->delay_count > get_decoder_delay( config->ctx ) )
-            -- config->delay_count;
-        else
-            hp->decode_status = DECODE_INITIALIZED;
-    }
     int got_picture = (current > goal);
     while( current <= goal )
     {
@@ -647,8 +631,6 @@ static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t c
             break;
         if( !got_picture )
             ++ config->delay_count;
-        if( config->delay_count > get_decoder_delay( config->ctx ) && hp->decode_status == DECODE_INITIALIZED )
-            break;
     }
     /* Flush the last frames. */
     if( current > sample_count && get_decoder_delay( config->ctx ) )
@@ -663,8 +645,6 @@ static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t c
                 return -1;
             ++current;
         }
-    if( hp->decode_status == DECODE_REQUIRE_INITIAL )
-        hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
 }
 
