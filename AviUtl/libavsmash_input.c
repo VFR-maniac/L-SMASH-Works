@@ -44,13 +44,6 @@
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
 
-typedef enum
-{
-    DECODE_REQUIRE_INITIAL = 0,
-    DECODE_INITIALIZING    = 1,
-    DECODE_INITIALIZED     = 2
-} decode_status_t;
-
 typedef struct
 {
     uint32_t composition_to_decoding;
@@ -81,7 +74,6 @@ typedef struct libavsmash_handler_tag
     uint8_t                  *video_back_ground;
     AVFrame                  *video_frame_buffer;
     codec_configuration_t     video_config;
-    decode_status_t           decode_status;
     order_converter_t        *order_converter;
     uint8_t                  *keyframe_list;
     int                       seek_mode;
@@ -885,7 +877,6 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
         flush_buffers( config );
     if( config->error )
         return 0;
-    hp->decode_status = DECODE_REQUIRE_INITIAL;
     int dummy;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( config->ctx );
@@ -914,13 +905,6 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
 static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
 {
     codec_configuration_t *config = &hp->video_config;
-    if( hp->decode_status == DECODE_INITIALIZING )
-    {
-        if( config->delay_count > get_decoder_delay( config->ctx ) )
-            -- config->delay_count;
-        else
-            hp->decode_status = DECODE_INITIALIZED;
-    }
     int got_picture = (current > goal);
     while( current <= goal )
     {
@@ -936,10 +920,6 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
             break;
         if( !got_picture )
             ++ config->delay_count;
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
-                                         goal, current - 1, got_picture, config->delay_count );
-        if( config->delay_count > get_decoder_delay( config->ctx ) && hp->decode_status == DECODE_INITIALIZED )
-            break;
     }
     /* Flush the last frames. */
     if( current > video_sample_count && get_decoder_delay( config->ctx ) )
@@ -956,11 +936,7 @@ static int get_picture( libavsmash_handler_t *hp, AVFrame *picture, uint32_t cur
                 return -1;
             }
             ++current;
-            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
-                                             goal, current - 1, got_picture, config->delay_count );
         }
-    if( hp->decode_status == DECODE_REQUIRE_INITIAL )
-        hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
 }
 

@@ -48,13 +48,6 @@
 
 #define INDEX_FILE_VERSION 4
 
-typedef enum
-{
-    DECODE_REQUIRE_INITIAL = 0,
-    DECODE_INITIALIZING    = 1,
-    DECODE_INITIALIZED     = 2
-} decode_status_t;
-
 typedef struct
 {
     int64_t pts;
@@ -122,7 +115,6 @@ typedef struct libav_handler_tag
     uint32_t                 first_valid_video_frame_number;
     uint8_t                 *first_valid_video_frame_data;
     uint8_t                 *video_back_ground;
-    decode_status_t          decode_status;
     video_frame_info_t      *video_frame_list;      /* stored in presentation order */
     uint8_t                 *keyframe_list;         /* stored in decoding order */
     order_converter_t       *order_converter;       /* stored in decoding order */
@@ -2005,7 +1997,6 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
     if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
         av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     hp->video_delay_count = 0;
-    hp->decode_status     = DECODE_REQUIRE_INITIAL;
     int dummy;
     uint32_t i;
     for( i = rap_number; i < presentation_sample_number + get_decoder_delay( hp->video_ctx ); i++ )
@@ -2027,13 +2018,6 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
 
 static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
 {
-    if( hp->decode_status == DECODE_INITIALIZING )
-    {
-        if( hp->video_delay_count > get_decoder_delay( hp->video_ctx ) )
-            -- hp->video_delay_count;
-        else
-            hp->decode_status = DECODE_INITIALIZED;
-    }
     int got_picture = 0;
     while( current <= goal )
     {
@@ -2045,10 +2029,6 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
         ++current;
         if( !got_picture )
             ++ hp->video_delay_count;
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
-                                         goal, current - 1, got_picture, hp->video_delay_count );
-        if( hp->video_delay_count > get_decoder_delay( hp->video_ctx ) && hp->decode_status == DECODE_INITIALIZED )
-            break;
     }
     /* Flush the last frames. */
     if( current > video_sample_count && get_decoder_delay( hp->video_ctx ) )
@@ -2065,11 +2045,7 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
                 return -1;
             }
             ++current;
-            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "current frame = %d, decoded frame = %d, got_picture = %d, delay_count = %d",
-                                             goal, current - 1, got_picture, hp->video_delay_count );
         }
-    if( hp->decode_status == DECODE_REQUIRE_INITIAL )
-        hp->decode_status = DECODE_INITIALIZING;
     return got_picture ? 0 : -1;
 }
 
