@@ -32,6 +32,10 @@
 #define AUI_FUNC_ALIGN
 #endif
 
+#ifndef MIN
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#endif
+
 #ifdef __GNUC__
 #pragma GCC target ("sse2")
 #endif
@@ -40,7 +44,7 @@
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
 void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_linesize, int output_height, int full_range )
 {
-    uint8_t *ycp = buf, *ycp_fin;
+    uint8_t *ycp, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
     __m128i x0, x1, x2, x3;
 #define Y_COEF         4788
@@ -78,12 +82,13 @@ void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize
     x3 = _mm_setzero_si128();   /* Initialize to avoid warning and some weird gcc optimization. */
     /*  Y = ((( y - 32768 ) * coef)           >> 16 ) + (coef/2 - 299) */
     /* UV = (( uv - 32768 ) * coef + offset ) >> 16 */
-    for( uint32_t offset = 0; output_height--; offset += dst_linesize )
+    for( uint32_t h = 0; h < output_height; h++ )
     {
-        p_dst_y = dst_data[0] + offset;
-        p_dst_u = dst_data[1] + offset;
-        p_dst_v = dst_data[2] + offset;
-        for( ycp_fin = ycp + buf_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
+        p_dst_y = dst_data[0] + dst_linesize * h;
+        p_dst_u = dst_data[1] + dst_linesize * h;
+        p_dst_v = dst_data[2] + dst_linesize * h;
+        ycp = buf + buf_linesize * h;
+        for( ycp_fin = ycp + output_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
         {
             /* make -32768 (0x8000) */
             x3 = _mm_cmpeq_epi32(x3, x3);   /* 0xffff */
@@ -186,6 +191,14 @@ void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize
             _mm_stream_si128((__m128i *)&ycp[32], x1);
         }
     }
+    const int background_fill_count = ((48 - (output_linesize % 48)) % 48) >> 1;
+    if( background_fill_count )
+        for( int j = 0; j < output_height; j++ )
+        {
+            int16_t *ptr = (int16_t *)(buf + buf_linesize * j + output_linesize);
+            for( int i = 0; i < background_fill_count; i++ )
+                ptr[i] = 0;
+        }
 }
 
 #ifdef __GNUC__
@@ -216,7 +229,7 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
         ptr_y = y_line;
         ptr_u = u_line;
         ptr_v = v_line;
-        ptr_dst_fin = ptr_dst + buf_linesize;
+        ptr_dst_fin = ptr_dst + output_linesize;
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
         {
             x0 = _mm_loadu_si128((__m128i *)ptr_u);
@@ -249,7 +262,7 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
             ptr_y = y_line + y_pitch * i;
             ptr_u = u_line + uv_pitch * (i & 0x01);
             ptr_v = v_line + uv_pitch * (i & 0x01);
-            ptr_dst_fin = ptr_dst + buf_linesize;
+            ptr_dst_fin = ptr_dst + output_linesize;
             for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
             {
                 x0 = _mm_loadu_si128((__m128i *)(ptr_u));
@@ -315,7 +328,7 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
         ptr_y = y_line;
         ptr_u = u_line;
         ptr_v = v_line;
-        ptr_dst_fin = ptr_dst + (buf_linesize & ~63);
+        ptr_dst_fin = ptr_dst + (output_linesize & ~63);
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
         {
             x0 = _mm_loadu_si128((__m128i *)ptr_u);
@@ -334,13 +347,25 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
             _mm_storeu_si128((__m128i *)(ptr_dst + 32), x6);
             _mm_storeu_si128((__m128i *)(ptr_dst + 48), x7);
         }
-        ptr_dst_fin = ptr_dst + (buf_linesize & 63);
+        ptr_dst_fin = ptr_dst + (output_linesize & 63);
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 4, ptr_y += 2, ptr_u += 1, ptr_v += 1 )
         {
             ptr_dst[0] = ptr_y[0];
             ptr_dst[1] = ptr_u[0];
             ptr_dst[2] = ptr_y[1];
             ptr_dst[3] = ptr_v[0];
+        }
+    }
+    const int background_fill_count = MIN((64 - (output_linesize & 63)) & 63, buf_linesize - output_linesize) >> 2;
+    if( background_fill_count )
+    {
+        static const uint32_t yuy2_background = (128<<24) + (128<<8);
+        /* background_fill are not needed for last 2 lines, since the copying of them won't overwrite. */
+        for( int j = 0; j < height - 2; j++ )
+        {
+            uint32_t *ptr = (uint32_t *)(buf + buf_linesize * j + output_linesize);
+            for( int i = 0; i < background_fill_count; i++ )
+                ptr[i] = yuy2_background;
         }
     }
 }

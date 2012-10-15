@@ -308,7 +308,7 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     if( sse2_available == -1 )
         sse2_available = check_sse2();
     static void (*func_yuv16le_to_yc48[2])( uint8_t*, int, uint8_t**, int, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2 };
-    func_yuv16le_to_yc48[sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0 && buf_linesize == output_linesize ]
+    func_yuv16le_to_yc48[sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0]
         ( buf, buf_linesize, dst_data, abs_dst_linesize, output_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
@@ -401,7 +401,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         if( ssse3_available == -1 )
             ssse3_available = check_ssse3();
         static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
-        func_yv12i_to_yuy2[ssse3_available && buf_linesize == output_linesize]( buf, buf_linesize, picture->data, picture->linesize, output_linesize, picture->height );
+        func_yv12i_to_yuy2[ssse3_available]( buf, buf_linesize, picture->data, picture->linesize, output_linesize, picture->height );
         if( another_chroma )
             av_free( another_chroma );
     }
