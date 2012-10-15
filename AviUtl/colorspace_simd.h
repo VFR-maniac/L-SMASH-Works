@@ -22,5 +22,5 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range );
-void convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int height );
+void convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_linesize, int output_height, int full_range );
+void convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height );

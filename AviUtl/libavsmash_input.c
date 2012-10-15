@@ -70,11 +70,15 @@ typedef struct libavsmash_handler_tag
     int                       threads;
     /* Video stuff */
     struct SwsContext        *sws_ctx;
+    int                       scaler_flags;
+    enum PixelFormat          video_output_pixel_format;
+    int                       video_output_linesize;
+    uint32_t                  video_output_sample_size;
     uint32_t                  last_video_sample_number;
     uint32_t                  last_rap_number;
     uint32_t                  first_valid_video_sample_number;
-    uint32_t                  first_valid_video_sample_size;
     uint8_t                  *first_valid_video_sample_data;
+    uint8_t                  *video_back_ground;
     AVFrame                  *video_frame_buffer;
     codec_configuration_t     video_config;
     decode_status_t           decode_status;
@@ -474,6 +478,31 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
+static int convert_colorspace( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
+{
+    /* Convert color space. We don't change the presentation resolution. */
+    int64_t width;
+    int64_t height;
+    int64_t format;
+    av_opt_get_int( hp->sws_ctx, "srcw",       0, &width );
+    av_opt_get_int( hp->sws_ctx, "srch",       0, &height );
+    av_opt_get_int( hp->sws_ctx, "src_format", 0, &format );
+    avoid_yuv_scale_conversion( &picture->format );
+    if( !hp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
+    {
+        hp->sws_ctx = sws_getCachedContext( hp->sws_ctx,
+                                            picture->width, picture->height, picture->format,
+                                            picture->width, picture->height, hp->video_output_pixel_format,
+                                            hp->scaler_flags, NULL, NULL, NULL );
+        if( !hp->sws_ctx )
+            return 0;
+        memcpy( buf, hp->video_back_ground, hp->video_output_sample_size );
+    }
+    if( hp->convert_colorspace( hp->video_config.ctx, hp->sws_ctx, picture, buf, hp->video_output_linesize ) < 0 )
+        return 0;
+    return hp->video_output_sample_size;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
@@ -500,8 +529,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     }
     /* swscale */
-    int output_pixel_format;
-    output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &output_pixel_format );
+    output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &hp->video_output_pixel_format );
     static const struct
     {
         func_convert_colorspace *convert_colorspace;
@@ -514,13 +542,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    int flags = 1 << opt->scaler;
-    if( flags != SWS_FAST_BILINEAR )
-        flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
+    hp->scaler_flags = 1 << opt->scaler;
+    if( hp->scaler_flags != SWS_FAST_BILINEAR )
+        hp->scaler_flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
     hp->sws_ctx = sws_getCachedContext( NULL,
                                         config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                        config->ctx->width, config->ctx->height, output_pixel_format,
-                                        flags, NULL, NULL, NULL );
+                                        config->ctx->width, config->ctx->height, hp->video_output_pixel_format,
+                                        hp->scaler_flags, NULL, NULL, NULL );
     if( !hp->sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
@@ -528,11 +556,34 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     hp->convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */
+    int output_width  = config->prefer.width;
+    int output_height = config->prefer.height;
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    h->video_format.biWidth       = config->ctx->width;
-    h->video_format.biHeight      = config->ctx->height;
+    h->video_format.biWidth       = output_width;
+    h->video_format.biHeight      = output_height;
     h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[index].compression;
+    /* Set up a black frame of back ground. */
+    hp->video_output_linesize = MAKE_AVIUTL_PITCH( output_width * h->video_format.biBitCount );
+    hp->video_output_sample_size = hp->video_output_linesize * output_height;
+    hp->video_back_ground = hp->video_output_sample_size ? malloc( hp->video_output_sample_size ) : NULL;
+    if( !hp->video_back_ground )
+        return -1;
+    if( h->video_format.biCompression != OUTPUT_TAG_YUY2 )
+        memset( hp->video_back_ground, 0, hp->video_output_sample_size );
+    else
+    {
+        uint8_t *pic = hp->video_back_ground;
+        for( int i = 0; i < output_height; i++ )
+        {
+            for( int j = 0; j < hp->video_output_linesize; j += 2 )
+            {
+                pic[j    ] = 0;
+                pic[j + 1] = 128;
+            }
+            pic += hp->video_output_linesize;
+        }
+    }
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
     {
@@ -546,12 +597,14 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             hp->first_valid_video_sample_number = i - min( get_decoder_delay( config->ctx ), config->delay_count );
             if( hp->first_valid_video_sample_number > 1 || h->video_sample_count == 1 )
             {
-                hp->first_valid_video_sample_size = MAKE_AVIUTL_PITCH( h->video_format.biWidth * h->video_format.biBitCount )
-                                                  * h->video_format.biHeight;
-                hp->first_valid_video_sample_data = malloc( hp->first_valid_video_sample_size );
                 if( !hp->first_valid_video_sample_data )
-                    return -1;
-                if( hp->first_valid_video_sample_size > hp->convert_colorspace( config->ctx, hp->sws_ctx, picture, hp->first_valid_video_sample_data ) )
+                {
+                    hp->first_valid_video_sample_data = malloc( hp->video_output_sample_size );
+                    if( !hp->first_valid_video_sample_data )
+                        return -1;
+                    memcpy( hp->first_valid_video_sample_data, hp->video_back_ground, hp->video_output_sample_size );
+                }
+                if( hp->video_output_sample_size != convert_colorspace( hp, picture, hp->first_valid_video_sample_data ) )
                     continue;
             }
             break;
@@ -919,12 +972,14 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     if( config->error )
         return 0;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
+    if( sample_number == 1 )
+        memcpy( buf, hp->video_back_ground, hp->video_output_sample_size );
     if( sample_number < hp->first_valid_video_sample_number || h->video_sample_count == 1 )
     {
         /* Copy the first valid video sample data. */
-        memcpy( buf, hp->first_valid_video_sample_data, hp->first_valid_video_sample_size );
+        memcpy( buf, hp->first_valid_video_sample_data, hp->video_output_sample_size );
         hp->last_video_sample_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video sample. */
-        return hp->first_valid_video_sample_size;
+        return hp->video_output_sample_size;
     }
     AVFrame *picture = hp->video_frame_buffer;
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
@@ -987,7 +1042,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         start_number = seek_video( hp, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     hp->last_video_sample_number = sample_number;
-    return hp->convert_colorspace( config->ctx, hp->sws_ctx, picture, buf );
+    return convert_colorspace( hp, picture, buf );
 video_fail:
     /* fatal error of decoding */
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );

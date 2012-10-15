@@ -24,6 +24,8 @@
 
 typedef struct
 {
+    int                 width;
+    int                 height;
     uint64_t            channel_layout;
     enum AVSampleFormat sample_format;
     int                 sample_rate;

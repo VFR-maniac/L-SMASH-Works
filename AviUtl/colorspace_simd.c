@@ -38,7 +38,7 @@
 #include <emmintrin.h>
 /* SSE2 version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_height, int full_range )
+void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_linesize, int output_height, int full_range )
 {
     uint8_t *ycp = buf, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -193,7 +193,7 @@ void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize
 #endif
 #include <tmmintrin.h>
 /* SSSE3 version of func convert_yv12i_to_yuy2 */
-void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int height )
+void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     static const uint8_t AUI_ALIGN(16) Array_5371[4][16] = {
         { 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3 }, { 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1 },
