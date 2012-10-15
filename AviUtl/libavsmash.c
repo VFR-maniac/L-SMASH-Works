@@ -834,6 +834,10 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
                 config->prefer.sample_rate = config->ctx->sample_rate;
             switch( config->prefer.sample_format )
             {
+                case AV_SAMPLE_FMT_NONE :
+                    if( config->ctx->sample_fmt != AV_SAMPLE_FMT_NONE )
+                        config->prefer.sample_format = config->ctx->sample_fmt;
+                    break;
                 case AV_SAMPLE_FMT_U8 :
                 case AV_SAMPLE_FMT_U8P :
                     if( config->ctx->sample_fmt != AV_SAMPLE_FMT_U8 && config->ctx->sample_fmt != AV_SAMPLE_FMT_U8P )
