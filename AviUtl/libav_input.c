@@ -2005,10 +2005,13 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     AVPacket pkt = { 0 };
     if( get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
         return 1;
-    if( pkt.flags == AV_PKT_FLAG_KEY )
+    if( pkt.flags & AV_PKT_FLAG_KEY )
         hp->last_rap_number = sample_number;
     avcodec_get_frame_defaults( picture );
-    if( avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt ) < 0 )
+    int64_t pts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
+    int ret = avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt );
+    picture->pts = pts;
+    if( ret < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
         return -1;
@@ -2041,11 +2044,16 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
         av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
     hp->video_delay_count = 0;
     int dummy;
+    int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t i;
     for( i = rap_number; i < presentation_sample_number + get_decoder_delay( hp->video_ctx ); i++ )
     {
         int ret = decode_video_sample( hp, picture, &dummy, i );
-        if( ret == -1 && !error_ignorance )
+        /* Some decoders return -1 when feeding a leading sample.
+         * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
+        if( i == hp->last_rap_number && picture->pts != AV_NOPTS_VALUE )
+            rap_pts = picture->pts;
+        if( ret == -1 && (picture->pts == AV_NOPTS_VALUE || picture->pts >= rap_pts) && !error_ignorance )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
             return 0;
@@ -2054,8 +2062,6 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
             break;      /* Sample doesn't exist. */
     }
     hp->video_delay_count = min( get_decoder_delay( hp->video_ctx ), i - rap_number );
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %"PRIu32", seek_position = %"PRIu32" video_delay_count = %"PRIu32,
-                                     rap_number, i, hp->video_delay_count );
     return i;
 }
 

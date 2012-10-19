@@ -799,10 +799,18 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
     int ret = get_sample( hp->root, hp->video_track_ID, sample_number, &hp->video_config, &pkt );
     if( ret )
         return ret;
-    if( pkt.flags == AV_PKT_FLAG_KEY )
+    if( pkt.flags != ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE )
+    {
+        pkt.flags = AV_PKT_FLAG_KEY;
         hp->last_rap_number = sample_number;
+    }
+    else
+        pkt.flags = 0;
     avcodec_get_frame_defaults( picture );
-    if( avcodec_decode_video2( hp->video_config.ctx, picture, got_picture, &pkt ) < 0 )
+    uint64_t cts = pkt.pts;
+    ret = avcodec_decode_video2( hp->video_config.ctx, picture, got_picture, &pkt );
+    picture->pts = cts;
+    if( ret < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
         return -1;
@@ -878,14 +886,19 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
     if( config->error )
         return 0;
     int dummy;
+    uint64_t rap_cts = 0;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( config->ctx );
-    for( i = rap_number; i < composition_sample_number + decoder_delay; )
+    for( i = rap_number; i < composition_sample_number + decoder_delay; i++ )
     {
         if( config->index == config->queue.index )
             config->delay_count = min( decoder_delay, i - rap_number );
         int ret = decode_video_sample( hp, picture, &dummy, i );
-        if( ret == -1 && !error_ignorance )
+        /* Some decoders return -1 when feeding a leading sample.
+         * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
+        if( i == hp->last_rap_number )
+            rap_cts = picture->pts;
+        if( ret == -1 && picture->pts >= rap_cts && !error_ignorance )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode a video frame." );
             return 0;
@@ -893,12 +906,9 @@ static uint32_t seek_video( libavsmash_handler_t *hp, AVFrame *picture, uint32_t
         else if( ret >= 1 )
             /* No decoding occurs. */
             break;
-        ++i;
     }
     if( config->index == config->queue.index )
         config->delay_count = min( decoder_delay, i - rap_number );
-    DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "rap_number = %"PRIu32", seek_position = %"PRIu32", delay_count = %"PRIu32":%"PRIu32,
-                                     rap_number, i, decoder_delay, config->delay_count );
     return i;
 }
 

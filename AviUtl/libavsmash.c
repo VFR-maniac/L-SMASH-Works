@@ -543,9 +543,11 @@ int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, 
         pkt->size = 0;
         return 1;
     }
-    pkt->flags = sample->prop.random_access_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE ? 0 : AV_PKT_FLAG_KEY;
+    pkt->flags = sample->prop.random_access_type;   /* Set proper flags when feeding this packet into the decoder. */
     pkt->size  = sample->length;
     pkt->data  = config->input_buffer;
+    pkt->pts   = sample->cts;                       /* Set composition timestamp to presentation timestamp field. */
+    pkt->dts   = sample->dts;
     memcpy( pkt->data, sample->data, sample->length );
     /* TODO: add handling invalid indexes. */
     if( sample->index != config->index )
