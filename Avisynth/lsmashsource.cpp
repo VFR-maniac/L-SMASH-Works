@@ -323,7 +323,7 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
 static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
 {
     int src_size = 0;
-    const AVPixFmtDescriptor *desc = &av_pix_fmt_descriptors[src_pix_fmt];
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get( src_pix_fmt );
     int used_plane[4] = { 0, 0, 0, 0 };
     for( int i = 0; i < desc->nb_components; i++ )
     {
@@ -336,7 +336,7 @@ static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPix
     if( src_size == 0 )
         return 1;
     int dst_size = 0;
-    desc = &av_pix_fmt_descriptors[dst_pix_fmt];
+    desc = av_pix_fmt_desc_get( dst_pix_fmt );
     used_plane[0] = used_plane[1] = used_plane[2] = used_plane[3] = 0;
     for( int i = 0; i < desc->nb_components; i++ )
     {
