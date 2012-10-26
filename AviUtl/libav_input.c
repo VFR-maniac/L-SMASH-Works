@@ -101,8 +101,8 @@ typedef struct libav_handler_tag
     int                      video_output_width;
     int                      video_output_height;
     int                      scaler_flags;
-    enum PixelFormat         pix_fmt;       /* initial input pixel format */
-    enum PixelFormat         video_output_pixel_format;
+    enum AVPixelFormat       pix_fmt;       /* initial input pixel format */
+    enum AVPixelFormat       video_output_pixel_format;
     int                      video_output_linesize;
     uint32_t                 video_output_frame_size;
     AVFrame                 *video_frame_buffer;
@@ -626,7 +626,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             continue;
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
         {
-            if( pkt_ctx->pix_fmt == PIX_FMT_NONE )
+            if( pkt_ctx->pix_fmt == AV_PIX_FMT_NONE )
                 investigate_pix_fmt_by_decoding( pkt_ctx, &pkt, hp->video_frame_buffer );
             int dv_in_avi_init = 0;
             if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == AV_CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
@@ -1048,7 +1048,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     }
     hp->video_codec_id             = AV_CODEC_ID_NONE;
     hp->audio_codec_id             = AV_CODEC_ID_NONE;
-    hp->pix_fmt                    = PIX_FMT_NONE;
+    hp->pix_fmt                    = AV_PIX_FMT_NONE;
     hp->audio_output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
@@ -1111,7 +1111,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     if( height > hp->video_output_height )
                         hp->video_output_height = height;
                 }
-                if( hp->pix_fmt == PIX_FMT_NONE )
+                if( hp->pix_fmt == AV_PIX_FMT_NONE )
                     hp->pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
                 if( video_time_base.num == 0 || video_time_base.den == 0 )
                 {
@@ -1215,7 +1215,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         }
     }
     if( video_present && opt->force_video && opt->force_video_index != -1
-     && (video_sample_count == 0 || hp->pix_fmt == PIX_FMT_NONE || hp->video_width == 0 || hp->video_height == 0) )
+     && (video_sample_count == 0 || hp->pix_fmt == AV_PIX_FMT_NONE || hp->video_width == 0 || hp->video_height == 0) )
         goto fail_parsing;  /* Need to re-create the index file. */
     if( audio_present && opt->force_audio && opt->force_audio_index != -1 && (audio_sample_count == 0 || audio_duration == 0) )
         goto fail_parsing;  /* Need to re-create the index file. */

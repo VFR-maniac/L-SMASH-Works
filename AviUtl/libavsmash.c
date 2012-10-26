@@ -684,7 +684,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                 break;
             else if( ret < 0 )
             {
-                if( ctx->pix_fmt == PIX_FMT_NONE )
+                if( ctx->pix_fmt == AV_PIX_FMT_NONE )
                     strcpy( error_string, "Failed to set up pixel format.\n" );
                 else
                     strcpy( error_string, "Failed to set up resolution.\n" );
@@ -694,7 +694,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             avcodec_get_frame_defaults( picture );
             int dummy;
             avcodec_decode_video2( ctx, picture, &dummy, &pkt );
-        } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == PIX_FMT_NONE );
+        } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
         extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
         extended->width  = ctx->width;
         extended->height = ctx->height;

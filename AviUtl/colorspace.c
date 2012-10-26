@@ -61,17 +61,17 @@ void avoid_yuv_scale_conversion( int *input_pixel_format )
 {
     static const struct
     {
-        enum PixelFormat full;
-        enum PixelFormat limited;
+        enum AVPixelFormat full;
+        enum AVPixelFormat limited;
     } range_hack_table[]
         = {
-            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
-            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
-            { PIX_FMT_YUVJ444P, PIX_FMT_YUV444P },
-            { PIX_FMT_YUVJ440P, PIX_FMT_YUV440P },
-            { PIX_FMT_NONE,     PIX_FMT_NONE    }
+            { AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUV420P },
+            { AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
+            { AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUV444P },
+            { AV_PIX_FMT_YUVJ440P, AV_PIX_FMT_YUV440P },
+            { AV_PIX_FMT_NONE,     AV_PIX_FMT_NONE    }
           };
-    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
+    for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
         if( *input_pixel_format == range_hack_table[i].full )
             *input_pixel_format = range_hack_table[i].limited;
 }
@@ -82,70 +82,70 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
     avoid_yuv_scale_conversion( input_pixel_format );
     switch( *input_pixel_format )
     {
-        case PIX_FMT_YUV444P :
-        case PIX_FMT_YUV440P :
-        case PIX_FMT_YUV420P9LE :
-        case PIX_FMT_YUV420P9BE :
-        case PIX_FMT_YUV422P9LE :
-        case PIX_FMT_YUV422P9BE :
-        case PIX_FMT_YUV444P9LE :
-        case PIX_FMT_YUV444P9BE :
-        case PIX_FMT_YUV420P10LE :
-        case PIX_FMT_YUV420P10BE :
-        case PIX_FMT_YUV422P10LE :
-        case PIX_FMT_YUV422P10BE :
-        case PIX_FMT_YUV444P10LE :
-        case PIX_FMT_YUV444P10BE :
-        case PIX_FMT_YUV420P16LE :
-        case PIX_FMT_YUV420P16BE :
-        case PIX_FMT_YUV422P16LE :
-        case PIX_FMT_YUV422P16BE :
-        case PIX_FMT_YUV444P16LE :
-        case PIX_FMT_YUV444P16BE :
-        case PIX_FMT_RGB48LE :
-        case PIX_FMT_RGB48BE :
-        case PIX_FMT_BGR48LE :
-        case PIX_FMT_BGR48BE :
-        case PIX_FMT_GBRP9LE :
-        case PIX_FMT_GBRP9BE :
-        case PIX_FMT_GBRP10LE :
-        case PIX_FMT_GBRP10BE :
-        case PIX_FMT_GBRP16LE :
-        case PIX_FMT_GBRP16BE :
-            *output_pixel_format = PIX_FMT_YUV444P16LE; /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
+        case AV_PIX_FMT_YUV444P :
+        case AV_PIX_FMT_YUV440P :
+        case AV_PIX_FMT_YUV420P9LE :
+        case AV_PIX_FMT_YUV420P9BE :
+        case AV_PIX_FMT_YUV422P9LE :
+        case AV_PIX_FMT_YUV422P9BE :
+        case AV_PIX_FMT_YUV444P9LE :
+        case AV_PIX_FMT_YUV444P9BE :
+        case AV_PIX_FMT_YUV420P10LE :
+        case AV_PIX_FMT_YUV420P10BE :
+        case AV_PIX_FMT_YUV422P10LE :
+        case AV_PIX_FMT_YUV422P10BE :
+        case AV_PIX_FMT_YUV444P10LE :
+        case AV_PIX_FMT_YUV444P10BE :
+        case AV_PIX_FMT_YUV420P16LE :
+        case AV_PIX_FMT_YUV420P16BE :
+        case AV_PIX_FMT_YUV422P16LE :
+        case AV_PIX_FMT_YUV422P16BE :
+        case AV_PIX_FMT_YUV444P16LE :
+        case AV_PIX_FMT_YUV444P16BE :
+        case AV_PIX_FMT_RGB48LE :
+        case AV_PIX_FMT_RGB48BE :
+        case AV_PIX_FMT_BGR48LE :
+        case AV_PIX_FMT_BGR48BE :
+        case AV_PIX_FMT_GBRP9LE :
+        case AV_PIX_FMT_GBRP9BE :
+        case AV_PIX_FMT_GBRP10LE :
+        case AV_PIX_FMT_GBRP10BE :
+        case AV_PIX_FMT_GBRP16LE :
+        case AV_PIX_FMT_GBRP16BE :
+            *output_pixel_format = AV_PIX_FMT_YUV444P16LE;  /* planar YUV 4:4:4, 48bpp little-endian -> YC48 */
             return OUTPUT_YC48;
-        case PIX_FMT_ARGB :
-        case PIX_FMT_RGBA :
-        case PIX_FMT_ABGR :
-        case PIX_FMT_BGRA :
-            *output_pixel_format = PIX_FMT_BGRA;        /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
+        case AV_PIX_FMT_ARGB :
+        case AV_PIX_FMT_RGBA :
+        case AV_PIX_FMT_ABGR :
+        case AV_PIX_FMT_BGRA :
+            *output_pixel_format = AV_PIX_FMT_BGRA;         /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
             return OUTPUT_RGBA;
-        case PIX_FMT_RGB24 :
-        case PIX_FMT_BGR24 :
-        case PIX_FMT_BGR8 :
-        case PIX_FMT_BGR4 :
-        case PIX_FMT_BGR4_BYTE :
-        case PIX_FMT_RGB8 :
-        case PIX_FMT_RGB4 :
-        case PIX_FMT_RGB4_BYTE :
-        case PIX_FMT_RGB565LE :
-        case PIX_FMT_RGB565BE :
-        case PIX_FMT_RGB555LE :
-        case PIX_FMT_RGB555BE :
-        case PIX_FMT_BGR565LE :
-        case PIX_FMT_BGR565BE :
-        case PIX_FMT_BGR555LE :
-        case PIX_FMT_BGR555BE :
-        case PIX_FMT_RGB444LE :
-        case PIX_FMT_RGB444BE :
-        case PIX_FMT_BGR444LE :
-        case PIX_FMT_BGR444BE :
-        case PIX_FMT_GBRP :
-        case PIX_FMT_PAL8 :
-            *output_pixel_format = PIX_FMT_BGR24;       /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+        case AV_PIX_FMT_RGB24 :
+        case AV_PIX_FMT_BGR24 :
+        case AV_PIX_FMT_BGR8 :
+        case AV_PIX_FMT_BGR4 :
+        case AV_PIX_FMT_BGR4_BYTE :
+        case AV_PIX_FMT_RGB8 :
+        case AV_PIX_FMT_RGB4 :
+        case AV_PIX_FMT_RGB4_BYTE :
+        case AV_PIX_FMT_RGB565LE :
+        case AV_PIX_FMT_RGB565BE :
+        case AV_PIX_FMT_RGB555LE :
+        case AV_PIX_FMT_RGB555BE :
+        case AV_PIX_FMT_BGR565LE :
+        case AV_PIX_FMT_BGR565BE :
+        case AV_PIX_FMT_BGR555LE :
+        case AV_PIX_FMT_BGR555BE :
+        case AV_PIX_FMT_RGB444LE :
+        case AV_PIX_FMT_RGB444BE :
+        case AV_PIX_FMT_BGR444LE :
+        case AV_PIX_FMT_BGR444BE :
+        case AV_PIX_FMT_GBRP :
+        case AV_PIX_FMT_PAL8 :
+            *output_pixel_format = AV_PIX_FMT_BGR24;        /* packed RGB 8:8:8, 24bpp, BGRBGR... */
             return OUTPUT_RGB24;
         default :
-            *output_pixel_format = PIX_FMT_YUYV422;     /* packed YUV 4:2:2, 16bpp */
+            *output_pixel_format = AV_PIX_FMT_YUYV422;      /* packed YUV 4:2:2, 16bpp */
             return OUTPUT_YUY2;
     }
 }
@@ -255,7 +255,7 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 #undef COPY_CHROMA
 }
 
-static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt, int width )
+static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
 {
     int src_size = 0;
     const AVPixFmtDescriptor *desc = &av_pix_fmt_descriptors[src_pix_fmt];
@@ -287,7 +287,7 @@ static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFo
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
 {
     int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
-    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_YUV444P16LE, picture->format, picture->width );
+    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_YUV444P16LE, picture->format, picture->width );
     if( abs_dst_linesize & 15 )
         abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
     uint8_t *dst_data[4];
@@ -319,7 +319,7 @@ int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
         abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, picture->format, picture->width );
+    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGRA, picture->format, picture->width );
     const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
@@ -346,7 +346,7 @@ int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pi
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
         abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGR24, picture->format, picture->width );
+    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGR24, picture->format, picture->width );
     const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
@@ -372,14 +372,14 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
 {
     int output_linesize = 0;
     if( picture->interlaced_frame
-     && ((picture->format == PIX_FMT_YUV420P)
-     ||  (picture->format == PIX_FMT_YUVJ420P)
-     ||  (picture->format == PIX_FMT_NV12)
-     ||  (picture->format == PIX_FMT_NV21)) )
+     && ((picture->format == AV_PIX_FMT_YUV420P)
+     ||  (picture->format == AV_PIX_FMT_YUVJ420P)
+     ||  (picture->format == AV_PIX_FMT_NV12)
+     ||  (picture->format == AV_PIX_FMT_NV21)) )
     {
         uint8_t *another_chroma = NULL;
-        if( (picture->format == PIX_FMT_NV12)
-         || (picture->format == PIX_FMT_NV21) )
+        if( (picture->format == AV_PIX_FMT_NV12)
+         || (picture->format == AV_PIX_FMT_NV21) )
         {
             another_chroma = av_mallocz( (picture->linesize[1] / 2) * picture->height );
             if( !another_chroma )
@@ -391,7 +391,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
             convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], picture->width / 2, video_ctx->height / 2 );
             /* change data set as yv12 */
             picture->data[2] = picture->data[1];
-            picture->data[1+(picture->format == PIX_FMT_NV12)] = another_chroma;
+            picture->data[1+(picture->format == AV_PIX_FMT_NV12)] = another_chroma;
             picture->linesize[1] /= 2;
             picture->linesize[2] = picture->linesize[1];
         }
@@ -410,7 +410,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
         if( abs_dst_linesize < 0 )
             abs_dst_linesize = -abs_dst_linesize;
-        abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_YUYV422, picture->format, picture->width );
+        abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_YUYV422, picture->format, picture->width );
         const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
         uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
         dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );

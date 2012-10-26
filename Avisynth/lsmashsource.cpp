@@ -320,7 +320,7 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
-static int get_conversion_multiplier( enum PixelFormat dst_pix_fmt, enum PixelFormat src_pix_fmt, int width )
+static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
 {
     int src_size = 0;
     const AVPixFmtDescriptor *desc = &av_pix_fmt_descriptors[src_pix_fmt];
@@ -391,7 +391,7 @@ static int make_frame_rgba32( AVCodecContext *codec_ctx, struct SwsContext *sws_
     int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
     if( abs_dst_linesize < 0 )
         abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( PIX_FMT_BGRA, codec_ctx->pix_fmt, codec_ctx->width );
+    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGRA, codec_ctx->pix_fmt, codec_ctx->width );
     const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
     uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
     dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * codec_ctx->height );
@@ -403,52 +403,52 @@ static int make_frame_rgba32( AVCodecContext *codec_ctx, struct SwsContext *sws_
     return 0;
 }
 
-static void avoid_yuv_scale_conversion( enum PixelFormat *input_pixel_format )
+static void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
 {
     static const struct
     {
-        enum PixelFormat full;
-        enum PixelFormat limited;
+        enum AVPixelFormat full;
+        enum AVPixelFormat limited;
     } range_hack_table[]
         = {
-            { PIX_FMT_YUVJ420P, PIX_FMT_YUV420P },
-            { PIX_FMT_YUVJ422P, PIX_FMT_YUV422P },
-            { PIX_FMT_NONE,     PIX_FMT_NONE    }
+            { AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUV420P },
+            { AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
+            { AV_PIX_FMT_NONE,     AV_PIX_FMT_NONE    }
           };
-    for( int i = 0; range_hack_table[i].full != PIX_FMT_NONE; i++ )
+    for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
         if( *input_pixel_format == range_hack_table[i].full )
             *input_pixel_format = range_hack_table[i].limited;
 }
 
-func_make_frame *determine_colorspace_conversion( enum PixelFormat *input_pixel_format, enum PixelFormat *output_pixel_format, int *output_pixel_type )
+func_make_frame *determine_colorspace_conversion( enum AVPixelFormat *input_pixel_format, enum AVPixelFormat *output_pixel_format, int *output_pixel_type )
 {
     avoid_yuv_scale_conversion( input_pixel_format );
     switch( *input_pixel_format )
     {
-        case PIX_FMT_YUV420P :
-        case PIX_FMT_NV12 :
-        case PIX_FMT_NV21 :
-            *output_pixel_format = PIX_FMT_YUV420P;     /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
+        case AV_PIX_FMT_YUV420P :
+        case AV_PIX_FMT_NV12 :
+        case AV_PIX_FMT_NV21 :
+            *output_pixel_format = AV_PIX_FMT_YUV420P;  /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
             *output_pixel_type   = VideoInfo::CS_I420;
             return make_frame_yuv420p;
-        case PIX_FMT_YUYV422 :
-        case PIX_FMT_YUV422P :
-        case PIX_FMT_UYVY422 :
-            *output_pixel_format = PIX_FMT_YUYV422;     /* packed YUV 4:2:2, 16bpp */
+        case AV_PIX_FMT_YUYV422 :
+        case AV_PIX_FMT_YUV422P :
+        case AV_PIX_FMT_UYVY422 :
+            *output_pixel_format = AV_PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
             *output_pixel_type   = VideoInfo::CS_YUY2;
             return make_frame_yuv422;
-        case PIX_FMT_ARGB :
-        case PIX_FMT_RGBA :
-        case PIX_FMT_ABGR :
-        case PIX_FMT_BGRA :
-        case PIX_FMT_RGB24 :
-        case PIX_FMT_BGR24 :
-        case PIX_FMT_GBRP :
-            *output_pixel_format = PIX_FMT_BGRA;        /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
+        case AV_PIX_FMT_ARGB :
+        case AV_PIX_FMT_RGBA :
+        case AV_PIX_FMT_ABGR :
+        case AV_PIX_FMT_BGRA :
+        case AV_PIX_FMT_RGB24 :
+        case AV_PIX_FMT_BGR24 :
+        case AV_PIX_FMT_GBRP :
+            *output_pixel_format = AV_PIX_FMT_BGRA;     /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
             *output_pixel_type   = VideoInfo::CS_BGR32;
             return make_frame_rgba32;
         default :
-            *output_pixel_format = PIX_FMT_NONE;
+            *output_pixel_format = AV_PIX_FMT_NONE;
             *output_pixel_type   = VideoInfo::CS_UNKNOWN;
             return NULL;
     }
@@ -465,8 +465,8 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     if( initialize_decoder_configuration( vh.root, vh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* swscale */
-    enum PixelFormat input_pixel_format = config->ctx->pix_fmt;
-    enum PixelFormat output_pixel_format;
+    enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
+    enum AVPixelFormat output_pixel_format;
     make_frame = determine_colorspace_conversion( &config->ctx->pix_fmt, &output_pixel_format, &vi.pixel_type );
     if( !make_frame )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );

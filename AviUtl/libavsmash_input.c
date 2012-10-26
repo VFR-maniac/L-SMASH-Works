@@ -64,7 +64,7 @@ typedef struct libavsmash_handler_tag
     /* Video stuff */
     struct SwsContext        *sws_ctx;
     int                       scaler_flags;
-    enum PixelFormat          video_output_pixel_format;
+    enum AVPixelFormat        video_output_pixel_format;
     int                       video_output_linesize;
     uint32_t                  video_output_sample_size;
     uint32_t                  last_video_sample_number;
