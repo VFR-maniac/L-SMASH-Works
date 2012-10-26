@@ -1312,9 +1312,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
                 output_audio = 1;
             }
             DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, wasted_data_length = %d,"
-                                             "decode_complete = %d, decoded_length = %d, copied_length = %d, output_length = %d",
+                                             "decode_complete = %d, decoded_length = %d, output_length = %d",
                                              frame_number, wasted_data_length, decode_complete,
-                                             hp->audio_frame_buffer->nb_samples, copy_length, output_length );
+                                             hp->audio_frame_buffer->nb_samples, output_length );
         } while( pkt->size > 0 );
         if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
             ++ config->delay_count;
