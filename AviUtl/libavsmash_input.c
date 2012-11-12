@@ -799,7 +799,7 @@ static int decode_video_sample( libavsmash_handler_t *hp, AVFrame *picture, int 
     int ret = get_sample( hp->root, hp->video_track_ID, sample_number, &hp->video_config, &pkt );
     if( ret )
         return ret;
-    if( pkt.flags != ISOM_SAMPLE_RANDOM_ACCESS_TYPE_NONE )
+    if( pkt.flags != ISOM_SAMPLE_RANDOM_ACCESS_FLAG_NONE )
     {
         pkt.flags = AV_PKT_FLAG_KEY;
         hp->last_rap_number = sample_number;
@@ -822,13 +822,13 @@ static int find_random_accessible_point( libavsmash_handler_t *hp, uint32_t comp
 {
     if( decoding_sample_number == 0 )
         decoding_sample_number = get_decoding_sample_number( hp, composition_sample_number );
-    lsmash_random_access_type rap_type;
+    lsmash_random_access_flag ra_flags;
     uint32_t distance;  /* distance from the closest random accessible point to the previous. */
     uint32_t number_of_leadings;
     if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->video_track_ID, decoding_sample_number,
-                                                                               rap_number, &rap_type, &number_of_leadings, &distance ) )
+                                                                               rap_number, &ra_flags, &number_of_leadings, &distance ) )
         *rap_number = 1;
-    int roll_recovery = (rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_POST_ROLL || rap_type == ISOM_SAMPLE_RANDOM_ACCESS_TYPE_PRE_ROLL);
+    int roll_recovery = !!(ra_flags & ISOM_SAMPLE_RANDOM_ACCESS_FLAG_GDR);
     int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
     if( (roll_recovery || is_leading) && *rap_number > distance )
         *rap_number -= distance;
