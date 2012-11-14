@@ -573,7 +573,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         </LibavReaderIndexFile>
      */
     char index_path[512] = { 0 };
-    sprintf( index_path, "%s.index", hp->file_path );
+    sprintf( index_path, "%s.lwi", hp->file_path );
     FILE *index = !opt->no_create_index ? fopen( index_path, "wb" ) : NULL;
     if( !index && !opt->no_create_index )
     {
@@ -1375,15 +1375,15 @@ static void *open_file( char *file_path, reader_option_t *opt )
     }
     /* Try to open the index file. */
     int file_path_length = strlen( file_path );
-    char index_file_path[file_path_length + 7];
+    char index_file_path[file_path_length + 5];
     memcpy( index_file_path, file_path, file_path_length );
-    char *ext = file_path_length >= 7 ? &file_path[file_path_length - 6] : NULL;
-    if( ext && !strncmp( ext, ".index", strlen( ".index" ) ) )
+    char *ext = file_path_length >= 5 ? &file_path[file_path_length - 4] : NULL;
+    if( ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) ) )
         index_file_path[file_path_length] = '\0';
     else
     {
-        memcpy( index_file_path + file_path_length, ".index", strlen( ".index" ) );
-        index_file_path[file_path_length + 6] = '\0';
+        memcpy( index_file_path + file_path_length, ".lwi", strlen( ".lwi" ) );
+        index_file_path[file_path_length + 4] = '\0';
     }
     FILE *index = fopen( index_file_path, (opt->force_video || opt->force_video) ? "r+b" : "rb" );
     if( index )
