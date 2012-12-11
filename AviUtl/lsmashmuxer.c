@@ -1125,8 +1125,9 @@ static int do_mux( lsmash_handler_t *hp )
                         MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
                         break;
                     }
-                    next_cts = (next_cts - sequence[type]->smallest_cts) * in_track->timescale_integrator
-                             + hp->composition_delay_time + out_track->edit_offset;
+                    next_cts = (next_cts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
+                    if( type == VIDEO_TRACK )
+                        next_cts += hp->composition_delay_time;
                     sequence[type]->presentation_end_time += next_cts - sequence[type]->presentation_end_time;
                 }
                 else
