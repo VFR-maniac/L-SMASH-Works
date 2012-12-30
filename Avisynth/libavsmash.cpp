@@ -706,6 +706,9 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             int dummy;
             avcodec_decode_video2( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
+        extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
+        extended->width  = ctx->width;
+        extended->height = ctx->height;
     }
     else
     {
@@ -783,6 +786,8 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
     update_configuration( root, track_ID, config );
     /* Decide preferred settings. */
+    config->prefer.width           = config->ctx->width;
+    config->prefer.height          = config->ctx->height;
     config->prefer.sample_rate     = config->ctx->sample_rate;
     config->prefer.sample_format   = config->ctx->sample_fmt;
     config->prefer.bits_per_sample = config->ctx->bits_per_raw_sample   > 0 ? config->ctx->bits_per_raw_sample
@@ -817,6 +822,10 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
             for( uint32_t j = i; get_sample( root, track_ID, j, config, &dummy ) < 0; j++ );
             update_configuration( root, track_ID, config );
             index_list[ sample.index - 1 ] = 1;
+            if( config->ctx->width > config->prefer.width )
+                config->prefer.width = config->ctx->width;
+            if( config->ctx->height > config->prefer.height )
+                config->prefer.height = config->ctx->height;
             if( av_get_channel_layout_nb_channels( config->ctx->channel_layout )
               > av_get_channel_layout_nb_channels( config->prefer.channel_layout ) )
                 config->prefer.channel_layout = config->ctx->channel_layout;
