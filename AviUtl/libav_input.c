@@ -2294,7 +2294,8 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     if( start > 0 && start == hp->next_audio_pcm_sample_number )
     {
         frame_number = hp->last_audio_frame_number;
-        if( hp->audio_frame_buffer->extended_data[0] )
+        if( hp->audio_frame_buffer->extended_data
+         && hp->audio_frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
             int resampled_length = waste_decoded_audio_samples( hp, 0, wanted_length, (uint8_t **)&buf, 0 );
@@ -2376,7 +2377,9 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             }
             else if( !decode_complete )
                 goto audio_out;
-            if( decode_complete && hp->audio_frame_buffer->extended_data[0] )
+            if( decode_complete
+             && hp->audio_frame_buffer->extended_data
+             && hp->audio_frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
                 int64_t channel_layout;
