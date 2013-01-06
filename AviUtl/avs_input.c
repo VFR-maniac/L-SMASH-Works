@@ -1,7 +1,7 @@
 /********************************************************************************
  * avs_input.c
  ********************************************************************************
- * Copyright (C) 2012 L-SMASH Works project
+ * Copyright (C) 2012-2013 L-SMASH Works project
  *
  * Authors: Oka Motofumi <chikuzen.mo@gmail.com>
  *          Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
