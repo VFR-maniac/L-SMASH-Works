@@ -101,18 +101,18 @@ typedef struct
     uint32_t              last_rap_number;
 } video_decode_handler_t;
 
-typedef void func_make_black_backgrond( PVideoFrame &frame );
+typedef void func_make_black_background( PVideoFrame &frame );
 typedef int func_make_frame( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env );
 
 typedef struct
 {
-    struct SwsContext         *sws_ctx;
-    int                        scaler_flags;
-    enum PixelFormat           output_pixel_format;
-    PVideoFrame               *first_valid_frame;
-    uint32_t                   first_valid_frame_number;
-    func_make_black_backgrond *make_black_background;
-    func_make_frame           *make_frame;
+    struct SwsContext          *sws_ctx;
+    int                         scaler_flags;
+    enum PixelFormat            output_pixel_format;
+    PVideoFrame                *first_valid_frame;
+    uint32_t                    first_valid_frame_number;
+    func_make_black_background *make_black_background;
+    func_make_frame            *make_frame;
 } video_output_handler_t;
 
 class LSMASHVideoSource : public IClip
@@ -521,8 +521,8 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
     static const struct
     {
-        func_make_black_backgrond *make_black_background;
-        func_make_frame           *make_frame;
+        func_make_black_background *make_black_background;
+        func_make_frame            *make_frame;
     } frame_maker_func_table[] =
         {
             { NULL, NULL },
