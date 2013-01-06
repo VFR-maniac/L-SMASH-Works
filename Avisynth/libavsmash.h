@@ -18,9 +18,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
 typedef struct
 {

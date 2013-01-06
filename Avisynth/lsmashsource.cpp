@@ -19,8 +19,7 @@
  *****************************************************************************/
 
 /* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+ * However, when distributing its binary file, it will be under LGPL or GPL. */
 
 #ifndef __STDC_CONSTANT_MACROS
 #define __STDC_CONSTANT_MACROS
