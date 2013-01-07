@@ -644,6 +644,14 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
         }
         cts += in_audio_track->ctd_shift;
         pts = cts + audio_pts_offset - audio_skip_duration + video_skip_duration;
+        if( cts + audio_pts_offset + video_skip_duration < audio_skip_duration )
+        {
+            /* Shift audio timeline to avoid any negative PTS. */
+            audio_start_time -= pts;
+            audio_end_time   -= pts;
+            audio_pts_offset -= pts;
+            pts = 0;
+        }
         if( sample_number == in_audio_track->number_of_samples )
         {
             last_sample_end_time = pts + in_audio_track->last_sample_delta;
