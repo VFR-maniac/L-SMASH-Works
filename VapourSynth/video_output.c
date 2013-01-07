@@ -177,6 +177,9 @@ int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *fram
             return -1;
         }
     }
-    vohp->make_black_background( frame, vsapi );
+    if( !vohp->make_frame )
+        return -1;
+    if( vohp->make_black_background && !vohp->variable_info )
+        vohp->make_black_background( frame, vsapi );
     return vohp->make_frame( vohp->sws_ctx, picture, frame, frame_ctx, vsapi );
 }

@@ -93,7 +93,7 @@ static void set_error( void *message_priv, const char *message, ... )
         eh->vsapi->setFilterError( (const char *)temp, eh->frame_ctx );
 }
 
-static void set_option_int64( int64_t *opt, int default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static void set_option_int64( int64_t *opt, int64_t default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
 {
     int e;
     *opt = vsapi->propGetInt( in, arg, 0, &e );
@@ -133,16 +133,24 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     /* Set up output format. */
     enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
     VSPresetFormat vs_output_format;
-    int frame_maker_index = determine_colorspace_conversion( vohp, &config->ctx->pix_fmt, &vs_output_format );
-    if( frame_maker_index == 0 )
+    if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt, &vs_output_format ) == 0 )
     {
         set_error( &eh, "lsmas: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
         return -1;
     }
     const VSAPI *vsapi = eh.vsapi;
-    vi->format = vsapi->getFormatPreset( vs_output_format, core );
-    vi->width  = config->prefer.width;
-    vi->height = config->prefer.height;
+    if( vohp->variable_info )
+    {
+        vi->format = NULL;
+        vi->width  = 0;
+        vi->height = 0;
+    }
+    else
+    {
+        vi->format = vsapi->getFormatPreset( vs_output_format, core );
+        vi->width  = config->prefer.width;
+        vi->height = config->prefer.height;
+    }
     vohp->scaler_flags = SWS_FAST_BILINEAR;
     vohp->sws_ctx = sws_getCachedContext( NULL,
                                           config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
@@ -490,12 +498,33 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     }
     vdhp->last_sample_number = sample_number;
     /* Output frame. */
-    VSFrameRef *frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+    const VSFormat *vs_format;
+    int             vs_width;
+    int             vs_height;
+    if( vohp->variable_info )
+    {
+        VSPresetFormat vs_output_format;
+        if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt, &vs_output_format ) == 0 )
+        {
+            vsapi->setFilterError( "lsmas: failed to determin output format.", frame_ctx );
+            return NULL;
+        }
+        vs_format = vsapi->getFormatPreset( vs_output_format, core );
+        vs_width  = picture->width;
+        vs_height = picture->height;
+    }
+    else
+    {
+        vs_format = vi->format;
+        vs_width  = vi->width;
+        vs_height = vi->height;
+    }
+    VSFrameRef *frame = vsapi->newVideoFrame( vs_format, vs_width, vs_height, NULL, core );
     set_frame_properties( hp, picture, frame, sample_number, vsapi );
     if( make_frame( vohp, picture, frame, frame_ctx, vsapi ) )
     {
         vsapi->setFilterError( "lsmas: failed to output a frame.", frame_ctx );
-        return NULL;
+        return frame;
     }
     return frame;
 #undef MAX_ERROR_COUNT
@@ -786,13 +815,16 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
     int64_t threads;
     int64_t seek_mode;
     int64_t seek_threshold;
+    int64_t variable_info;
     set_option_int64( &track_number,   0,  "track",          in, vsapi );
     set_option_int64( &threads,        0,  "threads",        in, vsapi );
     set_option_int64( &seek_mode,      0,  "seek_mode",      in, vsapi );
     set_option_int64( &seek_threshold, 10, "seek_threshold", in, vsapi );
+    set_option_int64( &variable_info,  0,  "variable",       in, vsapi );
     threads                        = threads >= 0 ? threads : 0;
-    hp->vdh.seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
+    hp->vdh.seek_mode              = CLIP_VALUE( seek_mode,      0, 2 );
     hp->vdh.forward_seek_threshold = CLIP_VALUE( seek_threshold, 1, 999 );
+    hp->voh.variable_info          = CLIP_VALUE( variable_info,  0, 1 );
     if( track_number && track_number > number_of_tracks )
     {
         vs_filter_free( hp, core, vsapi );
@@ -832,7 +864,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit( VSConfigPlugin config_func, VSRegis
     register_func
     (
         "Source",
-        "source:data;track:int:opt;threads:int:opt;seek_mode:int:opt;seek_threshold:int:opt;",
+        "source:data;track:int:opt;threads:int:opt;seek_mode:int:opt;seek_threshold:int:opt;variable:int:opt;",
         vs_filter_create,
         0,
         plugin

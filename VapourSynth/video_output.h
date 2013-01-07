@@ -25,6 +25,7 @@ typedef int func_make_frame( struct SwsContext *sws_ctx, AVFrame *picture, VSFra
 
 typedef struct
 {
+    int                         variable_info;
     struct SwsContext          *sws_ctx;
     int                         scaler_flags;
     enum PixelFormat            output_pixel_format;
