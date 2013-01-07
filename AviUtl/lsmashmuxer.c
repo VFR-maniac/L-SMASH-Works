@@ -1056,7 +1056,9 @@ static uint32_t get_identical_summary( output_movie_t *output, output_track_t *o
         lsmash_summary_t *out_summary = lsmash_get_summary( output->root, out_track->track_ID, index );
         if( !out_summary )
             continue;
-        if( lsmash_compare_summary( summary, out_summary ) == 0 )
+        int ret = lsmash_compare_summary( summary, out_summary );
+        lsmash_cleanup_summary( out_summary );
+        if( ret == 0 )
             return index;
     }
     return 0;
