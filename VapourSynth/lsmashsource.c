@@ -348,24 +348,25 @@ static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t c
     return got_picture ? 0 : -1;
 }
 
-static int get_composition_duration( video_decode_handler_t *hp, uint32_t composition_sample_number )
+static int get_composition_duration( video_decode_handler_t *hp, uint32_t composition_sample_number, uint32_t last_sample_number )
 {
     uint32_t decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
-    uint64_t cts;
+    if( composition_sample_number == last_sample_number )
+        goto no_composition_duration;
+    uint32_t next_decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number + 1 );
+    uint64_t      cts;
     uint64_t next_cts;
-    if( lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &cts )
-     || lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID,
-                                            get_decoding_sample_number( hp->order_converter, composition_sample_number + 1 ),
-                                            &next_cts ) )
-    {
-        uint32_t sample_delta;
-        if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &sample_delta ) )
-            return 0;
-        return sample_delta <= INT_MAX ? sample_delta : 0;
-    }
+    if( lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID,      decoding_sample_number,      &cts )
+     || lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID, next_decoding_sample_number, &next_cts ) )
+        goto no_composition_duration;
     if( next_cts <= cts || (next_cts - cts) > INT_MAX )
         return 0;
     return (int)(next_cts - cts);
+no_composition_duration:;
+    uint32_t sample_delta;
+    if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &sample_delta ) )
+        return 0;
+    return sample_delta <= INT_MAX ? sample_delta : 0;
 }
 
 static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrameRef *frame, uint32_t sample_number, const VSAPI *vsapi )
@@ -378,7 +379,7 @@ static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrame
     vsapi->propSetInt( props, "_SARNum", picture->sample_aspect_ratio.num, paReplace );
     vsapi->propSetInt( props, "_SARDen", picture->sample_aspect_ratio.den, paReplace );
     /* Sample duration */
-    int sample_duration = get_composition_duration( vdhp, sample_number );
+    int sample_duration = get_composition_duration( vdhp, sample_number, vi->numFrames );
     if( sample_duration == 0 )
     {
         vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,            paReplace );
@@ -416,13 +417,18 @@ static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrame
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */
-    lsmas_handler_t *hp = (lsmas_handler_t *)*instance_data;
     if( activation_reason != arInitial )
         return NULL;
+    lsmas_handler_t *hp = (lsmas_handler_t *)*instance_data;
+    VSVideoInfo     *vi = &hp->vi;
+    uint32_t sample_number = n + 1;     /* For L-SMASH, sample_number is 1-origin. */
+    if( sample_number > vi->numFrames )
+    {
+        vsapi->setFilterError( "lsmas: exceeded the number of frames.", frame_ctx );
+        return NULL;
+    }
     video_decode_handler_t *vdhp = &hp->vdh;
     video_output_handler_t *vohp = &hp->voh;
-    VSVideoInfo            *vi   = &hp->vi;
-    uint32_t sample_number = n + 1;     /* For L-SMASH, sample_number is 1-origin. */
     if( sample_number < vohp->first_valid_frame_number || vi->numFrames == 1 )
     {
         /* Copy the first valid video frame. */
@@ -866,7 +872,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit( VSConfigPlugin config_func, VSRegis
         "Source",
         "source:data;track:int:opt;threads:int:opt;seek_mode:int:opt;seek_threshold:int:opt;variable:int:opt;",
         vs_filter_create,
-        0,
+        NULL,
         plugin
     );
 }
