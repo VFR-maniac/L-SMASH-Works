@@ -32,10 +32,8 @@
 #include "VapourSynth.h"
 #include "video_output.h"
 
-static void bit_blt( VSFrameRef *dst, uint8_t *src_data, int src_linesize, int plane, int row_size, int height, const VSAPI *vsapi )
+static void vs_bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_data, int src_linesize, int row_size, int height )
 {
-    uint8_t *dst_data     = vsapi->getWritePtr( dst, plane );
-    int      dst_linesize = vsapi->getStride  ( dst, plane );
     if( src_linesize == dst_linesize && src_linesize == row_size )
     {
         memcpy( dst_data, src_data, src_linesize * height );
@@ -80,14 +78,31 @@ static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPix
 }
 #endif
 
-static void make_black_background_planar_yuv( VSFrameRef *frame, const VSAPI *vsapi )
+static void make_black_background_planar_yuv8( VSFrameRef *frame, const VSAPI *vsapi )
+{
+    for( int i = 0; i < 3; i++ )
+        memset( vsapi->getWritePtr( frame, i ), i ? 0x80 : 0x00, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
+}
+
+static void make_black_background_planar_yuv16( VSFrameRef *frame, const VSAPI *vsapi )
 {
     int shift = vsapi->getFrameFormat( frame )->bitsPerSample - 8;
     for( int i = 0; i < 3; i++ )
-        memset( vsapi->getWritePtr( frame, i ), i ? 0x00000080 << shift : 0x00000000, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
+    {
+        int v = i ? 0x00000080 << shift : 0x00000000;
+        uint8_t *data = vsapi->getWritePtr( frame, i );
+        uint8_t *end  = data + vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i );
+        while( data < end )
+        {
+            /* Assume little endianess. */
+            data[0] = v;
+            data[1] = v >> 8;
+            data += 2;
+        }
+    }
 }
 
-int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+static int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
 {
     int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
     if( abs_dst_linesize & 15 )
@@ -109,9 +124,11 @@ int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrame
     int row_size_0 = format->bytesPerSample * picture->width;
     for( int i = 0; i < 3; i++ )
     {
-        int sub_sampling_w = i ? format->subSamplingW : 0;
-        int sub_sampling_h = i ? format->subSamplingH : 0;
-        bit_blt( frame, dst_data[i], dst_linesize[i], i, row_size_0 >> sub_sampling_w, picture->height >> sub_sampling_h, vsapi );
+        int      frame_linesize = vsapi->getStride  ( frame, i );
+        uint8_t *frame_data     = vsapi->getWritePtr( frame, i );
+        int      row_size       = row_size_0      >> (i ? format->subSamplingW : 0);
+        int      height         = picture->height >> (i ? format->subSamplingH : 0);
+        vs_bit_blt( frame_data, frame_linesize, dst_data[i], dst_linesize[i], row_size, height );
     }
     av_free( dst_data[0] );
     return 0;
@@ -148,29 +165,29 @@ int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelF
         func_make_frame            *func_make_frame;
     } conversion_table[] =
         {
-            { AV_PIX_FMT_YUV420P,     AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_NV12,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_NV21,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     pfYUV422P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     pfYUV444P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P9LE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P9BE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P9BE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P9LE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P9BE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P10BE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P10BE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P10BE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P16LE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV420P16BE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV422P16BE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
-            { AV_PIX_FMT_YUV444P16BE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P,     AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv8,  make_frame_planar_yuv },
+            { AV_PIX_FMT_NV12,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv8,  make_frame_planar_yuv },
+            { AV_PIX_FMT_NV21,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv8,  make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     pfYUV422P8,   make_black_background_planar_yuv8,  make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     pfYUV444P8,   make_black_background_planar_yuv8,  make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P9LE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P9BE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P9BE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P9LE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P9BE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P10BE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P10BE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P10BE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P16LE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P16BE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P16BE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P16BE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv16, make_frame_planar_yuv },
             { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        pfNone,       NULL,                             NULL }
         };
     for( int i = 0; conversion_table[i].vs_output_pixel_type != pfNone; i++ )
