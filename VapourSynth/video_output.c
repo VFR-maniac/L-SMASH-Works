@@ -80,14 +80,14 @@ static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPix
 }
 #endif
 
-static void make_black_background_yuv420p( VSFrameRef *frame, const VSAPI *vsapi )
+static void make_black_background_planar_yuv( VSFrameRef *frame, const VSAPI *vsapi )
 {
-    memset( vsapi->getWritePtr( frame, 0 ), 0x00, vsapi->getStride( frame, 0 ) * vsapi->getFrameHeight( frame, 0 ) );
-    memset( vsapi->getWritePtr( frame, 1 ), 0x80, vsapi->getStride( frame, 1 ) * vsapi->getFrameHeight( frame, 1 ) );
-    memset( vsapi->getWritePtr( frame, 2 ), 0x80, vsapi->getStride( frame, 2 ) * vsapi->getFrameHeight( frame, 2 ) );
+    int shift = vsapi->getFrameFormat( frame )->bitsPerSample - 8;
+    for( int i = 0; i < 3; i++ )
+        memset( vsapi->getWritePtr( frame, i ), i ? 0x00000080 << shift : 0x00000000, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
 }
 
-int make_frame_yuv420p( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
 {
     int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
     if( abs_dst_linesize & 15 )
@@ -105,9 +105,14 @@ int make_frame_yuv420p( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef
     dst_data[3] = NULL;
     const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    bit_blt( frame, dst_data[0], dst_linesize[0], 0, picture->width,     picture->height,     vsapi );  /* Y */
-    bit_blt( frame, dst_data[1], dst_linesize[1], 1, picture->width / 2, picture->height / 2, vsapi );  /* U */
-    bit_blt( frame, dst_data[2], dst_linesize[2], 2, picture->width / 2, picture->height / 2, vsapi );  /* V */
+    const VSFormat *format = vsapi->getFrameFormat( frame );
+    int row_size_0 = format->bytesPerSample * picture->width;
+    for( int i = 0; i < 3; i++ )
+    {
+        int sub_sampling_w = i ? format->subSamplingW : 0;
+        int sub_sampling_h = i ? format->subSamplingH : 0;
+        bit_blt( frame, dst_data[i], dst_linesize[i], i, row_size_0 >> sub_sampling_w, picture->height >> sub_sampling_h, vsapi );
+    }
     av_free( dst_data[0] );
     return 0;
 }
@@ -118,14 +123,14 @@ static void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
     {
         enum AVPixelFormat full;
         enum AVPixelFormat limited;
-    } range_hack_table[]
-        = {
+    } range_hack_table[] =
+        {
             { AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUV420P },
-            //{ AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
-            //{ AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUV444P },
-            //{ AV_PIX_FMT_YUVJ440P, AV_PIX_FMT_YUV440P },
+            { AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
+            { AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUV444P },
+            { AV_PIX_FMT_YUVJ440P, AV_PIX_FMT_YUV440P },
             { AV_PIX_FMT_NONE,     AV_PIX_FMT_NONE    }
-          };
+        };
     for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
         if( *input_pixel_format == range_hack_table[i].full )
             *input_pixel_format = range_hack_table[i].limited;
@@ -134,23 +139,54 @@ static void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
 int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelFormat *input_pixel_format, VSPresetFormat *output_pixel_type )
 {
     avoid_yuv_scale_conversion( input_pixel_format );
-    switch( *input_pixel_format )
+    static const struct
     {
-        case AV_PIX_FMT_YUV420P :
-        case AV_PIX_FMT_NV12 :
-        case AV_PIX_FMT_NV21 :
-            vohp->output_pixel_format   = AV_PIX_FMT_YUV420P;   /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
-            vohp->make_black_background = make_black_background_yuv420p;
-            vohp->make_frame            = make_frame_yuv420p;
-            *output_pixel_type          = pfYUV420P8;
-            return 1;
-        default :
-            vohp->output_pixel_format   = AV_PIX_FMT_NONE;
-            vohp->make_black_background = NULL;
-            vohp->make_frame            = NULL;
-            *output_pixel_type          = pfNone;
-            return 0;
-    }
+        enum AVPixelFormat          av_input_pixel_format;
+        enum AVPixelFormat          av_output_pixel_format;
+        VSPresetFormat              vs_output_pixel_type;
+        func_make_black_background *func_make_black_background;
+        func_make_frame            *func_make_frame;
+    } conversion_table[] =
+        {
+            { AV_PIX_FMT_YUV420P,     AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_NV12,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_NV21,        AV_PIX_FMT_YUV420P,     pfYUV420P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     pfYUV422P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     pfYUV444P8,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P9LE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P9BE,  AV_PIX_FMT_YUV420P9LE,  pfYUV420P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P9BE,  AV_PIX_FMT_YUV422P9LE,  pfYUV422P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P9LE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P9BE,  AV_PIX_FMT_YUV444P9LE,  pfYUV444P9,   make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P10BE, AV_PIX_FMT_YUV420P10LE, pfYUV420P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P10BE, AV_PIX_FMT_YUV422P10LE, pfYUV422P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P10BE, AV_PIX_FMT_YUV444P10LE, pfYUV444P10,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P16LE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV420P16BE, AV_PIX_FMT_YUV420P16LE, pfYUV420P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV422P16BE, AV_PIX_FMT_YUV422P16LE, pfYUV422P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_YUV444P16BE, AV_PIX_FMT_YUV444P16LE, pfYUV444P16,  make_black_background_planar_yuv, make_frame_planar_yuv },
+            { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        pfNone,       NULL,                             NULL }
+        };
+    for( int i = 0; conversion_table[i].vs_output_pixel_type != pfNone; i++ )
+        if( *input_pixel_format == conversion_table[i].av_input_pixel_format )
+        {
+            vohp->output_pixel_format   = conversion_table[i].av_output_pixel_format;
+            vohp->make_black_background = conversion_table[i].func_make_black_background;
+            vohp->make_frame            = conversion_table[i].func_make_frame;
+            *output_pixel_type          = conversion_table[i].vs_output_pixel_type;
+            return i + 1;
+        }
+    vohp->output_pixel_format   = AV_PIX_FMT_NONE;
+    vohp->make_black_background = NULL;
+    vohp->make_frame            = NULL;
+    *output_pixel_type          = pfNone;
+    return 0;
 }
 
 int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )

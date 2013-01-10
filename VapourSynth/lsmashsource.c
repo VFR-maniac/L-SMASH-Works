@@ -533,10 +533,10 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return frame;
     }
     return frame;
-#undef MAX_ERROR_COUNT
 video_fail:
     vsapi->setFilterError( "lsmas: fatal error of decoding.", frame_ctx );
     return NULL;
+#undef MAX_ERROR_COUNT
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )
