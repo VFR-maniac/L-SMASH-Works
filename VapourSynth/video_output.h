@@ -28,7 +28,8 @@ typedef struct
     int                         variable_info;
     struct SwsContext          *sws_ctx;
     int                         scaler_flags;
-    enum PixelFormat            output_pixel_format;
+    enum AVPixelFormat          av_output_pixel_format;
+    VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *first_valid_frame;
     uint32_t                    first_valid_frame_number;
     func_make_black_background *make_black_background;
@@ -37,5 +38,6 @@ typedef struct
 
 func_make_frame make_frame_yuv420p;
 
-int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelFormat *input_pixel_format, VSPresetFormat *output_pixel_type );
+VSPresetFormat get_vs_output_pixel_format( const char *format_name );
+int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelFormat *input_pixel_format );
 int make_frame( video_output_handler_t *ohp, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi );
