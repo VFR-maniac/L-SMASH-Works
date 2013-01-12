@@ -737,7 +737,7 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
         vdhp->track_ID = lsmash_get_track_ID( vdhp->root, track_number );
         if( vdhp->track_ID == 0 )
         {
-            set_error( &eh, "lsmas: failed to find video track." );
+            set_error( &eh, "lsmas: failed to find video track %"PRIu32".", track_number );
             return -1;
         }
         lsmash_initialize_media_parameters( &media_param );
@@ -758,17 +758,11 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
         return -1;
     }
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
-    {
-        set_error( &eh, "lsmas: failed to get summaries." );
         return -1;
-    }
     hp->vi.numFrames = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
     hp->vdh.media_timescale = media_param.timescale;
     if( setup_timestamp_info( hp, hp->vdh.media_timescale ) )
-    {
-        set_error( &eh, "lsmas: failed to set up timestamp info." );
         return -1;
-    }
     /* libavformat */
     for( i = 0; i < vdhp->format_ctx->nb_streams && vdhp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == vdhp->format_ctx->nb_streams )
@@ -821,7 +815,6 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
     if( number_of_tracks == 0 )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &eh, "lsmas: failed to open source file." );
         return;
     }
     /* Get options. */
@@ -845,14 +838,13 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
     if( track_number && track_number > number_of_tracks )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &eh, "lsmas: the number of tracks equals %I32u.", number_of_tracks );
+        set_error( &eh, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
         return;
     }
     /* Get video track. */
     if( get_video_track( hp, track_number, threads, number_of_tracks ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &eh, track_number == 0 ? "lsmas: failed to get any track." : "lsmas: failed to get the desired track." );
         return;
     }
     /* Set up decoders for this track. */
@@ -860,7 +852,6 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
     if( prepare_video_decoding( hp, core ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &eh, "lsmas: failed to set up decoders." );
         return;
     }
     vsapi->createFilter( in, out, "Source", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmSerial, 0, hp, core );
