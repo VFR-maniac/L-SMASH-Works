@@ -159,17 +159,16 @@ static int make_frame_planar_rgb8( struct SwsContext *sws_ctx, AVFrame *picture,
         return -1;
     }
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    const VSFormat *format = vsapi->getFrameFormat( frame );
     uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
     int frame_linesize = vsapi->getStride( frame, 0 );
     int frame_offset   = 0;
     int dst_offset     = 0;
-    int pixel_size     = format->numPlanes * format->bytesPerSample;
+    const VSFormat *format = vsapi->getFrameFormat( frame );
     for( int i = 0; i < picture->height; i++ )
     {
         uint8_t *dst_b = dst_data[0] + dst_offset;
-        uint8_t *dst_g = dst_b + format->bytesPerSample;
-        uint8_t *dst_r = dst_g + format->bytesPerSample;
+        uint8_t *dst_g = dst_b + 1;
+        uint8_t *dst_r = dst_g + 1;
         uint8_t *frame_r = frame_data[0] + frame_offset;
         uint8_t *frame_g = frame_data[1] + frame_offset;
         uint8_t *frame_b = frame_data[2] + frame_offset;
@@ -178,9 +177,9 @@ static int make_frame_planar_rgb8( struct SwsContext *sws_ctx, AVFrame *picture,
             *(frame_r++) = *dst_r;
             *(frame_g++) = *dst_g;
             *(frame_b++) = *dst_b;
-            dst_r += pixel_size;
-            dst_g += pixel_size;
-            dst_b += pixel_size;
+            dst_r += format->numPlanes;
+            dst_g += format->numPlanes;
+            dst_b += format->numPlanes;
         }
         dst_offset   += dst_linesize[0];
         frame_offset += frame_linesize;
@@ -207,31 +206,27 @@ static int make_frame_planar_rgb16( struct SwsContext *sws_ctx, AVFrame *picture
         return -1;
     }
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    const VSFormat *format = vsapi->getFrameFormat( frame );
     uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
     int frame_linesize = vsapi->getStride( frame, 0 );
     int frame_offset   = 0;
     int dst_offset     = 0;
-    int pixel_size     = format->numPlanes * format->bytesPerSample;
+    const VSFormat *format = vsapi->getFrameFormat( frame );
     for( int i = 0; i < picture->height; i++ )
     {
-        uint8_t *dst_b = dst_data[0] + dst_offset;
-        uint8_t *dst_g = dst_b + format->bytesPerSample;
-        uint8_t *dst_r = dst_g + format->bytesPerSample;
-        uint8_t *frame_r = frame_data[0] + frame_offset;
-        uint8_t *frame_g = frame_data[1] + frame_offset;
-        uint8_t *frame_b = frame_data[2] + frame_offset;
+        uint16_t *dst_b = (uint16_t *)(dst_data[0] + dst_offset);
+        uint16_t *dst_g = dst_b + 1;
+        uint16_t *dst_r = dst_g + 1;
+        uint16_t *frame_r = (uint16_t *)(frame_data[0] + frame_offset);
+        uint16_t *frame_g = (uint16_t *)(frame_data[1] + frame_offset);
+        uint16_t *frame_b = (uint16_t *)(frame_data[2] + frame_offset);
         for( int j = 0; j < picture->width; j++ )
         {
-            *(frame_r++) = * dst_r;
-            *(frame_r++) = *(dst_r + 1);
-            *(frame_g++) = * dst_g;
-            *(frame_g++) = *(dst_g + 1);
-            *(frame_b++) = * dst_b;
-            *(frame_b++) = *(dst_b + 1);
-            dst_r += pixel_size;
-            dst_g += pixel_size;
-            dst_b += pixel_size;
+            *(frame_r++) = *dst_r;
+            *(frame_g++) = *dst_g;
+            *(frame_b++) = *dst_b;
+            dst_r += format->numPlanes;
+            dst_g += format->numPlanes;
+            dst_b += format->numPlanes;
         }
         dst_offset   += dst_linesize[0];
         frame_offset += frame_linesize;
@@ -336,21 +331,21 @@ static int set_frame_maker( video_output_handler_t *vohp )
         func_make_frame            *func_make_frame;
     } frame_maker_table[] =
         {
-            { pfYUV420P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV422P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV444P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV410P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV411P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV440P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv },
-            { pfYUV420P9,  make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV422P9,  make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV444P9,  make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV420P10, make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV422P10, make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV444P10, make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV420P16, make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV422P16, make_black_background_planar_yuv16, make_frame_planar_yuv },
-            { pfYUV444P16, make_black_background_planar_yuv16, make_frame_planar_yuv },
+            { pfYUV420P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV422P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV444P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV410P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV411P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV440P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV420P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV420P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV420P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
             { pfRGB24,     make_black_background_planar_rgb,   make_frame_planar_rgb8  },
             { pfRGB48,     make_black_background_planar_rgb,   make_frame_planar_rgb16 },
             { pfNone,      NULL,                               NULL                  }
@@ -362,8 +357,8 @@ static int set_frame_maker( video_output_handler_t *vohp )
             vohp->make_frame            = frame_maker_table[i].func_make_frame;
             return 0;
         }
-    vohp->make_black_background  = NULL;
-    vohp->make_frame             = NULL;
+    vohp->make_black_background = NULL;
+    vohp->make_frame            = NULL;
     return -1;
 }
 
