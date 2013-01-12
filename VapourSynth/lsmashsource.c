@@ -101,7 +101,7 @@ static void set_option_int64( int64_t *opt, int64_t default_value, const char *a
         *opt = default_value;
 }
 
-static void set_option_string( char **opt, const char *default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static void set_option_string( const char **opt, const char *default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
 {
     int e;
     *opt = vsapi->propGetData( in, arg, 0, &e );
@@ -419,6 +419,8 @@ static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrame
     /* Picture type */
     char pict_type = av_get_picture_type_char( picture->pict_type );
     vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
+    /* Progressive or Interlaced */
+    vsapi->propSetInt( props, "_FieldBased", !!picture->interlaced_frame, paReplace );
 }
 
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
@@ -828,7 +830,7 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
     int64_t seek_mode;
     int64_t seek_threshold;
     int64_t variable_info;
-    char   *format;
+    const char *format;
     set_option_int64 ( &track_number,   0,    "track",          in, vsapi );
     set_option_int64 ( &threads,        0,    "threads",        in, vsapi );
     set_option_int64 ( &seek_mode,      0,    "seek_mode",      in, vsapi );
