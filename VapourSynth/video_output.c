@@ -47,35 +47,6 @@ static void vs_bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_data, 
     }
 }
 
-static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
-{
-    int src_size = 0;
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get( src_pix_fmt );
-    int used_plane[4] = { 0, 0, 0, 0 };
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        src_size += av_image_get_linesize( src_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    if( src_size == 0 )
-        return 1;
-    int dst_size = 0;
-    desc = av_pix_fmt_desc_get( dst_pix_fmt );
-    used_plane[0] = used_plane[1] = used_plane[2] = used_plane[3] = 0;
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        dst_size += av_image_get_linesize( dst_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    return (dst_size - 1) / src_size + 1;
-}
-
 static void make_black_background_planar_yuv8( VSFrameRef *frame, const VSAPI *vsapi )
 {
     for( int i = 0; i < 3; i++ )
@@ -106,27 +77,26 @@ static void make_black_background_planar_rgb( VSFrameRef *frame, const VSAPI *vs
         memset( vsapi->getWritePtr( frame, i ), 0x00, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
 }
 
-static int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+static inline int convert_av_pixel_format( struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *dst_data[4], int dst_linesize[4] )
 {
     int64_t dst_format;
     av_opt_get_int( sws_ctx, "dst_format", 0, &dst_format );
-    int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
-    abs_dst_linesize *= get_conversion_multiplier( dst_format, picture->format, picture->width );
-    if( abs_dst_linesize & 15 )
-        abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
-    uint8_t *dst_data[4];
-    dst_data[0] = (uint8_t *)av_mallocz( abs_dst_linesize * picture->height * 3 );
-    if( !dst_data[0] )
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, dst_format, 16 ) < 0 )
+        return -1;
+    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
+    return 0;
+}
+
+static int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+{
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( convert_av_pixel_format( sws_ctx, picture, dst_data, dst_linesize ) < 0 )
     {
         if( frame_ctx )
-            vsapi->setFilterError( "lsmas: failed to av_mallocz.", frame_ctx );
+            vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
         return -1;
     }
-    for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + abs_dst_linesize * picture->height;
-    dst_data[3] = NULL;
-    const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     const VSFormat *format = vsapi->getFrameFormat( frame );
     int row_size_0 = format->bytesPerSample * picture->width;
     for( int i = 0; i < 3; i++ )
@@ -143,22 +113,14 @@ static int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, 
 
 static int make_frame_planar_rgb8( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
 {
-    int64_t dst_format;
-    av_opt_get_int( sws_ctx, "dst_format", 0, &dst_format );
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( dst_format, picture->format, picture->width );
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( convert_av_pixel_format( sws_ctx, picture, dst_data, dst_linesize ) < 0 )
     {
         if( frame_ctx )
-            vsapi->setFilterError( "lsmas: failed to av_mallocz.", frame_ctx );
+            vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
         return -1;
     }
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
     int frame_linesize = vsapi->getStride( frame, 0 );
     int frame_offset   = 0;
@@ -190,22 +152,14 @@ static int make_frame_planar_rgb8( struct SwsContext *sws_ctx, AVFrame *picture,
 
 static int make_frame_planar_rgb16( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
 {
-    int64_t dst_format;
-    av_opt_get_int( sws_ctx, "dst_format", 0, &dst_format );
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( dst_format, picture->format, picture->width );
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( convert_av_pixel_format( sws_ctx, picture, dst_data, dst_linesize ) < 0 )
     {
         if( frame_ctx )
-            vsapi->setFilterError( "lsmas: failed to av_mallocz.", frame_ctx );
+            vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
         return -1;
     }
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
     int frame_linesize = vsapi->getStride( frame, 0 );
     int frame_offset   = 0;
