@@ -329,48 +329,12 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
-static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
-{
-    int src_size = 0;
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get( src_pix_fmt );
-    int used_plane[4] = { 0, 0, 0, 0 };
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        src_size += av_image_get_linesize( src_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    if( src_size == 0 )
-        return 1;
-    int dst_size = 0;
-    desc = av_pix_fmt_desc_get( dst_pix_fmt );
-    used_plane[0] = used_plane[1] = used_plane[2] = used_plane[3] = 0;
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        dst_size += av_image_get_linesize( dst_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    return (dst_size - 1) / src_size + 1;
-}
-
 static int make_frame_yuv420p( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
-    int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
-    if( abs_dst_linesize & 15 )
-        abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
-    uint8_t *dst_data[4];
-    dst_data[0] = (uint8_t *)av_mallocz( abs_dst_linesize * picture->height * 3 );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUV420P, 16 ) < 0 )
         return -1;
-    for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + abs_dst_linesize * picture->height;
-    dst_data[3] = NULL;
-    const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     env->BitBlt( frame->GetWritePtr( PLANAR_Y ), frame->GetPitch( PLANAR_Y ), dst_data[0], dst_linesize[0], picture->width,     picture->height ); 
     env->BitBlt( frame->GetWritePtr( PLANAR_U ), frame->GetPitch( PLANAR_U ), dst_data[1], dst_linesize[1], picture->width / 2, picture->height / 2 ); 
@@ -381,13 +345,9 @@ static int make_frame_yuv420p( struct SwsContext *sws_ctx, AVFrame *picture, PVi
 
 static int make_frame_yuv422( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUYV422, 16 ) < 0 )
         return -1;
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     env->BitBlt( frame->GetWritePtr(), frame->GetPitch(), dst_data[0], dst_linesize[0], picture->width * 2, picture->height );
@@ -397,14 +357,9 @@ static int make_frame_yuv422( struct SwsContext *sws_ctx, AVFrame *picture, PVid
 
 static int make_frame_rgba32( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
 {
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGRA, (enum AVPixelFormat)picture->format, picture->width );
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = (uint8_t *)av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGRA, 16 ) < 0 )
         return -1;
     sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     env->BitBlt( frame->GetWritePtr() + frame->GetPitch() * (frame->GetHeight() - 1), -frame->GetPitch(), dst_data[0], dst_linesize[0], picture->width * 4, picture->height ); 
