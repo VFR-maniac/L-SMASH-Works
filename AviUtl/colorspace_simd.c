@@ -42,7 +42,7 @@
 #include <emmintrin.h>
 /* SSE2 version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_linesize, int output_height, int full_range )
+void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
 {
     uint8_t *ycp, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -84,9 +84,9 @@ void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize
     /* UV = (( uv - 32768 ) * coef + offset ) >> 16 */
     for( uint32_t h = 0; h < output_height; h++ )
     {
-        p_dst_y = dst_data[0] + dst_linesize * h;
-        p_dst_u = dst_data[1] + dst_linesize * h;
-        p_dst_v = dst_data[2] + dst_linesize * h;
+        p_dst_y = dst_data[0] + dst_linesize[0] * h;
+        p_dst_u = dst_data[1] + dst_linesize[1] * h;
+        p_dst_v = dst_data[2] + dst_linesize[2] * h;
         ycp = buf + buf_linesize * h;
         for( ycp_fin = ycp + output_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
         {

@@ -150,7 +150,7 @@ output_colorspace_index determine_colorspace_conversion( int *input_pixel_format
     }
 }
 
-static void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int dst_linesize, int output_linesize, int output_height, int full_range )
+static void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
 {
     uint32_t offset = 0;
     while( output_height-- )
@@ -178,7 +178,7 @@ static void convert_yuv16le_to_yc48( uint8_t *buf, int buf_linesize, uint8_t **d
             p_buf += YC48_SIZE;
         }
         buf    += buf_linesize;
-        offset += dst_linesize;
+        offset += dst_linesize[0];
     }
 }
 
@@ -255,77 +255,35 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 #undef COPY_CHROMA
 }
 
-static int get_conversion_multiplier( enum AVPixelFormat dst_pix_fmt, enum AVPixelFormat src_pix_fmt, int width )
-{
-    int src_size = 0;
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get( src_pix_fmt );
-    int used_plane[4] = { 0, 0, 0, 0 };
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        src_size += av_image_get_linesize( src_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    if( src_size == 0 )
-        return 1;
-    int dst_size = 0;
-    desc = av_pix_fmt_desc_get( dst_pix_fmt );
-    used_plane[0] = used_plane[1] = used_plane[2] = used_plane[3] = 0;
-    for( int i = 0; i < desc->nb_components; i++ )
-    {
-        int plane = desc->comp[i].plane;
-        if( used_plane[plane] )
-            continue;
-        dst_size += av_image_get_linesize( dst_pix_fmt, width, plane );
-        used_plane[plane] = 1;
-    }
-    return (dst_size - 1) / src_size + 1;
-}
-
 int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
 {
-    int abs_dst_linesize = picture->linesize[0] > 0 ? picture->linesize[0] : -picture->linesize[0];
-    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_YUV444P16LE, picture->format, picture->width );
-    if( abs_dst_linesize & 15 )
-        abs_dst_linesize = (abs_dst_linesize & 0xfffffff0) + 16;  /* Make mod16. */
-    uint8_t *dst_data[4];
-    dst_data[0] = av_mallocz( abs_dst_linesize * picture->height * 3 );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUV444P16LE, 16 ) < 0 )
     {
-        MessageBox( HWND_DESKTOP, "Failed to av_mallocz for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    for( int i = 1; i < 3; i++ )
-        dst_data[i] = dst_data[i - 1] + abs_dst_linesize * picture->height;
-    dst_data[3] = NULL;
-    const int dst_linesize[4] = { abs_dst_linesize, abs_dst_linesize, abs_dst_linesize, 0 };
     int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     int output_linesize = picture->width * YC48_SIZE;
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int sse2_available = -1;
     if( sse2_available == -1 )
         sse2_available = check_sse2();
-    static void (*func_yuv16le_to_yc48[2])( uint8_t*, int, uint8_t**, int, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2 };
+    static void (*func_yuv16le_to_yc48[2])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2 };
     func_yuv16le_to_yc48[sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0]
-        ( buf, buf_linesize, dst_data, abs_dst_linesize, output_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+        ( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
 int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
 {
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGRA, picture->format, picture->width );
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGRA, 16 ) < 0 )
     {
-        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
     int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
@@ -343,17 +301,12 @@ int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
 
 int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
 {
-    int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-    if( abs_dst_linesize < 0 )
-        abs_dst_linesize = -abs_dst_linesize;
-    abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_BGR24, picture->format, picture->width );
-    const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-    uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-    dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
-    if( !dst_data[0] )
+    uint8_t *dst_data    [4];
+    int      dst_linesize[4];
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGR24, 16 ) < 0 )
     {
-        MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return -1;
+        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+        return 0;
     }
     int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     int output_linesize = picture->width * RGB24_SIZE;
@@ -407,17 +360,12 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
     }
     else
     {
-        int abs_dst_linesize = picture->linesize[0] + picture->linesize[1] + picture->linesize[2] + picture->linesize[3];
-        if( abs_dst_linesize < 0 )
-            abs_dst_linesize = -abs_dst_linesize;
-        abs_dst_linesize *= get_conversion_multiplier( AV_PIX_FMT_YUYV422, picture->format, picture->width );
-        const int dst_linesize[4] = { abs_dst_linesize, 0, 0, 0 };
-        uint8_t  *dst_data    [4] = { NULL, NULL, NULL, NULL };
-        dst_data[0] = av_mallocz( dst_linesize[0] * picture->height );
-        if( !dst_data[0] )
+        uint8_t *dst_data    [4];
+        int      dst_linesize[4];
+        if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUYV422, 16 ) < 0 )
         {
-            MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-            return -1;
+            MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+            return 0;
         }
         int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
         output_linesize = picture->width * YUY2_SIZE;
