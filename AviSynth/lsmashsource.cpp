@@ -1347,7 +1347,8 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
     if( start > 0 && start == ah.next_pcm_sample_number )
     {
         frame_number = ah.last_frame_number;
-        if( ah.frame_buffer->extended_data[0] )
+        if( ah.frame_buffer->extended_data
+         && ah.frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
             int resampled_length = waste_decoded_audio_samples( &ah, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
@@ -1427,7 +1428,9 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             }
             else if( !decode_complete )
                 goto audio_out;
-            if( decode_complete && ah.frame_buffer->extended_data[0] )
+            if( decode_complete
+             && ah.frame_buffer->extended_data
+             && ah.frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
                 int64_t channel_layout;
