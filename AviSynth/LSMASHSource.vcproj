@@ -171,8 +171,24 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
-				RelativePath=".\libavsmash.cpp"
+				RelativePath="..\common\libavsmash.c"
 				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
 			</File>
 			<File
 				RelativePath=".\libmingwex.lib"
@@ -197,7 +213,7 @@
 				>
 			</File>
 			<File
-				RelativePath=".\libavsmash.h"
+				RelativePath="..\common\libavsmash.h"
 				>
 			</File>
 		</Filter>

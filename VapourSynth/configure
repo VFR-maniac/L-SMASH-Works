@@ -78,7 +78,8 @@ CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 
-SRC_SOURCE="lsmashsource.c video_output.c libavsmash.c"
+SRC_COMMON="../common/libavsmash.c"
+SRC_SOURCE="lsmashsource.c video_output.c $SRC_COMMON"
 
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log

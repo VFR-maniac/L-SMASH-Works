@@ -32,8 +32,9 @@
 #include <libavutil/imgutils.h>
 
 #include "VapourSynth.h"
-#include "libavsmash.h"
 #include "video_output.h"
+
+#include "../common/libavsmash.h"
 
 #define MIN( a, b ) ((a) > (b) ? (b) : (a))
 #define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))

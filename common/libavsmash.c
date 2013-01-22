@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libavsmash.c
+ * libavsmash.c / libavsmash.cpp
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,18 +18,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
+
+#ifdef __cplusplus
+#   ifndef __STDC_CONSTANT_MACROS
+#       define __STDC_CONSTANT_MACROS
+#   endif
+#   ifdef _MSC_VER
+#       define _CRT_SECURE_NO_WARNINGS
+#   endif
+#endif  /* __cplusplus */
 
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif  /* __cplusplus */
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/audioconvert.h>
 #include <libavutil/mem.h>
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
 #include "libavsmash.h"
 
@@ -471,9 +485,11 @@ static int prepare_new_decoder_configuration( codec_configuration_t *config, uin
             lsmash_ac3_specific_parameters_t *ac3 = (lsmash_ac3_specific_parameters_t *)cs2->data.structured;
             if( ac3->acmod > 7 || ac3->fscod > 3 )
                 goto fail;
+            int channels   [] = { 2, 1, 2, 3, 3, 4, 4, 5 };
+            int sample_rate[] = { 48000, 44100, 32000, 0 };
             config->queue.bits_per_sample = 0;
-            config->queue.channels        = ((int[]){ 2, 1, 2, 3, 3, 4, 4, 5 })[ ac3->acmod ] + ac3->lfeon;
-            config->queue.sample_rate     = ((int[]){ 48000, 44100, 32000, 0 })[ ac3->fscod ];
+            config->queue.channels        = channels[ ac3->acmod ] + ac3->lfeon;
+            config->queue.sample_rate     = sample_rate[ ac3->fscod ];
         }
         else if( cs_type == LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_AUDIO_DTS )
         {

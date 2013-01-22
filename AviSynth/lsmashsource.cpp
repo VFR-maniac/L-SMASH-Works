@@ -45,8 +45,9 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "libavsmash.h"
 #include "resample.h"
+
+#include "../common/libavsmash.h"
 
 #pragma warning( disable:4996 )
 

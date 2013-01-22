@@ -38,7 +38,8 @@
 #include "lsmashinput.h"
 #include "colorspace.h"
 #include "resample.h"
-#include "libavsmash.h"
+
+#include "../common/libavsmash.h"
 
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
