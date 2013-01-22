@@ -18,9 +18,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
 #include <string.h>
 
@@ -33,36 +31,9 @@ typedef struct
     uint8_t           **data;
 } audio_samples_t;
 
-static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format,
-                                                                     int input_bits_per_sample )
-{
-    /* AviUtl doesn't support IEEE floating point format. */
-    switch ( input_sample_format )
-    {
-        case AV_SAMPLE_FMT_U8 :
-        case AV_SAMPLE_FMT_U8P :
-            return AV_SAMPLE_FMT_U8;
-        case AV_SAMPLE_FMT_S16 :
-        case AV_SAMPLE_FMT_S16P :
-            return AV_SAMPLE_FMT_S16;
-        case AV_SAMPLE_FMT_S32 :
-        case AV_SAMPLE_FMT_S32P :
-            return AV_SAMPLE_FMT_S32;
-        default :
-            if( input_bits_per_sample == 0 )
-                return AV_SAMPLE_FMT_S32;
-            else if( input_bits_per_sample <= 8 )
-                return AV_SAMPLE_FMT_U8;
-            else if( input_bits_per_sample <= 16 )
-                return AV_SAMPLE_FMT_S16;
-            else
-                return AV_SAMPLE_FMT_S32;
-    }
-}
-
 static inline void put_silence_audio_samples( int silence_data_size, int is_u8, uint8_t **out_data )
 {
-    memset( *out_data, is_u8 ? 128 : 0, silence_data_size );
+    memset( *out_data, is_u8 ? 0x80 : 0x00, silence_data_size );
     *out_data += silence_data_size;
 }
 

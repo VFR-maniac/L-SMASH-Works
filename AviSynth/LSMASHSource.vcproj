@@ -199,8 +199,24 @@
 				>
 			</File>
 			<File
-				RelativePath=".\resample.cpp"
+				RelativePath="..\common\resample.c"
 				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
 			</File>
 		</Filter>
 		<Filter
@@ -214,6 +230,10 @@
 			</File>
 			<File
 				RelativePath="..\common\libavsmash.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\resample.h"
 				>
 			</File>
 		</Filter>

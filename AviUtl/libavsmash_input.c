@@ -37,8 +37,9 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
-#include "resample.h"
+#include "audio.h"
 
+#include "../common/resample.h"
 #include "../common/libavsmash.h"
 
 #define SEEK_MODE_NORMAL     0

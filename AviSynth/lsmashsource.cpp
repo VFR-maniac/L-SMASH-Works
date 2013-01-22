@@ -45,8 +45,7 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "resample.h"
-
+#include "../common/resample.h"
 #include "../common/libavsmash.h"
 
 #pragma warning( disable:4996 )
@@ -1383,7 +1382,7 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         else
         {
             uint64_t silence_length = -start;
-            put_silence_audio_samples( (int)(silence_length * aoh.output_block_align), (uint8_t **)&buf );
+            put_silence_audio_samples( (int)(silence_length * aoh.output_block_align), aoh.output_bits_per_sample == 8, (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;

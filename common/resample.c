@@ -1,5 +1,5 @@
 /*****************************************************************************
- * resample.c
+ * resample.c / resample.cpp
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,14 +18,25 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
+#ifdef __cplusplus
+#   ifndef __STDC_CONSTANT_MACROS
+#       define __STDC_CONSTANT_MACROS
+#   endif
+#endif  /* __cplusplus */
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif  /* __cplusplus */
 #include <libavcodec/avcodec.h>
 #include <libavresample/avresample.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/opt.h>
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
 #include "resample.h"
 

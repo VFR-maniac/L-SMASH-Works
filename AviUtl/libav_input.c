@@ -34,9 +34,11 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
-#include "resample.h"
+#include "audio.h"
 #include "resource.h"
 #include "progress_dlg.h"
+
+#include "../common/resample.h"
 
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
