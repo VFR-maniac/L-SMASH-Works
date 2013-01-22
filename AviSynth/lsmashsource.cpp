@@ -766,35 +766,40 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
 
 typedef struct
 {
-    lsmash_root_t          *root;
-    uint32_t                track_ID;
-    codec_configuration_t   config;
-    AVFormatContext        *format_ctx;
-    AVFrame                *frame_buffer;
+    lsmash_root_t        *root;
+    uint32_t              track_ID;
+    codec_configuration_t config;
+    AVFrame              *frame_buffer;
+    AVPacket              packet;
+    uint64_t              next_pcm_sample_number;
+    uint32_t              last_frame_number;
+    uint32_t              frame_count;
+    int                   implicit_preroll;
+} audio_decode_handler_t;
+
+typedef struct
+{
     AVAudioResampleContext *avr_ctx;
     uint8_t                *resampled_buffer;
     int                     resampled_buffer_size;
-    AVPacket                packet;
-    enum AVSampleFormat     output_sample_format;
-    uint32_t                frame_count;
-    uint32_t                last_frame_number;
-    uint64_t                output_channel_layout;
-    uint64_t                next_pcm_sample_number;
-    uint64_t                skip_samples;
-    int                     implicit_preroll;
-    int                     planes;
+    int                     input_planes;
     int                     input_block_align;
+    uint64_t                skip_decoded_samples;   /* Upsampling is considered. */
+    uint64_t                output_channel_layout;
+    enum AVSampleFormat     output_sample_format;
     int                     output_block_align;
     int                     output_sample_rate;
     int                     output_bits_per_sample;
     int                     s24_output;
-} audio_decode_handler_t;
+} audio_output_handler_t;
 
 class LSMASHAudioSource : public IClip
 {
 private:
     VideoInfo              vi;
-    audio_decode_handler_t ah;
+    audio_decode_handler_t adh;
+    audio_output_handler_t aoh;
+    AVFormatContext       *format_ctx;
     uint32_t open_file( const char *source, IScriptEnvironment *env );
     void get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
     void prepare_audio_decoding( IScriptEnvironment *env );
@@ -810,47 +815,49 @@ public:
 
 LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
-    memset( &vi, 0, sizeof(VideoInfo) );
-    memset( &ah, 0, sizeof(audio_decode_handler_t) );
+    memset( &vi,  0, sizeof(VideoInfo) );
+    memset( &adh, 0, sizeof(audio_decode_handler_t) );
+    memset( &aoh, 0, sizeof(audio_output_handler_t) );
+    format_ctx = NULL;
     get_audio_track( source, track_number, skip_priming, env );
-    lsmash_discard_boxes( ah.root );
+    lsmash_discard_boxes( adh.root );
     prepare_audio_decoding( env );
 }
 
 LSMASHAudioSource::~LSMASHAudioSource()
 {
-    if( ah.resampled_buffer )
-        av_free( ah.resampled_buffer );
-    if( ah.frame_buffer )
-        avcodec_free_frame( &ah.frame_buffer );
-    if( ah.avr_ctx )
-        avresample_free( &ah.avr_ctx );
-    cleanup_configuration( &ah.config );
-    if( ah.format_ctx )
-        avformat_close_input( &ah.format_ctx );
-    lsmash_destroy_root( ah.root );
+    if( aoh.resampled_buffer )
+        av_free( aoh.resampled_buffer );
+    if( aoh.avr_ctx )
+        avresample_free( &aoh.avr_ctx );
+    if( adh.frame_buffer )
+        avcodec_free_frame( &adh.frame_buffer );
+    cleanup_configuration( &adh.config );
+    if( format_ctx )
+        avformat_close_input( &format_ctx );
+    lsmash_destroy_root( adh.root );
 }
 
 uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *env )
 {
     /* L-SMASH */
-    ah.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !ah.root )
+    adh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
+    if( !adh.root )
         env->ThrowError( "LSMASHAudioSource: failed to lsmash_open_movie." );
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( ah.root, &movie_param );
+    lsmash_get_movie_parameters( adh.root, &movie_param );
     if( movie_param.number_of_tracks == 0 )
         env->ThrowError( "LSMASHAudioSource: the number of tracks equals 0." );
     /* libavformat */
     av_register_all();
     avcodec_register_all();
-    if( avformat_open_input( &ah.format_ctx, source, NULL, NULL ) )
+    if( avformat_open_input( &format_ctx, source, NULL, NULL ) )
         env->ThrowError( "LSMASHAudioSource: failed to avformat_open_input." );
-    if( avformat_find_stream_info( ah.format_ctx, NULL ) < 0 )
+    if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avformat_find_stream_info." );
     /* */
-    ah.config.error_message = throw_error;
+    adh.config.error_message = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -894,11 +901,11 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         /* Get the first audio track. */
         for( i = 1; i <= number_of_tracks; i++ )
         {
-            ah.track_ID = lsmash_get_track_ID( ah.root, i );
-            if( ah.track_ID == 0 )
+            adh.track_ID = lsmash_get_track_ID( adh.root, i );
+            if( adh.track_ID == 0 )
                 env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
             lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( ah.root, ah.track_ID, &media_param ) )
+            if( lsmash_get_media_parameters( adh.root, adh.track_ID, &media_param ) )
                 env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
             if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
                 break;
@@ -909,28 +916,28 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     else
     {
         /* Get the desired audio track. */
-        ah.track_ID = lsmash_get_track_ID( ah.root, track_number );
-        if( ah.track_ID == 0 )
+        adh.track_ID = lsmash_get_track_ID( adh.root, track_number );
+        if( adh.track_ID == 0 )
             env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
         lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( ah.root, ah.track_ID, &media_param ) )
+        if( lsmash_get_media_parameters( adh.root, adh.track_ID, &media_param ) )
             env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
         if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
             env->ThrowError( "LSMASHAudioSource: the track you specified is not an audio track." );
     }
-    if( lsmash_construct_timeline( ah.root, ah.track_ID ) )
+    if( lsmash_construct_timeline( adh.root, adh.track_ID ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
-    if( get_summaries( ah.root, ah.track_ID, &ah.config ) )
+    if( get_summaries( adh.root, adh.track_ID, &adh.config ) )
         env->ThrowError( "LSMASHAudioSource: failed to get summaries." );
-    ah.frame_count = lsmash_get_sample_count_in_media_timeline( ah.root, ah.track_ID );
-    vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( ah.root, ah.track_ID );
+    adh.frame_count = lsmash_get_sample_count_in_media_timeline( adh.root, adh.track_ID );
+    vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( adh.root, adh.track_ID );
     if( skip_priming )
     {
-        uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( ah.root );
+        uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( adh.root );
         for( i = 1; i <= itunes_metadata_count; i++ )
         {
             lsmash_itunes_metadata_t metadata;
-            if( lsmash_get_itunes_metadata( ah.root, i, &metadata ) )
+            if( lsmash_get_itunes_metadata( adh.root, i, &metadata ) )
                 continue;
             if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM
              || (metadata.type != ITUNES_METADATA_TYPE_STRING && metadata.type != ITUNES_METADATA_TYPE_BINARY)
@@ -966,27 +973,27 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
                 continue;
             }
             delete [] value;
-            ah.implicit_preroll  = 1;
-            ah.skip_samples      = priming_samples;
+            adh.implicit_preroll     = 1;
+            aoh.skip_decoded_samples = priming_samples;
             vi.num_audio_samples = duration + priming_samples;
             break;
         }
-        if( ah.skip_samples == 0 )
+        if( aoh.skip_decoded_samples == 0 )
         {
             uint32_t ctd_shift;
-            if( lsmash_get_composition_to_decode_shift_from_media_timeline( ah.root, ah.track_ID, &ctd_shift ) )
+            if( lsmash_get_composition_to_decode_shift_from_media_timeline( adh.root, adh.track_ID, &ctd_shift ) )
                 env->ThrowError( "LSMASHAudioSource: failed to get the timeline shift." );
-            ah.skip_samples = ctd_shift + get_start_time( ah.root, ah.track_ID );
+            aoh.skip_decoded_samples = ctd_shift + get_start_time( adh.root, adh.track_ID );
         }
     }
     /* libavformat */
-    for( i = 0; i < ah.format_ctx->nb_streams && ah.format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
-    if( i == ah.format_ctx->nb_streams )
+    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
+    if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
     /* libavcodec */
-    AVStream *stream = ah.format_ctx->streams[i];
+    AVStream *stream = format_ctx->streams[i];
     AVCodecContext *ctx = stream->codec;
-    ah.config.ctx = ctx;
+    adh.config.ctx = ctx;
     AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
     if( !codec )
         env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
@@ -995,7 +1002,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
-static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp )
+static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp, int output_sample_rate, uint64_t *skip_decoded_samples )
 {
     codec_configuration_t *config = &hp->config;
     libavsmash_summary_t  *s      = NULL;
@@ -1032,15 +1039,15 @@ static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp )
         {
             if( current_sample_rate > 0 )
             {
-                if( hp->skip_samples > pcm_sample_count )
+                if( *skip_decoded_samples > pcm_sample_count )
                     skip_samples += pcm_sample_count * s->extended.upsampling;
-                else if( hp->skip_samples > prior_sequences_sample_count )
-                    skip_samples += (hp->skip_samples - prior_sequences_sample_count) * s->extended.upsampling;
+                else if( *skip_decoded_samples > prior_sequences_sample_count )
+                    skip_samples += (*skip_decoded_samples - prior_sequences_sample_count) * s->extended.upsampling;
                 prior_sequences_sample_count += pcm_sample_count;
                 pcm_sample_count *= s->extended.upsampling;
-                uint64_t resampled_sample_count = hp->output_sample_rate == current_sample_rate || pcm_sample_count == 0
+                uint64_t resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                                 ? pcm_sample_count
-                                                : (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+                                                : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
                 overall_pcm_sample_count += resampled_sample_count;
                 audio_frame_count = 0;
                 pcm_sample_count  = 0;
@@ -1053,24 +1060,24 @@ static uint64_t count_overall_pcm_samples( audio_decode_handler_t *hp )
     }
     if( !s || (pcm_sample_count == 0 && overall_pcm_sample_count == 0) )
         return 0;
-    if( hp->skip_samples > prior_sequences_sample_count )
-        skip_samples += (hp->skip_samples - prior_sequences_sample_count) * s->extended.upsampling;
+    if( *skip_decoded_samples > prior_sequences_sample_count )
+        skip_samples += (*skip_decoded_samples - prior_sequences_sample_count) * s->extended.upsampling;
     pcm_sample_count *= s->extended.upsampling;
     current_sample_rate = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
-    if( current_sample_rate == hp->output_sample_rate )
+    if( current_sample_rate == output_sample_rate )
     {
-        hp->skip_samples = skip_samples;
+        *skip_decoded_samples = skip_samples;
         if( pcm_sample_count )
             overall_pcm_sample_count += pcm_sample_count;
     }
     else
     {
         if( skip_samples )
-            hp->skip_samples = ((uint64_t)skip_samples * hp->output_sample_rate - 1) / current_sample_rate + 1;
+            *skip_decoded_samples = ((uint64_t)skip_samples * output_sample_rate - 1) / current_sample_rate + 1;
         if( pcm_sample_count )
-            overall_pcm_sample_count += (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+            overall_pcm_sample_count += (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
     }
-    return overall_pcm_sample_count - hp->skip_samples;
+    return overall_pcm_sample_count - *skip_decoded_samples;
 }
 
 static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
@@ -1094,61 +1101,61 @@ static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSamp
 
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
-    ah.frame_buffer = avcodec_alloc_frame();
-    if( !ah.frame_buffer )
+    adh.frame_buffer = avcodec_alloc_frame();
+    if( !adh.frame_buffer )
         env->ThrowError( "LSMASHAudioSource: failed to allocate audio frame buffer." );
     /* Initialize the audio decoder configuration. */
-    codec_configuration_t *config = &ah.config;
+    codec_configuration_t *config = &adh.config;
     config->message_priv = env;
-    if( initialize_decoder_configuration( ah.root, ah.track_ID, config ) )
+    if( initialize_decoder_configuration( adh.root, adh.track_ID, config ) )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
-    ah.output_channel_layout  = config->prefer.channel_layout;
-    ah.output_sample_format   = config->prefer.sample_format;
-    ah.output_sample_rate     = config->prefer.sample_rate;
-    ah.output_bits_per_sample = config->prefer.bits_per_sample;
+    aoh.output_channel_layout  = config->prefer.channel_layout;
+    aoh.output_sample_format   = config->prefer.sample_format;
+    aoh.output_sample_rate     = config->prefer.sample_rate;
+    aoh.output_bits_per_sample = config->prefer.bits_per_sample;
     /* */
-    vi.num_audio_samples = count_overall_pcm_samples( &ah );
+    vi.num_audio_samples = count_overall_pcm_samples( &adh, aoh.output_sample_rate, &aoh.skip_decoded_samples );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
-    ah.next_pcm_sample_number = vi.num_audio_samples + 1;   /* Force seeking at the first reading. */
+    adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
     /* Set up resampler. */
-    ah.avr_ctx = avresample_alloc_context();
-    if( !ah.avr_ctx )
+    aoh.avr_ctx = avresample_alloc_context();
+    if( !aoh.avr_ctx )
         env->ThrowError( "LSMASHAudioSource: failed to avresample_alloc_context." );
     if( config->ctx->channel_layout == 0 )
         config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
-    ah.output_sample_format = decide_audio_output_sample_format( ah.output_sample_format );
-    av_opt_set_int( ah.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
-    av_opt_set_int( ah.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
-    av_opt_set_int( ah.avr_ctx, "in_sample_rate",      config->ctx->sample_rate,    0 );
-    av_opt_set_int( ah.avr_ctx, "out_channel_layout",  ah.output_channel_layout,    0 );
-    av_opt_set_int( ah.avr_ctx, "out_sample_fmt",      ah.output_sample_format,     0 );
-    av_opt_set_int( ah.avr_ctx, "out_sample_rate",     ah.output_sample_rate,       0 );
-    av_opt_set_int( ah.avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
-    if( avresample_open( ah.avr_ctx ) < 0 )
+    aoh.output_sample_format = decide_audio_output_sample_format( aoh.output_sample_format );
+    av_opt_set_int( aoh.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
+    av_opt_set_int( aoh.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
+    av_opt_set_int( aoh.avr_ctx, "in_sample_rate",      config->ctx->sample_rate,    0 );
+    av_opt_set_int( aoh.avr_ctx, "out_channel_layout",  aoh.output_channel_layout,    0 );
+    av_opt_set_int( aoh.avr_ctx, "out_sample_fmt",      aoh.output_sample_format,     0 );
+    av_opt_set_int( aoh.avr_ctx, "out_sample_rate",     aoh.output_sample_rate,       0 );
+    av_opt_set_int( aoh.avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
+    if( avresample_open( aoh.avr_ctx ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to open resampler." );
     /* Decide output Bits Per Sample. */
-    int output_channels = av_get_channel_layout_nb_channels( ah.output_channel_layout );
-    if( ah.output_sample_format == AV_SAMPLE_FMT_S32
-     && (ah.output_bits_per_sample == 0 || ah.output_bits_per_sample == 24) )
+    int output_channels = av_get_channel_layout_nb_channels( aoh.output_channel_layout );
+    if( aoh.output_sample_format == AV_SAMPLE_FMT_S32
+     && (aoh.output_bits_per_sample == 0 || aoh.output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
         if( config->ctx->frame_size )
         {
-            ah.resampled_buffer_size = get_linesize( output_channels, config->ctx->frame_size, ah.output_sample_format );
-            ah.resampled_buffer      = (uint8_t *)av_malloc( ah.resampled_buffer_size );
-            if( !ah.resampled_buffer )
+            aoh.resampled_buffer_size = get_linesize( output_channels, config->ctx->frame_size, aoh.output_sample_format );
+            aoh.resampled_buffer      = (uint8_t *)av_malloc( aoh.resampled_buffer_size );
+            if( !aoh.resampled_buffer )
                 env->ThrowError( "LSMASHAudioSource: failed to allocate memory for resampling." );
         }
-        ah.s24_output             = 1;
-        ah.output_bits_per_sample = 24;
+        aoh.s24_output             = 1;
+        aoh.output_bits_per_sample = 24;
     }
     else
-        ah.output_bits_per_sample = av_get_bytes_per_sample( ah.output_sample_format ) * 8;
+        aoh.output_bits_per_sample = av_get_bytes_per_sample( aoh.output_sample_format ) * 8;
     /* */
     vi.nchannels                = output_channels;
-    vi.audio_samples_per_second = ah.output_sample_rate;
-    switch ( ah.output_sample_format )
+    vi.audio_samples_per_second = aoh.output_sample_rate;
+    switch ( aoh.output_sample_format )
     {
         case AV_SAMPLE_FMT_U8 :
         case AV_SAMPLE_FMT_U8P :
@@ -1160,7 +1167,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
             break;
         case AV_SAMPLE_FMT_S32 :
         case AV_SAMPLE_FMT_S32P :
-            vi.sample_type = ah.s24_output ? SAMPLE_INT24 : SAMPLE_INT32;
+            vi.sample_type = aoh.s24_output ? SAMPLE_INT24 : SAMPLE_INT32;
             break;
         case AV_SAMPLE_FMT_FLT :
         case AV_SAMPLE_FMT_FLTP :
@@ -1173,15 +1180,15 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     int input_channels = av_get_channel_layout_nb_channels( config->ctx->channel_layout );
     if( av_sample_fmt_is_planar( config->ctx->sample_fmt ) )
     {
-        ah.planes            = input_channels;
-        ah.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt );
+        aoh.input_planes      = input_channels;
+        aoh.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt );
     }
     else
     {
-        ah.planes            = 1;
-        ah.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt ) * input_channels;
+        aoh.input_planes      = 1;
+        aoh.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt ) * input_channels;
     }
-    ah.output_block_align = (output_channels * ah.output_bits_per_sample) / 8;
+    aoh.output_block_align = (output_channels * aoh.output_bits_per_sample) / 8;
 }
 
 static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_number, uint32_t *frame_length, libavsmash_summary_t **sp )
@@ -1205,7 +1212,7 @@ static inline int get_frame_length( audio_decode_handler_t *hp, uint32_t frame_n
     return 0;
 }
 
-static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame_number )
+static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint64_t skip_decoded_samples, uint32_t *frame_number )
 {
     /* Some audio CODEC requires pre-roll for correct composition. */
     lsmash_sample_property_t prop;
@@ -1213,20 +1220,19 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
         return 0;
     if( prop.pre_roll.distance == 0 )
     {
-        if( hp->skip_samples == 0 || !hp->implicit_preroll )
+        if( skip_decoded_samples == 0 || !hp->implicit_preroll )
             return 0;
         /* Estimate pre-roll distance. */
-        uint64_t skip_samples = hp->skip_samples;
-        for( uint32_t i = 1; i <= hp->frame_count || skip_samples; i++ )
+        for( uint32_t i = 1; i <= hp->frame_count || skip_decoded_samples; i++ )
         {
             libavsmash_summary_t *dummy = NULL;
             uint32_t frame_length;
             if( get_frame_length( hp, i, &frame_length, &dummy ) )
                 break;
-            if( skip_samples < frame_length )
-                skip_samples = 0;
+            if( skip_decoded_samples < frame_length )
+                skip_decoded_samples = 0;
             else
-                skip_samples -= frame_length;
+                skip_decoded_samples -= frame_length;
             ++ prop.pre_roll.distance;
         }
     }
@@ -1246,7 +1252,7 @@ static uint32_t get_preroll_samples( audio_decode_handler_t *hp, uint32_t *frame
     return preroll_samples;
 }
 
-static int find_start_audio_frame( audio_decode_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
+static int find_start_audio_frame( audio_decode_handler_t *hp, int output_sample_rate, uint64_t skip_decoded_samples, uint64_t start_frame_pos, uint64_t *start_offset )
 {
     uint32_t frame_number                    = 1;
     uint64_t current_frame_pos               = 0;
@@ -1276,34 +1282,34 @@ static int find_start_audio_frame( audio_decode_handler_t *hp, uint64_t start_fr
             current_frame_length = frame_length;
         }
         pcm_sample_count += frame_length;
-        resampled_sample_count = hp->output_sample_rate == current_sample_rate || pcm_sample_count == 0
+        resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                ? pcm_sample_count
-                               : (pcm_sample_count * hp->output_sample_rate - 1) / current_sample_rate + 1;
+                               : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
         next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
         if( start_frame_pos < next_frame_pos )
             break;
         ++frame_number;
     } while( frame_number <= hp->frame_count );
     *start_offset = start_frame_pos - current_frame_pos;
-    if( *start_offset && current_sample_rate != hp->output_sample_rate )
-        *start_offset = (*start_offset * current_sample_rate - 1) / hp->output_sample_rate + 1;
-    *start_offset += get_preroll_samples( hp, &frame_number );
+    if( *start_offset && current_sample_rate != output_sample_rate )
+        *start_offset = (*start_offset * current_sample_rate - 1) / output_sample_rate + 1;
+    *start_offset += get_preroll_samples( hp, skip_decoded_samples, &frame_number );
     return frame_number;
 }
 
-static int waste_decoded_audio_samples( audio_decode_handler_t *hp, int input_sample_count, int wanted_sample_count, uint8_t **out_data, int sample_offset )
+static int consume_decoded_audio_samples( audio_output_handler_t *hp, AVFrame *frame,
+                                          int input_sample_count, int wanted_sample_count,
+                                          uint8_t **out_data, int sample_offset )
 {
     /* Input */
-    uint8_t **in_data = new uint8_t *[ hp->planes ];
-    if( !in_data )
-        return 0;
+    uint8_t *in_data[AVRESAMPLE_MAX_CHANNELS];
     int decoded_data_offset = sample_offset * hp->input_block_align;
-    for( int i = 0; i < hp->planes; i++ )
-        in_data[i] = hp->frame_buffer->extended_data[i] + decoded_data_offset;
+    for( int i = 0; i < hp->input_planes; i++ )
+        in_data[i] = frame->extended_data[i] + decoded_data_offset;
     audio_samples_t in;
-    in.channel_layout = hp->frame_buffer->channel_layout;
+    in.channel_layout = frame->channel_layout;
     in.sample_count   = input_sample_count;
-    in.sample_format  = (enum AVSampleFormat)hp->frame_buffer->format;
+    in.sample_format  = (enum AVSampleFormat)frame->format;
     in.data           = in_data;
     /* Output */
     uint8_t *resampled_buffer = NULL;
@@ -1315,10 +1321,7 @@ static int waste_decoded_audio_samples( audio_decode_handler_t *hp, int input_sa
         {
             uint8_t *temp = (uint8_t *)av_realloc( hp->resampled_buffer, out_linesize );
             if( !temp )
-            {
-                delete [] in_data;
                 return 0;
-            }
             hp->resampled_buffer_size = out_linesize;
             hp->resampled_buffer      = temp;
         }
@@ -1333,39 +1336,38 @@ static int waste_decoded_audio_samples( audio_decode_handler_t *hp, int input_sa
     int resampled_size = resample_audio( hp->avr_ctx, &out, &in );
     if( resampled_buffer && resampled_size > 0 )
         resampled_size = resample_s32_to_s24( out_data, hp->resampled_buffer, resampled_size );
-    delete [] in_data;
     return resampled_size > 0 ? resampled_size / hp->output_block_align : 0;
 }
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    codec_configuration_t *config = &ah.config;
+    codec_configuration_t *config = &adh.config;
     if( config->error )
         return;
     uint32_t frame_number;
     uint64_t seek_offset;
     uint64_t output_length = 0;
-    if( start > 0 && start == ah.next_pcm_sample_number )
+    if( start > 0 && start == adh.next_pcm_sample_number )
     {
-        frame_number = ah.last_frame_number;
-        if( ah.frame_buffer->extended_data
-         && ah.frame_buffer->extended_data[0] )
+        frame_number = adh.last_frame_number;
+        if( adh.frame_buffer->extended_data
+         && adh.frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
-            int resampled_length = waste_decoded_audio_samples( &ah, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
+            int resampled_length = consume_decoded_audio_samples( &aoh, adh.frame_buffer, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
             output_length += resampled_length;
             wanted_length -= resampled_length;
             if( wanted_length <= 0 )
                 goto audio_out;
         }
-        if( ah.packet.size <= 0 )
+        if( adh.packet.size <= 0 )
             ++frame_number;
         seek_offset = 0;
     }
     else
     {
         /* Seek audio stream. */
-        if( flush_resampler_buffers( ah.avr_ctx ) < 0 )
+        if( flush_resampler_buffers( aoh.avr_ctx ) < 0 )
         {
             config->error = 1;
             return;
@@ -1373,26 +1375,26 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         flush_buffers( config );
         if( config->error )
             return;
-        ah.next_pcm_sample_number = 0;
-        ah.last_frame_number      = 0;
+        adh.next_pcm_sample_number = 0;
+        adh.last_frame_number      = 0;
         uint64_t start_frame_pos;
         if( start >= 0 )
             start_frame_pos = start;
         else
         {
             uint64_t silence_length = -start;
-            put_silence_audio_samples( (int)(silence_length * ah.output_block_align), (uint8_t **)&buf );
+            put_silence_audio_samples( (int)(silence_length * aoh.output_block_align), (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;
         }
-        start_frame_pos += ah.skip_samples;
-        frame_number = find_start_audio_frame( &ah, start_frame_pos, &seek_offset );
+        start_frame_pos += aoh.skip_decoded_samples;
+        frame_number = find_start_audio_frame( &adh, aoh.output_sample_rate, aoh.skip_decoded_samples, start_frame_pos, &seek_offset );
     }
     do
     {
-        AVPacket *pkt = &ah.packet;
-        if( frame_number > ah.frame_count )
+        AVPacket *pkt = &adh.packet;
+        if( frame_number > adh.frame_count )
         {
             if( config->delay_count )
             {
@@ -1407,16 +1409,16 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         }
         else if( pkt->size <= 0 )
             /* Getting a sample must be after flushing all remaining samples in resampler's FIFO buffer. */
-            while( get_sample( ah.root, ah.track_ID, frame_number, config, pkt ) == 2 )
+            while( get_sample( adh.root, adh.track_ID, frame_number, config, pkt ) == 2 )
                 if( config->update_pending )
                     /* Update the decoder configuration. */
-                    update_configuration( ah.root, ah.track_ID, config );
+                    update_configuration( adh.root, adh.track_ID, config );
         int output_audio = 0;
         do
         {
-            avcodec_get_frame_defaults( ah.frame_buffer );
+            avcodec_get_frame_defaults( adh.frame_buffer );
             int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( config->ctx, ah.frame_buffer, &decode_complete, pkt );
+            int wasted_data_length = avcodec_decode_audio4( config->ctx, adh.frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
             {
                 pkt->size = 0;  /* Force to get the next sample. */
@@ -1430,45 +1432,45 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
             else if( !decode_complete )
                 goto audio_out;
             if( decode_complete
-             && ah.frame_buffer->extended_data
-             && ah.frame_buffer->extended_data[0] )
+             && adh.frame_buffer->extended_data
+             && adh.frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
                 int64_t channel_layout;
                 int64_t sample_rate;
                 int64_t sample_format;
-                av_opt_get_int( ah.avr_ctx, "in_channel_layout", 0, &channel_layout );
-                av_opt_get_int( ah.avr_ctx, "in_sample_rate",    0, &sample_rate );
-                av_opt_get_int( ah.avr_ctx, "in_sample_fmt",     0, &sample_format );
-                if( ah.frame_buffer->channel_layout == 0 )
-                    ah.frame_buffer->channel_layout = av_get_default_channel_layout( config->ctx->channels );
-                if( ah.frame_buffer->channel_layout != (uint64_t)channel_layout
-                 || ah.frame_buffer->sample_rate    != (int)sample_rate
-                 || ah.frame_buffer->format         != (enum AVSampleFormat)sample_format )
+                av_opt_get_int( aoh.avr_ctx, "in_channel_layout", 0, &channel_layout );
+                av_opt_get_int( aoh.avr_ctx, "in_sample_rate",    0, &sample_rate );
+                av_opt_get_int( aoh.avr_ctx, "in_sample_fmt",     0, &sample_format );
+                if( adh.frame_buffer->channel_layout == 0 )
+                    adh.frame_buffer->channel_layout = av_get_default_channel_layout( config->ctx->channels );
+                if( adh.frame_buffer->channel_layout != (uint64_t)           channel_layout
+                 || adh.frame_buffer->sample_rate    != (int)                sample_rate
+                 || adh.frame_buffer->format         != (enum AVSampleFormat)sample_format )
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
-                    if( update_resampler_configuration( ah.avr_ctx,
-                                                        ah.output_channel_layout,
-                                                        ah.output_sample_rate,
-                                                        ah.output_sample_format,
-                                                        ah.frame_buffer->channel_layout,
-                                                        ah.frame_buffer->sample_rate,
-                                                        (enum AVSampleFormat)ah.frame_buffer->format,
-                                                        &ah.planes,
-                                                        &ah.input_block_align ) < 0 )
+                    if( update_resampler_configuration( aoh.avr_ctx,
+                                                        aoh.output_channel_layout,
+                                                        aoh.output_sample_rate,
+                                                        aoh.output_sample_format,
+                                                        adh.frame_buffer->channel_layout,
+                                                        adh.frame_buffer->sample_rate,
+                                                        (enum AVSampleFormat)adh.frame_buffer->format,
+                                                        &aoh.input_planes,
+                                                        &aoh.input_block_align ) < 0 )
                     {
                         config->error = 1;
                         goto audio_out;
                     }
                 }
                 /* Process decoded audio samples. */
-                int decoded_length = ah.frame_buffer->nb_samples;
+                int decoded_length = adh.frame_buffer->nb_samples;
                 if( decoded_length > seek_offset )
                 {
                     /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
                     int useful_length = (int)(decoded_length - seek_offset);
-                    int resampled_length = waste_decoded_audio_samples( &ah, useful_length, (int)wanted_length, (uint8_t **)&buf, (int)seek_offset );
+                    int resampled_length = consume_decoded_audio_samples( &aoh, adh.frame_buffer, useful_length, (int)wanted_length, (uint8_t **)&buf, (int)seek_offset );
                     output_length += resampled_length;
                     wanted_length -= resampled_length;
                     seek_offset = 0;
@@ -1485,8 +1487,8 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
         ++frame_number;
     } while( 1 );
 audio_out:
-    ah.next_pcm_sample_number = start + output_length;
-    ah.last_frame_number = frame_number;
+    adh.next_pcm_sample_number = start + output_length;
+    adh.last_frame_number = frame_number;
 }
 
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
