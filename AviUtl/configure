@@ -83,7 +83,7 @@ AU_LDFLAGS="-shared -Wl,--dll,--add-stdcall-alias"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavresample libavutil"
 
-SRC_COMMON="../common/libavsmash.c ../common/resample.c"
+SRC_COMMON="../common/libavsmash.c ../common/libavsmash_audio.c ../common/resample.c"
 SRC_INPUT="lsmashinput.c colorspace.c colorspace_simd.c libavsmash_input.c libav_input.c avs_input.c dummy_input.c progress_dlg.c $SRC_COMMON"
 SRC_MUXER="lsmashmuxer.c progress_dlg.c"
 SRC_DUMPER="lsmashdumper.c"
