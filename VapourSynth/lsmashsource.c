@@ -35,33 +35,10 @@
 #include "video_output.h"
 
 #include "../common/libavsmash.h"
+#include "../common/libavsmash_video.h"
 
 #define MIN( a, b ) ((a) > (b) ? (b) : (a))
 #define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
-
-#define SEEK_MODE_NORMAL     0
-#define SEEK_MODE_UNSAFE     1
-#define SEEK_MODE_AGGRESSIVE 2
-
-typedef struct
-{
-    uint32_t composition_to_decoding;
-} order_converter_t;
-
-typedef struct
-{
-    lsmash_root_t        *root;
-    uint32_t              track_ID;
-    uint32_t              forward_seek_threshold;
-    int                   seek_mode;
-    codec_configuration_t config;
-    AVFormatContext      *format_ctx;
-    AVFrame              *frame_buffer;
-    order_converter_t    *order_converter;
-    uint32_t              last_sample_number;
-    uint32_t              last_rap_number;
-    uint32_t              media_timescale;
-} video_decode_handler_t;
 
 typedef struct
 {
@@ -76,6 +53,8 @@ typedef struct
     video_decode_handler_t vdh;
     video_output_handler_t voh;
     vs_basic_handler_t     eh;
+    AVFormatContext       *format_ctx;
+    uint32_t               media_timescale;
 } lsmas_handler_t;
 
 static void set_error( void *message_priv, const char *message, ... )
@@ -204,158 +183,6 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     return 0;
 }
 
-static int decode_video_sample( video_decode_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
-{
-    AVPacket pkt = { 0 };
-    int ret = get_sample( hp->root, hp->track_ID, sample_number, &hp->config, &pkt );
-    if( ret )
-        return ret;
-    if( pkt.flags != ISOM_SAMPLE_RANDOM_ACCESS_FLAG_NONE )
-    {
-        pkt.flags = AV_PKT_FLAG_KEY;
-        hp->last_rap_number = sample_number;
-    }
-    else
-        pkt.flags = 0;
-    avcodec_get_frame_defaults( picture );
-    uint64_t cts = pkt.pts;
-    ret = avcodec_decode_video2( hp->config.ctx, picture, got_picture, &pkt );
-    picture->pts = cts;
-    return ret < 0 ? -1 : 0;
-}
-
-static inline uint32_t get_decoding_sample_number( order_converter_t *order_converter, uint32_t composition_sample_number )
-{
-    return order_converter
-         ? order_converter[composition_sample_number].composition_to_decoding
-         : composition_sample_number;
-}
-
-static int find_random_accessible_point( video_decode_handler_t *hp, uint32_t composition_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
-{
-    if( decoding_sample_number == 0 )
-        decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
-    lsmash_random_access_flag ra_flags;
-    uint32_t distance;  /* distance from the closest random accessible point to the previous. */
-    uint32_t number_of_leadings;
-    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number,
-                                                                               rap_number, &ra_flags, &number_of_leadings, &distance ) )
-        *rap_number = 1;
-    int roll_recovery = !!(ra_flags & ISOM_SAMPLE_RANDOM_ACCESS_FLAG_GDR);
-    int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
-    if( (roll_recovery || is_leading) && *rap_number > distance )
-        *rap_number -= distance;
-    /* Check whether random accessible point has the same decoder configuration or not. */
-    decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
-    do
-    {
-        lsmash_sample_t sample;
-        lsmash_sample_t rap_sample;
-        if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &sample )
-         || lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, *rap_number, &rap_sample ) )
-        {
-            /* Fatal error. */
-            *rap_number = hp->last_rap_number;
-            return 0;
-        }
-        if( sample.index == rap_sample.index )
-            break;
-        uint32_t sample_index = sample.index;
-        for( uint32_t i = decoding_sample_number - 1; i; i-- )
-        {
-            if( lsmash_get_sample_info_from_media_timeline( hp->root, hp->track_ID, i, &sample ) )
-            {
-                /* Fatal error. */
-                *rap_number = hp->last_rap_number;
-                return 0;
-            }
-            if( sample.index != sample_index )
-            {
-                if( distance )
-                {
-                    *rap_number += distance;
-                    distance = 0;
-                    continue;
-                }
-                else
-                    *rap_number = i + 1;
-            }
-        }
-        break;
-    } while( 1 );
-    return roll_recovery;
-}
-
-static uint32_t seek_video( video_decode_handler_t *hp, AVFrame *picture, uint32_t composition_sample_number, uint32_t rap_number, int error_ignorance )
-{
-    /* Prepare to decode from random accessible sample. */
-    codec_configuration_t *config = &hp->config;
-    if( config->update_pending )
-        /* Update the decoder configuration. */
-        update_configuration( hp->root, hp->track_ID, config );
-    else
-        flush_buffers( config );
-    if( config->error )
-        return 0;
-    int dummy;
-    uint64_t rap_cts = 0;
-    uint32_t i;
-    uint32_t decoder_delay = get_decoder_delay( config->ctx );
-    for( i = rap_number; i < composition_sample_number + decoder_delay; i++ )
-    {
-        if( config->index == config->queue.index )
-            config->delay_count = MIN( decoder_delay, i - rap_number );
-        int ret = decode_video_sample( hp, picture, &dummy, i );
-        /* Some decoders return -1 when feeding a leading sample.
-         * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
-        if( i == hp->last_rap_number )
-            rap_cts = picture->pts;
-        if( ret == -1 && (uint64_t)picture->pts >= rap_cts && !error_ignorance )
-            return 0;
-        else if( ret >= 1 )
-            /* No decoding occurs. */
-            break;
-    }
-    if( config->index == config->queue.index )
-        config->delay_count = MIN( decoder_delay, i - rap_number );
-    return i;
-}
-
-static int get_picture( video_decode_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t sample_count )
-{
-    codec_configuration_t *config = &hp->config;
-    int got_picture = (current > goal);
-    while( current <= goal )
-    {
-        int ret = decode_video_sample( hp, picture, &got_picture, current );
-        if( ret == -1 )
-            return -1;
-        else if( ret == 1 )
-            /* Sample doesn't exist. */
-            break;
-        ++current;
-        if( config->update_pending )
-            /* A new decoder configuration is needed. Anyway, stop getting picture. */
-            break;
-        if( !got_picture )
-            ++ config->delay_count;
-    }
-    /* Flush the last frames. */
-    if( current > sample_count && get_decoder_delay( config->ctx ) )
-        while( current <= goal )
-        {
-            AVPacket pkt = { 0 };
-            av_init_packet( &pkt );
-            pkt.data = NULL;
-            pkt.size = 0;
-            avcodec_get_frame_defaults( picture );
-            if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
-                return -1;
-            ++current;
-        }
-    return got_picture ? 0 : -1;
-}
-
 static int get_composition_duration( video_decode_handler_t *hp, uint32_t composition_sample_number, uint32_t last_sample_number )
 {
     uint32_t decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
@@ -390,13 +217,13 @@ static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrame
     int sample_duration = get_composition_duration( vdhp, sample_number, vi->numFrames );
     if( sample_duration == 0 )
     {
-        vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,            paReplace );
-        vsapi->propSetInt( props, "_DurationDen", vi->fpsNum,            paReplace );
+        vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,          paReplace );
+        vsapi->propSetInt( props, "_DurationDen", vi->fpsNum,          paReplace );
     }
     else
     {
-        vsapi->propSetInt( props, "_DurationNum", sample_duration,       paReplace );
-        vsapi->propSetInt( props, "_DurationDen", vdhp->media_timescale, paReplace );
+        vsapi->propSetInt( props, "_DurationNum", sample_duration,     paReplace );
+        vsapi->propSetInt( props, "_DurationDen", hp->media_timescale, paReplace );
     }
     /* Color format */
     if( ctx )
@@ -426,7 +253,6 @@ static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrame
 
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
 {
-#define MAX_ERROR_COUNT 3       /* arbitrary */
     if( activation_reason != arInitial )
         return NULL;
     lsmas_handler_t *hp = (lsmas_handler_t *)*instance_data;
@@ -452,68 +278,10 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     hp->eh.out       = NULL;
     hp->eh.frame_ctx = frame_ctx;
     hp->eh.vsapi     = vsapi;
-    AVFrame *picture = vdhp->frame_buffer;
-    uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
-    uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
-    int seek_mode = vdhp->seek_mode;
-    int roll_recovery = 0;
-    if( sample_number > vdhp->last_sample_number
-     && sample_number <= vdhp->last_sample_number + vdhp->forward_seek_threshold )
-    {
-        start_number = vdhp->last_sample_number + 1 + config->delay_count;
-        rap_number = vdhp->last_rap_number;
-    }
-    else
-    {
-        roll_recovery = find_random_accessible_point( vdhp, sample_number, 0, &rap_number );
-        if( rap_number == vdhp->last_rap_number && sample_number > vdhp->last_sample_number )
-        {
-            roll_recovery = 0;
-            start_number = vdhp->last_sample_number + 1 + config->delay_count;
-        }
-        else
-        {
-            /* Require starting to decode from random accessible sample. */
-            vdhp->last_rap_number = rap_number;
-            start_number = seek_video( vdhp, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
-        }
-    }
-    /* Get desired picture. */
-    int error_count = 0;
-    while( start_number == 0    /* Failed to seek. */
-     || config->update_pending  /* Need to update the decoder configuration to decode pictures. */
-     || get_picture( vdhp, picture, start_number, sample_number + config->delay_count, vi->numFrames ) )
-    {
-        if( config->update_pending )
-        {
-            roll_recovery = find_random_accessible_point( vdhp, sample_number, 0, &rap_number );
-            vdhp->last_rap_number = rap_number;
-        }
-        else
-        {
-            /* Failed to get desired picture. */
-            if( config->error || seek_mode == SEEK_MODE_AGGRESSIVE )
-                 goto video_fail;
-            if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
-            {
-                if( seek_mode == SEEK_MODE_UNSAFE )
-                    goto video_fail;
-                /* Retry to decode from the same random accessible sample with error ignorance. */
-                seek_mode = SEEK_MODE_AGGRESSIVE;
-            }
-            else
-            {
-                /* Retry to decode from more past random accessible sample. */
-                roll_recovery = find_random_accessible_point( vdhp, sample_number, rap_number - 1, &rap_number );
-                if( vdhp->last_rap_number == rap_number )
-                    goto video_fail;
-                vdhp->last_rap_number = rap_number;
-            }
-        }
-        start_number = seek_video( vdhp, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
-    }
-    vdhp->last_sample_number = sample_number;
+    if( get_video_frame( vdhp, sample_number, vi->numFrames ) )
+        return NULL;
     /* Output frame. */
+    AVFrame        *picture = vdhp->frame_buffer;
     const VSFormat *vs_format;
     int             vs_width;
     int             vs_height;
@@ -542,10 +310,6 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return frame;
     }
     return frame;
-video_fail:
-    vsapi->setFilterError( "lsmas: fatal error of decoding.", frame_ctx );
-    return NULL;
-#undef MAX_ERROR_COUNT
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )
@@ -562,8 +326,8 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     if( hp->voh.sws_ctx )
         sws_freeContext( hp->voh.sws_ctx );
     cleanup_configuration( &hp->vdh.config );
-    if( hp->vdh.format_ctx )
-        avformat_close_input( &hp->vdh.format_ctx );
+    if( hp->format_ctx )
+        avformat_close_input( &hp->format_ctx );
     lsmash_destroy_root( hp->vdh.root );
     free( hp );
 }
@@ -590,12 +354,12 @@ static uint32_t open_file( lsmas_handler_t *hp, const char *source )
     /* libavformat */
     av_register_all();
     avcodec_register_all();
-    if( avformat_open_input( &hp->vdh.format_ctx, source, NULL, NULL ) )
+    if( avformat_open_input( &hp->format_ctx, source, NULL, NULL ) )
     {
         vsapi->setError( out, "lsmas: failed to avformat_open_input." );
         return 0;
     }
-    if( avformat_find_stream_info( hp->vdh.format_ctx, NULL ) < 0 )
+    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
     {
         vsapi->setError( out, "lsmas: failed to avformat_find_stream_info." );
         return 0;
@@ -761,18 +525,18 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
         return -1;
     hp->vi.numFrames = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
-    hp->vdh.media_timescale = media_param.timescale;
-    if( setup_timestamp_info( hp, hp->vdh.media_timescale ) )
+    hp->media_timescale = media_param.timescale;
+    if( setup_timestamp_info( hp, hp->media_timescale ) )
         return -1;
     /* libavformat */
-    for( i = 0; i < vdhp->format_ctx->nb_streams && vdhp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
-    if( i == vdhp->format_ctx->nb_streams )
+    for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
+    if( i == hp->format_ctx->nb_streams )
     {
         set_error( &eh, "lsmas: failed to find stream by libavformat." );
         return -1;
     }
     /* libavcodec */
-    AVStream *stream = vdhp->format_ctx->streams[i];
+    AVStream *stream = hp->format_ctx->streams[i];
     AVCodecContext *ctx = stream->codec;
     vdhp->config.ctx = ctx;
     AVCodec *codec = avcodec_find_decoder( ctx->codec_id );

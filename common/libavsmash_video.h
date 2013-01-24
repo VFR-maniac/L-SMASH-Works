@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libavsmash_audio.h
+ * libavsmash_video.h
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -20,47 +20,42 @@
 
 /* This file is available under an ISC license. */
 
+#define SEEK_MODE_NORMAL     0
+#define SEEK_MODE_UNSAFE     1
+#define SEEK_MODE_AGGRESSIVE 2
+
+typedef struct
+{
+    uint32_t composition_to_decoding;
+} order_converter_t;
+
 typedef struct
 {
     lsmash_root_t        *root;
     uint32_t              track_ID;
+    uint32_t              forward_seek_threshold;
+    int                   seek_mode;
     codec_configuration_t config;
     AVFrame              *frame_buffer;
-    AVPacket              packet;
-    uint64_t              next_pcm_sample_number;
-    uint32_t              last_frame_number;
-    uint32_t              frame_count;
-    int                   implicit_preroll;
-} audio_decode_handler_t;
+    order_converter_t    *order_converter;
+    uint32_t              last_sample_number;
+    uint32_t              last_rap_number;
+} video_decode_handler_t;
 
-typedef struct
+static inline uint32_t get_decoding_sample_number
+(
+    order_converter_t *order_converter,
+    uint32_t           composition_sample_number
+)
 {
-    AVAudioResampleContext *avr_ctx;
-    uint8_t                *resampled_buffer;
-    int                     resampled_buffer_size;
-    int                     input_planes;
-    int                     input_block_align;
-    uint64_t                skip_decoded_samples;   /* Upsampling is considered. */
-    uint64_t                output_channel_layout;
-    enum AVSampleFormat     output_sample_format;
-    int                     output_block_align;
-    int                     output_sample_rate;
-    int                     output_bits_per_sample;
-    int                     s24_output;
-} audio_output_handler_t;
+    return order_converter
+         ? order_converter[composition_sample_number].composition_to_decoding
+         : composition_sample_number;
+}
 
-uint64_t count_overall_pcm_samples
+int get_video_frame
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate,
-    uint64_t               *skip_decoded_samples
-);
-
-uint64_t get_pcm_audio_samples
-(
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    void                   *buf,
-    int64_t                 start,
-    int64_t                 wanted_length
+    video_decode_handler_t *vdhp,
+    uint32_t                sample_number,
+    uint32_t                sample_count
 );
