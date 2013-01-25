@@ -32,7 +32,7 @@
 #include "VapourSynth.h"
 #include "video_output.h"
 
-static void vs_bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_data, int src_linesize, int row_size, int height )
+static inline void bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_data, int src_linesize, int row_size, int height )
 {
     if( src_linesize == dst_linesize && src_linesize == row_size )
     {
@@ -105,7 +105,7 @@ static int make_frame_planar_yuv( struct SwsContext *sws_ctx, AVFrame *picture, 
         uint8_t *frame_data     = vsapi->getWritePtr( frame, i );
         int      row_size       = row_size_0      >> (i ? format->subSamplingW : 0);
         int      height         = picture->height >> (i ? format->subSamplingH : 0);
-        vs_bit_blt( frame_data, frame_linesize, dst_data[i], dst_linesize[i], row_size, height );
+        bit_blt( frame_data, frame_linesize, dst_data[i], dst_linesize[i], row_size, height );
     }
     av_free( dst_data[0] );
     return 0;
@@ -189,7 +189,7 @@ static int make_frame_planar_rgb16( struct SwsContext *sws_ctx, AVFrame *picture
     return 0;
 }
 
-static void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
+static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
 {
     static const struct
     {
@@ -276,7 +276,7 @@ static enum AVPixelFormat vs_to_av_output_pixel_format( VSPresetFormat vs_output
     return AV_PIX_FMT_NONE;
 }
 
-static int set_frame_maker( video_output_handler_t *vohp )
+static inline int set_frame_maker( video_output_handler_t *vohp )
 {
     static const struct
     {
@@ -302,7 +302,7 @@ static int set_frame_maker( video_output_handler_t *vohp )
             { pfYUV444P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
             { pfRGB24,     make_black_background_planar_rgb,   make_frame_planar_rgb8  },
             { pfRGB48,     make_black_background_planar_rgb,   make_frame_planar_rgb16 },
-            { pfNone,      NULL,                               NULL                  }
+            { pfNone,      NULL,                               NULL                    }
         };
     for( int i = 0; frame_maker_table[i].vs_output_pixel_format != pfNone; i++ )
         if( vohp->vs_output_pixel_format == frame_maker_table[i].vs_output_pixel_format )
@@ -398,9 +398,7 @@ int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *fram
             return -1;
         }
     }
-    if( !vohp->make_frame )
-        return -1;
-    if( vohp->make_black_background && !vohp->variable_info )
-        vohp->make_black_background( frame, vsapi );
-    return vohp->make_frame( vohp->sws_ctx, picture, frame, frame_ctx, vsapi );
+    if( vohp->make_frame )
+        return vohp->make_frame( vohp->sws_ctx, picture, frame, frame_ctx, vsapi );
+    return -1;
 }

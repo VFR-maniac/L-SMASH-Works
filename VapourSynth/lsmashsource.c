@@ -73,7 +73,7 @@ static void set_error( void *message_priv, const char *message, ... )
         eh->vsapi->setFilterError( (const char *)temp, eh->frame_ctx );
 }
 
-static void set_option_int64( int64_t *opt, int64_t default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static inline void set_option_int64( int64_t *opt, int64_t default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
 {
     int e;
     *opt = vsapi->propGetInt( in, arg, 0, &e );
@@ -81,7 +81,7 @@ static void set_option_int64( int64_t *opt, int64_t default_value, const char *a
         *opt = default_value;
 }
 
-static void set_option_string( const char **opt, const char *default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static inline void set_option_string( const char **opt, const char *default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
 {
     int e;
     *opt = vsapi->propGetData( in, arg, 0, &e );
@@ -137,6 +137,13 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         vi->format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
         vi->width  = config->prefer.width;
         vi->height = config->prefer.height;
+        vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+        if( !vohp->background_frame )
+        {
+            set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
+            return -1;
+        }
+        vohp->make_black_background( vohp->background_frame, vsapi );
     }
     vohp->scaler_flags = SWS_FAST_BILINEAR;
     vohp->sws_ctx = sws_getCachedContext( NULL,
@@ -161,7 +168,9 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+                vohp->first_valid_frame = vohp->variable_info
+                                        ? vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core )
+                                        : vsapi->copyFrame( vohp->background_frame, core );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( &eh, "lsmas: failed to allocate memory for the first valid video frame data." );
@@ -281,10 +290,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     if( get_video_frame( vdhp, sample_number, vi->numFrames ) )
         return NULL;
     /* Output frame. */
-    AVFrame        *picture = vdhp->frame_buffer;
-    const VSFormat *vs_format;
-    int             vs_width;
-    int             vs_height;
+    AVFrame    *picture = vdhp->frame_buffer;
+    VSFrameRef *frame;
     if( vohp->variable_info )
     {
         if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt ) )
@@ -292,22 +299,19 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
             vsapi->setFilterError( "lsmas: failed to determin output format.", frame_ctx );
             return NULL;
         }
-        vs_format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
-        vs_width  = picture->width;
-        vs_height = picture->height;
+        const VSFormat *vs_format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
+        frame = vsapi->newVideoFrame( vs_format, picture->width, picture->height, NULL, core );
     }
     else
+        frame = vsapi->copyFrame( vohp->background_frame, core );
+    if( frame )
     {
-        vs_format = vi->format;
-        vs_width  = vi->width;
-        vs_height = vi->height;
-    }
-    VSFrameRef *frame = vsapi->newVideoFrame( vs_format, vs_width, vs_height, NULL, core );
-    set_frame_properties( hp, picture, frame, sample_number, vsapi );
-    if( make_frame( vohp, picture, frame, frame_ctx, vsapi ) )
-    {
-        vsapi->setFilterError( "lsmas: failed to output a frame.", frame_ctx );
-        return frame;
+        set_frame_properties( hp, picture, frame, sample_number, vsapi );
+        if( make_frame( vohp, picture, frame, frame_ctx, vsapi ) )
+        {
+            vsapi->setFilterError( "lsmas: failed to output a frame.", frame_ctx );
+            return frame;
+        }
     }
     return frame;
 }

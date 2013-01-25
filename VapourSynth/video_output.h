@@ -30,6 +30,7 @@ typedef struct
     int                         scaler_flags;
     enum AVPixelFormat          av_output_pixel_format;
     VSPresetFormat              vs_output_pixel_format;
+    VSFrameRef                 *background_frame;
     VSFrameRef                 *first_valid_frame;
     uint32_t                    first_valid_frame_number;
     func_make_black_background *make_black_background;
