@@ -21,13 +21,14 @@
 /* This file is available under an ISC license. */
 
 typedef void func_make_black_background( VSFrameRef *frame, const VSAPI *vsapi );
-typedef int func_make_frame( struct SwsContext *sws_ctx, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi );
+typedef void func_make_frame( uint8_t *dst_data[4], int dst_linesize[4], int width, int height, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi );
 
 typedef struct
 {
     int                         variable_info;
-    struct SwsContext          *sws_ctx;
+    int                         enable_scaler;
     int                         scaler_flags;
+    struct SwsContext          *sws_ctx;
     enum AVPixelFormat          av_output_pixel_format;
     VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *background_frame;

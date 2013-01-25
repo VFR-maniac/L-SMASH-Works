@@ -155,6 +155,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         set_error( &eh, "lsmas: failed to get swscale context." );
         return -1;
     }
+    vohp->enable_scaler = (config->ctx->pix_fmt != vohp->av_output_pixel_format);
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
