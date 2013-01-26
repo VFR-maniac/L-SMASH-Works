@@ -163,10 +163,10 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     {
         AVPacket pkt = { 0 };
         get_sample( vdhp->root, vdhp->track_ID, i, &vdhp->config, &pkt );
-        AVFrame *picture = vdhp->frame_buffer;
-        avcodec_get_frame_defaults( picture );
+        AVFrame *av_frame = vdhp->frame_buffer;
+        avcodec_get_frame_defaults( av_frame );
         int got_picture;
-        if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( config->ctx, av_frame, &got_picture, &pkt ) >= 0 && got_picture )
         {
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
@@ -179,7 +179,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
                     set_error( &eh, "lsmas: failed to allocate memory for the first valid video frame data." );
                     return -1;
                 }
-                if( make_frame( vohp, picture, vohp->first_valid_frame, NULL, vsapi ) )
+                if( make_frame( vohp, av_frame, vohp->first_valid_frame, NULL, vsapi ) )
                 {
                     vsapi->freeFrame( vohp->first_valid_frame );
                     vohp->first_valid_frame = NULL;
@@ -293,8 +293,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     if( get_video_frame( vdhp, sample_number, vi->numFrames ) )
         return NULL;
     /* Output video frame. */
-    AVFrame    *picture = vdhp->frame_buffer;
-    VSFrameRef *frame;
+    AVFrame    *av_frame = vdhp->frame_buffer;
+    VSFrameRef *vs_frame;
     if( vohp->variable_info )
     {
         if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt ) )
@@ -303,20 +303,20 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
             return NULL;
         }
         const VSFormat *vs_format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
-        frame = vsapi->newVideoFrame( vs_format, picture->width, picture->height, NULL, core );
+        vs_frame = vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
     }
     else
-        frame = vsapi->copyFrame( vohp->background_frame, core );
-    if( frame )
+        vs_frame = vsapi->copyFrame( vohp->background_frame, core );
+    if( vs_frame )
     {
-        set_frame_properties( hp, picture, frame, sample_number, vsapi );
-        if( make_frame( vohp, picture, frame, frame_ctx, vsapi ) )
+        set_frame_properties( hp, av_frame, vs_frame, sample_number, vsapi );
+        if( make_frame( vohp, av_frame, vs_frame, frame_ctx, vsapi ) )
         {
             vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
-            return frame;
+            return vs_frame;
         }
     }
-    return frame;
+    return vs_frame;
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )

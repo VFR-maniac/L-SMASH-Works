@@ -26,12 +26,19 @@
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
-#include <libavutil/mem.h>
 
 #include "VapourSynth.h"
 #include "video_output.h"
 
-static inline void bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_data, int src_linesize, int row_size, int height )
+static inline void bit_blt
+(
+    uint8_t *dst_data,
+    int      dst_linesize,
+    uint8_t *src_data,
+    int      src_linesize,
+    int      row_size,
+    int      height
+)
 {
     if( src_linesize == dst_linesize && src_linesize == row_size )
     {
@@ -46,20 +53,28 @@ static inline void bit_blt( uint8_t *dst_data, int dst_linesize, uint8_t *src_da
     }
 }
 
-static void make_black_background_planar_yuv8( VSFrameRef *frame, const VSAPI *vsapi )
+static void make_black_background_planar_yuv8
+(
+    VSFrameRef  *vs_frame,
+    const VSAPI *vsapi
+)
 {
     for( int i = 0; i < 3; i++ )
-        memset( vsapi->getWritePtr( frame, i ), i ? 0x80 : 0x00, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
+        memset( vsapi->getWritePtr( vs_frame, i ), i ? 0x80 : 0x00, vsapi->getStride( vs_frame, i ) * vsapi->getFrameHeight( vs_frame, i ) );
 }
 
-static void make_black_background_planar_yuv16( VSFrameRef *frame, const VSAPI *vsapi )
+static void make_black_background_planar_yuv16
+(
+    VSFrameRef  *vs_frame,
+    const VSAPI *vsapi
+)
 {
-    int shift = vsapi->getFrameFormat( frame )->bitsPerSample - 8;
+    int shift = vsapi->getFrameFormat( vs_frame )->bitsPerSample - 8;
     for( int i = 0; i < 3; i++ )
     {
         int v = i ? 0x00000080 << shift : 0x00000000;
-        uint8_t *data = vsapi->getWritePtr( frame, i );
-        uint8_t *end  = data + vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i );
+        uint8_t *data = vsapi->getWritePtr( vs_frame, i );
+        uint8_t *end  = data + vsapi->getStride( vs_frame, i ) * vsapi->getFrameHeight( vs_frame, i );
         while( data < end )
         {
             /* Assume little endianess. */
@@ -70,81 +85,119 @@ static void make_black_background_planar_yuv16( VSFrameRef *frame, const VSAPI *
     }
 }
 
-static void make_black_background_planar_rgb( VSFrameRef *frame, const VSAPI *vsapi )
+static void make_black_background_planar_rgb
+(
+    VSFrameRef  *vs_frame,
+    const VSAPI *vsapi
+)
 {
     for( int i = 0; i < 3; i++ )
-        memset( vsapi->getWritePtr( frame, i ), 0x00, vsapi->getStride( frame, i ) * vsapi->getFrameHeight( frame, i ) );
+        memset( vsapi->getWritePtr( vs_frame, i ), 0x00, vsapi->getStride( vs_frame, i ) * vsapi->getFrameHeight( vs_frame, i ) );
 }
 
-static void make_frame_planar_yuv( uint8_t *dst_data[4], int dst_linesize[4], int width, int height, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+static void make_frame_planar_yuv
+(
+    AVPicture      *av_picture,
+    int             width,
+    int             height,
+    VSFrameRef     *vs_frame,
+    VSFrameContext *frame_ctx,
+    const VSAPI    *vsapi
+)
 {
-    const VSFormat *format = vsapi->getFrameFormat( frame );
-    int row_size_0 = format->bytesPerSample * width;
+    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
+    int av_row_size_0 = vs_format->bytesPerSample * width;
     for( int i = 0; i < 3; i++ )
     {
-        int      frame_linesize = vsapi->getStride  ( frame, i );
-        uint8_t *frame_data     = vsapi->getWritePtr( frame, i );
-        int      row_size       = row_size_0 >> (i ? format->subSamplingW : 0);
-        int      dst_height     = height     >> (i ? format->subSamplingH : 0);
-        bit_blt( frame_data, frame_linesize, dst_data[i], dst_linesize[i], row_size, dst_height );
+        int      vs_frame_linesize = vsapi->getStride  ( vs_frame, i );
+        uint8_t *vs_frame_data     = vsapi->getWritePtr( vs_frame, i );
+        int      av_row_size       = av_row_size_0 >> (i ? vs_format->subSamplingW : 0);
+        int      av_height         = height        >> (i ? vs_format->subSamplingH : 0);
+        bit_blt( vs_frame_data, vs_frame_linesize, av_picture->data[i], av_picture->linesize[i], av_row_size, av_height );
     }
 }
 
-static void make_frame_planar_rgb8( uint8_t *dst_data[4], int dst_linesize[4], int width, int height, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+static void make_frame_planar_rgb8
+(
+    AVPicture      *av_picture,
+    int             width,
+    int             height,
+    VSFrameRef     *vs_frame,
+    VSFrameContext *frame_ctx,
+    const VSAPI    *vsapi
+)
 {
-    uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
-    int frame_linesize = vsapi->getStride( frame, 0 );
-    int frame_offset   = 0;
-    int dst_offset     = 0;
-    const VSFormat *format = vsapi->getFrameFormat( frame );
+    uint8_t *vs_frame_data[3] =
+        {
+            vsapi->getWritePtr( vs_frame, 0 ),
+            vsapi->getWritePtr( vs_frame, 1 ),
+            vsapi->getWritePtr( vs_frame, 2 )
+        };
+    int vs_frame_linesize = vsapi->getStride( vs_frame, 0 );
+    int vs_pixel_offset   = 0;
+    int av_pixel_offset   = 0;
+    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
     for( int i = 0; i < height; i++ )
     {
-        uint8_t *dst_b = dst_data[0] + dst_offset;
-        uint8_t *dst_g = dst_b + 1;
-        uint8_t *dst_r = dst_g + 1;
-        uint8_t *frame_r = frame_data[0] + frame_offset;
-        uint8_t *frame_g = frame_data[1] + frame_offset;
-        uint8_t *frame_b = frame_data[2] + frame_offset;
+        uint8_t *av_pixel_b = av_picture->data[0] + av_pixel_offset;
+        uint8_t *av_pixel_g = av_pixel_b + 1;
+        uint8_t *av_pixel_r = av_pixel_g + 1;
+        uint8_t *vs_pixel_r = vs_frame_data[0] + vs_pixel_offset;
+        uint8_t *vs_pixel_g = vs_frame_data[1] + vs_pixel_offset;
+        uint8_t *vs_pixel_b = vs_frame_data[2] + vs_pixel_offset;
         for( int j = 0; j < width; j++ )
         {
-            *(frame_r++) = *dst_r;
-            *(frame_g++) = *dst_g;
-            *(frame_b++) = *dst_b;
-            dst_r += format->numPlanes;
-            dst_g += format->numPlanes;
-            dst_b += format->numPlanes;
+            *(vs_pixel_r++) = *av_pixel_r;
+            *(vs_pixel_g++) = *av_pixel_g;
+            *(vs_pixel_b++) = *av_pixel_b;
+            av_pixel_r += vs_format->numPlanes;
+            av_pixel_g += vs_format->numPlanes;
+            av_pixel_b += vs_format->numPlanes;
         }
-        dst_offset   += dst_linesize[0];
-        frame_offset += frame_linesize;
+        av_pixel_offset += av_picture->linesize[0];
+        vs_pixel_offset += vs_frame_linesize;
     }
 }
 
-static void make_frame_planar_rgb16( uint8_t *dst_data[4], int dst_linesize[4], int width, int height, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+static void make_frame_planar_rgb16
+(
+    AVPicture      *av_picture,
+    int             width,
+    int             height,
+    VSFrameRef     *vs_frame,
+    VSFrameContext *frame_ctx,
+    const VSAPI    *vsapi
+)
 {
-    uint8_t *frame_data[3] = { vsapi->getWritePtr( frame, 0 ), vsapi->getWritePtr( frame, 1 ), vsapi->getWritePtr( frame, 2 ) };
-    int frame_linesize = vsapi->getStride( frame, 0 );
-    int frame_offset   = 0;
-    int dst_offset     = 0;
-    const VSFormat *format = vsapi->getFrameFormat( frame );
+    uint8_t *vs_frame_data[3] =
+        {
+            vsapi->getWritePtr( vs_frame, 0 ),
+            vsapi->getWritePtr( vs_frame, 1 ),
+            vsapi->getWritePtr( vs_frame, 2 )
+        };
+    int vs_frame_linesize = vsapi->getStride( vs_frame, 0 );
+    int vs_pixel_offset   = 0;
+    int av_pixel_offset   = 0;
+    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
     for( int i = 0; i < height; i++ )
     {
-        uint16_t *dst_b = (uint16_t *)(dst_data[0] + dst_offset);
-        uint16_t *dst_g = dst_b + 1;
-        uint16_t *dst_r = dst_g + 1;
-        uint16_t *frame_r = (uint16_t *)(frame_data[0] + frame_offset);
-        uint16_t *frame_g = (uint16_t *)(frame_data[1] + frame_offset);
-        uint16_t *frame_b = (uint16_t *)(frame_data[2] + frame_offset);
+        uint16_t *av_pixel_b = (uint16_t *)(av_picture->data[0] + av_pixel_offset);
+        uint16_t *av_pixel_g = av_pixel_b + 1;
+        uint16_t *av_pixel_r = av_pixel_g + 1;
+        uint16_t *vs_pixel_r = (uint16_t *)(vs_frame_data[0] + vs_pixel_offset);
+        uint16_t *vs_pixel_g = (uint16_t *)(vs_frame_data[1] + vs_pixel_offset);
+        uint16_t *vs_pixel_b = (uint16_t *)(vs_frame_data[2] + vs_pixel_offset);
         for( int j = 0; j < width; j++ )
         {
-            *(frame_r++) = *dst_r;
-            *(frame_g++) = *dst_g;
-            *(frame_b++) = *dst_b;
-            dst_r += format->numPlanes;
-            dst_g += format->numPlanes;
-            dst_b += format->numPlanes;
+            *(vs_pixel_r++) = *av_pixel_r;
+            *(vs_pixel_g++) = *av_pixel_g;
+            *(vs_pixel_b++) = *av_pixel_b;
+            av_pixel_r += vs_format->numPlanes;
+            av_pixel_g += vs_format->numPlanes;
+            av_pixel_b += vs_format->numPlanes;
         }
-        dst_offset   += dst_linesize[0];
-        frame_offset += frame_linesize;
+        av_pixel_offset += av_picture->linesize[0];
+        vs_pixel_offset += vs_frame_linesize;
     }
 }
 
@@ -275,7 +328,11 @@ static inline int set_frame_maker( video_output_handler_t *vohp )
     return -1;
 }
 
-int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelFormat *input_pixel_format )
+int determine_colorspace_conversion
+(
+    video_output_handler_t *vohp,
+    enum AVPixelFormat     *input_pixel_format
+)
 {
     avoid_yuv_scale_conversion( input_pixel_format );
     if( vohp->variable_info || vohp->vs_output_pixel_format == pfNone )
@@ -333,37 +390,55 @@ int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelF
     return set_frame_maker( vohp );
 }
 
-static inline int convert_av_pixel_format( video_scaler_handler_t *vshp, AVFrame *picture, uint8_t *dst_data[4], int dst_linesize[4] )
+static inline int convert_av_pixel_format
+(
+    video_scaler_handler_t *vshp,
+    AVFrame                *av_frame,
+    AVPicture              *av_picture
+)
 {
     if( !vshp->enabled )
     {
         for( int i = 0; i < 4; i++ )
         {
-            dst_data    [i] = picture->data    [i];
-            dst_linesize[i] = picture->linesize[i];
+            av_picture->data    [i] = av_frame->data    [i];
+            av_picture->linesize[i] = av_frame->linesize[i];
         }
         return 0;
     }
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, vshp->output_pixel_format, 16 ) < 0 )
+    if( av_image_alloc( av_picture->data, av_picture->linesize, av_frame->width, av_frame->height, vshp->output_pixel_format, 16 ) < 0 )
         return -1;
-    int ret = sws_scale( vshp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    return ret > 0 ? ret : -1;
+    int ret = sws_scale( vshp->sws_ctx,
+                         (const uint8_t * const *)av_frame->data, av_frame->linesize,
+                         0, av_frame->height,
+                         av_picture->data, av_picture->linesize );
+    if( ret > 0 )
+        return ret;
+    av_freep( &av_picture->data[0] );
+    return -1;
 }
 
-int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
+int make_frame
+(
+    video_output_handler_t *vohp,
+    AVFrame                *av_frame,
+    VSFrameRef             *vs_frame,
+    VSFrameContext         *frame_ctx,
+    const VSAPI            *vsapi
+)
 {
     /* Convert color space if needed. We don't change the presentation resolution. */
-    avoid_yuv_scale_conversion( (enum AVPixelFormat *)&picture->format );
+    avoid_yuv_scale_conversion( (enum AVPixelFormat *)&av_frame->format );
     video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
-     || picture->width  != vshp->input_width
-     || picture->height != vshp->input_height
-     || picture->format != vshp->input_pixel_format )
+     || av_frame->width  != vshp->input_width
+     || av_frame->height != vshp->input_height
+     || av_frame->format != vshp->input_pixel_format )
     {
         /* Update scaler. */
         vshp->sws_ctx = sws_getCachedContext( vshp->sws_ctx,
-                                              picture->width, picture->height, (enum AVPixelFormat)picture->format,
-                                              picture->width, picture->height, vshp->output_pixel_format,
+                                              av_frame->width, av_frame->height, (enum AVPixelFormat)av_frame->format,
+                                              av_frame->width, av_frame->height, vshp->output_pixel_format,
                                               vshp->flags, NULL, NULL, NULL );
         if( !vshp->sws_ctx )
         {
@@ -371,25 +446,24 @@ int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *fram
                 vsapi->setFilterError( "lsmas: failed to update scaler settings.", frame_ctx );
             return -1;
         }
-        vshp->input_width        = picture->width;
-        vshp->input_height       = picture->height;
-        vshp->input_pixel_format = picture->format;
+        vshp->input_width        = av_frame->width;
+        vshp->input_height       = av_frame->height;
+        vshp->input_pixel_format = av_frame->format;
         vshp->enabled            = (vshp->input_pixel_format != vshp->output_pixel_format);
     }
     /* Make video frame. */
     if( !vohp->make_frame )
         return -1;
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    int      ret = convert_av_pixel_format( vshp, picture, dst_data, dst_linesize );
+    AVPicture av_picture;
+    int ret = convert_av_pixel_format( vshp, av_frame, &av_picture );
     if( ret < 0 )
     {
         if( frame_ctx )
             vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
         return -1;
     }
-    vohp->make_frame( dst_data, dst_linesize, picture->width, picture->height, frame, frame_ctx, vsapi );
+    vohp->make_frame( &av_picture, av_frame->width, av_frame->height, vs_frame, frame_ctx, vsapi );
     if( ret > 0 )
-        av_free( dst_data[0] );
+        av_free( av_picture.data[0] );
     return 0;
 }

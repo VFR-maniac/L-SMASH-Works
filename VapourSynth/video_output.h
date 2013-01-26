@@ -20,8 +20,21 @@
 
 /* This file is available under an ISC license. */
 
-typedef void func_make_black_background( VSFrameRef *frame, const VSAPI *vsapi );
-typedef void func_make_frame( uint8_t *dst_data[4], int dst_linesize[4], int width, int height, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi );
+typedef void func_make_black_background
+(
+    VSFrameRef  *vs_frame,
+    const VSAPI *vsapi
+);
+
+typedef void func_make_frame
+(
+    AVPicture      *av_picture,
+    int             width,
+    int             height,
+    VSFrameRef     *vs_frame,
+    VSFrameContext *frame_ctx,
+    const VSAPI    *vsapi
+);
 
 typedef struct
 {
@@ -46,8 +59,19 @@ typedef struct
     func_make_frame            *make_frame;
 } video_output_handler_t;
 
-func_make_frame make_frame_yuv420p;
-
 VSPresetFormat get_vs_output_pixel_format( const char *format_name );
-int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelFormat *input_pixel_format );
-int make_frame( video_output_handler_t *ohp, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi );
+
+int determine_colorspace_conversion
+(
+    video_output_handler_t *vohp,
+    enum                    AVPixelFormat *input_pixel_format
+);
+
+int make_frame
+(
+    video_output_handler_t *vohp,
+    AVFrame                *av_frame,
+    VSFrameRef             *vs_frame,
+    VSFrameContext         *frame_ctx,
+    const VSAPI            *vsapi
+);
