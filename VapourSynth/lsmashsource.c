@@ -157,7 +157,6 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         set_error( &eh, "lsmas: failed to get swscale context." );
         return -1;
     }
-    vshp->enabled = (config->ctx->pix_fmt != vshp->output_pixel_format);
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -171,9 +170,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = vohp->variable_info
-                                        ? vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core )
-                                        : vsapi->copyFrame( vohp->background_frame, core );
+                vohp->first_valid_frame = new_output_video_frame( vohp, av_frame, NULL, core, vsapi );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( &eh, "lsmas: failed to allocate memory for the first valid video frame data." );
@@ -294,19 +291,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame;
-    if( vohp->variable_info )
-    {
-        if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt ) )
-        {
-            vsapi->setFilterError( "lsmas: failed to determin output format.", frame_ctx );
-            return NULL;
-        }
-        const VSFormat *vs_format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
-        vs_frame = vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
-    }
-    else
-        vs_frame = vsapi->copyFrame( vohp->background_frame, core );
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame, frame_ctx, core, vsapi );
     if( vs_frame )
     {
         set_frame_properties( hp, av_frame, vs_frame, sample_number, vsapi );

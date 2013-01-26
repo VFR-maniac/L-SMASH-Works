@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+typedef int component_reorder_t;
+
 typedef void func_make_black_background
 (
     VSFrameRef  *vs_frame,
@@ -28,12 +30,13 @@ typedef void func_make_black_background
 
 typedef void func_make_frame
 (
-    AVPicture      *av_picture,
-    int             width,
-    int             height,
-    VSFrameRef     *vs_frame,
-    VSFrameContext *frame_ctx,
-    const VSAPI    *vsapi
+    AVPicture                 *av_picture,
+    int                        width,
+    int                        height,
+    const component_reorder_t *component_reorder,
+    VSFrameRef                *vs_frame,
+    VSFrameContext            *frame_ctx,
+    const VSAPI               *vsapi
 );
 
 typedef struct
@@ -50,6 +53,7 @@ typedef struct
 typedef struct
 {
     int                         variable_info;
+    const component_reorder_t  *component_reorder;
     video_scaler_handler_t      scaler;
     VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *background_frame;
@@ -65,6 +69,15 @@ int determine_colorspace_conversion
 (
     video_output_handler_t *vohp,
     enum                    AVPixelFormat *input_pixel_format
+);
+
+VSFrameRef *new_output_video_frame
+(
+    video_output_handler_t *vohp,
+    AVFrame                *av_frame,
+    VSFrameContext         *frame_ctx,
+    VSCore                 *core,
+    const VSAPI            *vsapi
 );
 
 int make_frame
