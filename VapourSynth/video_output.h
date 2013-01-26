@@ -25,11 +25,19 @@ typedef void func_make_frame( uint8_t *dst_data[4], int dst_linesize[4], int wid
 
 typedef struct
 {
+    int                enabled;
+    int                flags;
+    int                input_width;
+    int                input_height;
+    enum AVPixelFormat input_pixel_format;
+    enum AVPixelFormat output_pixel_format;
+    struct SwsContext *sws_ctx;
+} video_scaler_handler_t;
+
+typedef struct
+{
     int                         variable_info;
-    int                         enable_scaler;
-    int                         scaler_flags;
-    struct SwsContext          *sws_ctx;
-    enum AVPixelFormat          av_output_pixel_format;
+    video_scaler_handler_t      scaler;
     VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *background_frame;
     VSFrameRef                 *first_valid_frame;

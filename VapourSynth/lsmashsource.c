@@ -145,17 +145,19 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         }
         vohp->make_black_background( vohp->background_frame, vsapi );
     }
-    vohp->scaler_flags = SWS_FAST_BILINEAR;
-    vohp->sws_ctx = sws_getCachedContext( NULL,
+    /* Set up scaler. */
+    video_scaler_handler_t *vshp = &vohp->scaler;
+    vshp->flags = SWS_FAST_BILINEAR;
+    vshp->sws_ctx = sws_getCachedContext( NULL,
                                           config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                          config->ctx->width, config->ctx->height, vohp->av_output_pixel_format,
-                                          vohp->scaler_flags, NULL, NULL, NULL );
-    if( !vohp->sws_ctx )
+                                          config->ctx->width, config->ctx->height, vshp->output_pixel_format,
+                                          vshp->flags, NULL, NULL, NULL );
+    if( !vshp->sws_ctx )
     {
         set_error( &eh, "lsmas: failed to get swscale context." );
         return -1;
     }
-    vohp->enable_scaler = (config->ctx->pix_fmt != vohp->av_output_pixel_format);
+    vshp->enabled = (config->ctx->pix_fmt != vshp->output_pixel_format);
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -290,7 +292,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     hp->eh.vsapi     = vsapi;
     if( get_video_frame( vdhp, sample_number, vi->numFrames ) )
         return NULL;
-    /* Output frame. */
+    /* Output video frame. */
     AVFrame    *picture = vdhp->frame_buffer;
     VSFrameRef *frame;
     if( vohp->variable_info )
@@ -310,7 +312,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         set_frame_properties( hp, picture, frame, sample_number, vsapi );
         if( make_frame( vohp, picture, frame, frame_ctx, vsapi ) )
         {
-            vsapi->setFilterError( "lsmas: failed to output a frame.", frame_ctx );
+            vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
             return frame;
         }
     }
@@ -328,8 +330,8 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
         free( hp->vdh.order_converter );
     if( hp->vdh.frame_buffer )
         avcodec_free_frame( &hp->vdh.frame_buffer );
-    if( hp->voh.sws_ctx )
-        sws_freeContext( hp->voh.sws_ctx );
+    if( hp->voh.scaler.sws_ctx )
+        sws_freeContext( hp->voh.scaler.sws_ctx );
     cleanup_configuration( &hp->vdh.config );
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );

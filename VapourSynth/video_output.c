@@ -27,7 +27,6 @@
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
-#include <libavutil/opt.h>
 
 #include "VapourSynth.h"
 #include "video_output.h"
@@ -330,13 +329,13 @@ int determine_colorspace_conversion( video_output_handler_t *vohp, enum AVPixelF
                 break;
             }
     }
-    vohp->av_output_pixel_format = vs_to_av_output_pixel_format( vohp->vs_output_pixel_format );
+    vohp->scaler.output_pixel_format = vs_to_av_output_pixel_format( vohp->vs_output_pixel_format );
     return set_frame_maker( vohp );
 }
 
-static inline int convert_av_pixel_format( video_output_handler_t *vohp, AVFrame *picture, uint8_t *dst_data[4], int dst_linesize[4] )
+static inline int convert_av_pixel_format( video_scaler_handler_t *vshp, AVFrame *picture, uint8_t *dst_data[4], int dst_linesize[4] )
 {
-    if( !vohp->enable_scaler )
+    if( !vshp->enabled )
     {
         for( int i = 0; i < 4; i++ )
         {
@@ -345,42 +344,44 @@ static inline int convert_av_pixel_format( video_output_handler_t *vohp, AVFrame
         }
         return 0;
     }
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, vohp->av_output_pixel_format, 16 ) < 0 )
+    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, vshp->output_pixel_format, 16 ) < 0 )
         return -1;
-    int ret = sws_scale( vohp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
+    int ret = sws_scale( vshp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     return ret > 0 ? ret : -1;
 }
 
 int make_frame( video_output_handler_t *vohp, AVFrame *picture, VSFrameRef *frame, VSFrameContext *frame_ctx, const VSAPI *vsapi )
 {
-    /* Convert color space. We don't change the presentation resolution. */
-    int64_t width;
-    int64_t height;
-    int64_t format;
-    av_opt_get_int( vohp->sws_ctx, "srcw",       0, &width );
-    av_opt_get_int( vohp->sws_ctx, "srch",       0, &height );
-    av_opt_get_int( vohp->sws_ctx, "src_format", 0, &format );
+    /* Convert color space if needed. We don't change the presentation resolution. */
     avoid_yuv_scale_conversion( (enum AVPixelFormat *)&picture->format );
-    if( !vohp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
+    video_scaler_handler_t *vshp = &vohp->scaler;
+    if( !vshp->sws_ctx
+     || picture->width  != vshp->input_width
+     || picture->height != vshp->input_height
+     || picture->format != vshp->input_pixel_format )
     {
         /* Update scaler. */
-        vohp->sws_ctx = sws_getCachedContext( vohp->sws_ctx,
+        vshp->sws_ctx = sws_getCachedContext( vshp->sws_ctx,
                                               picture->width, picture->height, (enum AVPixelFormat)picture->format,
-                                              picture->width, picture->height, vohp->av_output_pixel_format,
-                                              vohp->scaler_flags, NULL, NULL, NULL );
-        if( !vohp->sws_ctx )
+                                              picture->width, picture->height, vshp->output_pixel_format,
+                                              vshp->flags, NULL, NULL, NULL );
+        if( !vshp->sws_ctx )
         {
             if( frame_ctx )
                 vsapi->setFilterError( "lsmas: failed to update scaler settings.", frame_ctx );
             return -1;
         }
-        vohp->enable_scaler = (picture->format != vohp->av_output_pixel_format);
+        vshp->input_width        = picture->width;
+        vshp->input_height       = picture->height;
+        vshp->input_pixel_format = picture->format;
+        vshp->enabled            = (vshp->input_pixel_format != vshp->output_pixel_format);
     }
+    /* Make video frame. */
     if( !vohp->make_frame )
         return -1;
     uint8_t *dst_data    [4];
     int      dst_linesize[4];
-    int      ret = convert_av_pixel_format( vohp, picture, dst_data, dst_linesize );
+    int      ret = convert_av_pixel_format( vshp, picture, dst_data, dst_linesize );
     if( ret < 0 )
     {
         if( frame_ctx )
