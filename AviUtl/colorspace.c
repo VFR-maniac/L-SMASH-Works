@@ -428,11 +428,11 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
         output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     }
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
-    static int sse2_available = -1;
-    if( sse2_available == -1 )
-        sse2_available = check_sse2();
-    static void (*func_yuv16le_to_yc48[2])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2 };
-    func_yuv16le_to_yc48[sse2_available && ((buf_linesize | (size_t)buf) & 15) == 0]
+    static int simd_available = -1;
+    if( simd_available == -1 )
+        simd_available = check_sse2() + ( check_sse2() && check_sse41() );
+    static void (*func_yuv16le_to_yc48[3])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2, convert_yuv16le_to_yc48_sse4_1 };
+    func_yuv16le_to_yc48[simd_available * (((buf_linesize | (size_t)buf) & 15) == 0)]
         ( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;

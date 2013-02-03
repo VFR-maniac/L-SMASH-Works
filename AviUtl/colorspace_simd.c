@@ -37,171 +37,6 @@
 #endif
 
 #ifdef __GNUC__
-#pragma GCC target ("sse2")
-#endif
-#include <emmintrin.h>
-/* SSE2 version of func convert_yuv16le_to_yc48
- * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16. */
-void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
-{
-    uint8_t *ycp, *ycp_fin;
-    uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
-    __m128i x0, x1, x2, x3;
-#define Y_COEF         4788
-#define Y_COEF_FULL    4770
-#define UV_COEF        4682
-#define UV_COEF_FULL   4662
-#define Y_OFFSET       ((-299)+((Y_COEF)>>1))
-#define Y_OFFSET_FULL  ((-299)+((Y_COEF_FULL)>>1))
-#define UV_OFFSET      32768
-#define UV_OFFSET_FULL 589824
-    static const int AUI_ALIGN(16) aY_coef[2][4] = {
-        { Y_COEF,      Y_COEF,      Y_COEF,      Y_COEF      },
-        { Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL }
-    };
-    static const int AUI_ALIGN(16) aUV_coef[2][4] = {
-        { UV_COEF,      UV_COEF,      UV_COEF,      UV_COEF      },
-        { UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL }
-    };
-    static const int16_t AUI_ALIGN(16) aY_offest[2][8] = {
-        { Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET      },
-        { Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL }
-    };
-    static const int AUI_ALIGN(16) aUV_offest[2][4] = {
-        { UV_OFFSET,      UV_OFFSET,      UV_OFFSET,      UV_OFFSET      },
-        { UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL }
-    };
-#undef Y_COEF
-#undef Y_COEF_FULL
-#undef UV_COEF
-#undef UV_COEF_FULL
-#undef Y_OFFSET
-#undef Y_OFFSET_FULL
-#undef UV_OFFSET
-#undef UV_OFFSET_FULL
-    x3 = _mm_setzero_si128();   /* Initialize to avoid warning and some weird gcc optimization. */
-    /*  Y = ((( y - 32768 ) * coef)           >> 16 ) + (coef/2 - 299) */
-    /* UV = (( uv - 32768 ) * coef + offset ) >> 16 */
-    for( uint32_t h = 0; h < output_height; h++ )
-    {
-        p_dst_y = dst_data[0] + dst_linesize[0] * h;
-        p_dst_u = dst_data[1] + dst_linesize[1] * h;
-        p_dst_v = dst_data[2] + dst_linesize[2] * h;
-        ycp = buf + buf_linesize * h;
-        for( ycp_fin = ycp + output_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
-        {
-            /* make -32768 (0x8000) */
-            x3 = _mm_cmpeq_epi32(x3, x3);   /* 0xffff */
-            x3 = _mm_slli_epi16(x3, 15);    /* 0x8000 */
-            /* load */
-            x0 = _mm_load_si128((__m128i *)p_dst_y);
-            x1 = _mm_load_si128((__m128i *)p_dst_u);
-            x2 = _mm_load_si128((__m128i *)p_dst_v);
-            /* change uint16 to int16 in order to use _mm_madd_epi16()
-             * range 0 - 65535 to -32768 - 32767 */
-            x0 = _mm_add_epi16(x0, x3);
-            x1 = _mm_add_epi16(x1, x3);
-            x2 = _mm_add_epi16(x2, x3);
-
-            /* calc Y */
-            x3 = x0;
-            x3 = _mm_unpackhi_epi16(x3, x0);
-            x0 = _mm_unpacklo_epi16(x0, x0);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aY_coef[full_range]));
-            x0 = _mm_madd_epi16(x0, _mm_load_si128((__m128i *)aY_coef[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x0 = _mm_srai_epi32(x0, 16);
-
-            x0 = _mm_packs_epi32(x0, x3);
-
-            x0 = _mm_add_epi16(x0, _mm_load_si128((__m128i *)aY_offest[full_range]));
-
-            /* calc U */
-            x3 = x1;
-            x3 = _mm_unpackhi_epi16(x3, x1);
-            x1 = _mm_unpacklo_epi16(x1, x1);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-            x1 = _mm_madd_epi16(x1, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-
-            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-            x1 = _mm_add_epi32(x1, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x1 = _mm_srai_epi32(x1, 16);
-
-            x1 = _mm_packs_epi32(x1, x3);
-
-            /* calc V */
-            x3 = x2;
-            x3 = _mm_unpackhi_epi16(x3, x2);
-            x2 = _mm_unpacklo_epi16(x2, x2);
-
-            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-            x2 = _mm_madd_epi16(x2, _mm_load_si128((__m128i *)aUV_coef[full_range]));
-
-            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-            x2 = _mm_add_epi32(x2, _mm_load_si128((__m128i *)aUV_offest[full_range]));
-
-            x3 = _mm_srai_epi32(x3, 16);
-            x2 = _mm_srai_epi32(x2, 16);
-
-            x2 = _mm_packs_epi32(x2, x3);
-
-            /* shuffle order 7,6,5,4,3,2,1,0 to 7,3,5,1,6,2,4,0 */
-            x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,6,5,4,3,1,2,0 */
-            x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,6,4,3,1,2,0 */
-            x0 = _mm_shuffle_epi32(  x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,4,2,0 */
-            x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,2,4,0 */
-            x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,3,5,1,6,2,4,0 */
-
-            x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shuffle_epi32(  x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-            x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
-
-            x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shuffle_epi32(  x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-            x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
-
-            /* shuffle to PIXEL_YC */
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi16(x0, x1);
-            x1 = _mm_unpackhi_epi16(x1, x2);
-            x2 = _mm_unpacklo_epi16(x2, x3);
-
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi32(x0, x2);
-            x2 = _mm_unpackhi_epi32(x2, x1);
-            x1 = _mm_unpacklo_epi32(x1, x3);
-
-            x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
-            x0 = _mm_unpacklo_epi64(x0, x1);
-            x1 = _mm_unpackhi_epi64(x1, x2);
-            x2 = _mm_unpacklo_epi64(x2, x3);
-
-            /* store */
-            _mm_stream_si128((__m128i *)&ycp[ 0], x0);
-            _mm_stream_si128((__m128i *)&ycp[16], x2);
-            _mm_stream_si128((__m128i *)&ycp[32], x1);
-        }
-    }
-    const int background_fill_count = ((48 - (output_linesize % 48)) % 48) >> 1;
-    if( background_fill_count )
-        for( int j = 0; j < output_height; j++ )
-        {
-            int16_t *ptr = (int16_t *)(buf + buf_linesize * j + output_linesize);
-            for( int i = 0; i < background_fill_count; i++ )
-                ptr[i] = 0;
-        }
-}
-
-#ifdef __GNUC__
 #pragma GCC target ("ssse3")
 #endif
 #include <tmmintrin.h>
@@ -650,4 +485,198 @@ void AUI_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41( uint8_t **dst, c
 void AUI_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 16 );
+}
+
+/* SIMD version of func convert_yuv16le_to_yc48
+ * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16.
+ * the inner loop branch should be deleted by forced inline expansion and "use_sse41" constant propagation. */
+void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range, const int use_sse41 )
+{
+    uint8_t *ycp, *ycp_fin;
+    uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
+    __m128i x0, x1, x2, x3, x4;
+#define Y_COEF         4788
+#define Y_COEF_FULL    4770
+#define UV_COEF        4682
+#define UV_COEF_FULL   4662
+#define Y_OFFSET       ((-299)+((Y_COEF)>>1))
+#define Y_OFFSET_FULL  ((-299)+((Y_COEF_FULL)>>1))
+#define UV_OFFSET      32768
+#define UV_OFFSET_FULL 589824
+    static const int AUI_ALIGN(16) aY_coef[2][4] = {
+        { Y_COEF,      Y_COEF,      Y_COEF,      Y_COEF      },
+        { Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL }
+    };
+    static const int AUI_ALIGN(16) aUV_coef[2][4] = {
+        { UV_COEF,      UV_COEF,      UV_COEF,      UV_COEF      },
+        { UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL }
+    };
+    static const int16_t AUI_ALIGN(16) aY_offest[2][8] = {
+        { Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET      },
+        { Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL }
+    };
+    static const int AUI_ALIGN(16) aUV_offest[2][4] = {
+        { UV_OFFSET,      UV_OFFSET,      UV_OFFSET,      UV_OFFSET      },
+        { UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL }
+    };
+#undef Y_COEF
+#undef Y_COEF_FULL
+#undef UV_COEF
+#undef UV_COEF_FULL
+#undef Y_OFFSET
+#undef Y_OFFSET_FULL
+#undef UV_OFFSET
+#undef UV_OFFSET_FULL
+    static const uint8_t AUI_ALIGN(16) a_shuffle[16] = {
+        0x00, 0x01, 0x06, 0x07, 0x0C, 0x0D, 0x02, 0x03, 0x08, 0x09, 0x0E, 0x0F, 0x04, 0x05, 0x0A, 0x0B
+    };
+    x3 = _mm_setzero_si128();   /* Initialize to avoid warning and some weird gcc optimization. */
+    /*  Y = ((( y - 32768 ) * coef)           >> 16 ) + (coef/2 - 299) */
+    /* UV = (( uv - 32768 ) * coef + offset ) >> 16 */
+    for( uint32_t h = 0; h < output_height; h++ )
+    {
+        p_dst_y = dst_data[0] + dst_linesize[0] * h;
+        p_dst_u = dst_data[1] + dst_linesize[1] * h;
+        p_dst_v = dst_data[2] + dst_linesize[2] * h;
+        ycp = buf + buf_linesize * h;
+        for( ycp_fin = ycp + output_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
+        {
+            /* make -32768 (0x8000) */
+            x3 = _mm_cmpeq_epi32(x3, x3);   /* 0xffff */
+            x3 = _mm_slli_epi16(x3, 15);    /* 0x8000 */
+            /* load */
+            x0 = _mm_load_si128((__m128i *)p_dst_y);
+            x1 = _mm_load_si128((__m128i *)p_dst_u);
+            x2 = _mm_load_si128((__m128i *)p_dst_v);
+            /* change uint16 to int16 in order to use _mm_madd_epi16()
+             * range 0 - 65535 to -32768 - 32767 */
+            x0 = _mm_add_epi16(x0, x3);
+            x1 = _mm_add_epi16(x1, x3);
+            x2 = _mm_add_epi16(x2, x3);
+
+            /* calc Y */
+            x3 = x0;
+            x3 = _mm_unpackhi_epi16(x3, x0);
+            x0 = _mm_unpacklo_epi16(x0, x0);
+
+            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aY_coef[full_range]));
+            x0 = _mm_madd_epi16(x0, _mm_load_si128((__m128i *)aY_coef[full_range]));
+
+            x3 = _mm_srai_epi32(x3, 16);
+            x0 = _mm_srai_epi32(x0, 16);
+
+            x0 = _mm_packs_epi32(x0, x3);
+
+            x0 = _mm_add_epi16(x0, _mm_load_si128((__m128i *)aY_offest[full_range]));
+
+            /* calc U */
+            x3 = x1;
+            x3 = _mm_unpackhi_epi16(x3, x1);
+            x1 = _mm_unpacklo_epi16(x1, x1);
+
+            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
+            x1 = _mm_madd_epi16(x1, _mm_load_si128((__m128i *)aUV_coef[full_range]));
+
+            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
+            x1 = _mm_add_epi32(x1, _mm_load_si128((__m128i *)aUV_offest[full_range]));
+
+            x3 = _mm_srai_epi32(x3, 16);
+            x1 = _mm_srai_epi32(x1, 16);
+
+            x1 = _mm_packs_epi32(x1, x3);
+
+            /* calc V */
+            x3 = x2;
+            x3 = _mm_unpackhi_epi16(x3, x2);
+            x2 = _mm_unpacklo_epi16(x2, x2);
+
+            x3 = _mm_madd_epi16(x3, _mm_load_si128((__m128i *)aUV_coef[full_range]));
+            x2 = _mm_madd_epi16(x2, _mm_load_si128((__m128i *)aUV_coef[full_range]));
+
+            x3 = _mm_add_epi32(x3, _mm_load_si128((__m128i *)aUV_offest[full_range]));
+            x2 = _mm_add_epi32(x2, _mm_load_si128((__m128i *)aUV_offest[full_range]));
+
+            x3 = _mm_srai_epi32(x3, 16);
+            x2 = _mm_srai_epi32(x2, 16);
+
+            x2 = _mm_packs_epi32(x2, x3);
+
+            if( use_sse41 )
+            {
+                x4 = _mm_load_si128((__m128i *)a_shuffle);
+                x0 = _mm_shuffle_epi8(x0, x4);
+                x1 = _mm_shuffle_epi8(x1, _mm_alignr_epi8(x4, x4, 14));
+                x2 = _mm_shuffle_epi8(x2, _mm_alignr_epi8(x4, x4, 12));
+
+                x3 = _mm_blend_epi16(x0, x1, 0x80 + 0x10 + 0x02);
+                x3 = _mm_blend_epi16(x3, x2, 0x20 + 0x04       );
+                x2 = _mm_blend_epi16(x2, x1, 0x20 + 0x04       );
+                x4 = x2;
+                x1 = _mm_blend_epi16(x1, x0, 0x20 + 0x04       );
+                x2 = _mm_blend_epi16(x2, x0, 0x80 + 0x10 + 0x02);
+                x1 = _mm_blend_epi16(x1, x4, 0x80 + 0x10 + 0x02);
+                x0 = x3;
+            }
+            else
+            {
+                /* shuffle order 7,6,5,4,3,2,1,0 to 7,3,5,1,6,2,4,0 */
+                x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,6,5,4,3,1,2,0 */
+                x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,6,4,3,1,2,0 */
+                x0 = _mm_shuffle_epi32(  x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,4,2,0 */
+                x0 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,5,3,1,6,2,4,0 */
+                x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3,1,2,0)); /* 7,3,5,1,6,2,4,0 */
+
+                x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
+                x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
+                x1 = _mm_shuffle_epi32(  x1, _MM_SHUFFLE(3,1,2,0));
+                x1 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3,1,2,0));
+                x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3,1,2,0));
+
+                x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
+                x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
+                x2 = _mm_shuffle_epi32(  x2, _MM_SHUFFLE(3,1,2,0));
+                x2 = _mm_shufflelo_epi16(x2, _MM_SHUFFLE(3,1,2,0));
+                x2 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3,1,2,0));
+
+                /* shuffle to PIXEL_YC */
+                x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
+                x0 = _mm_unpacklo_epi16(x0, x1);
+                x1 = _mm_unpackhi_epi16(x1, x2);
+                x2 = _mm_unpacklo_epi16(x2, x3);
+
+                x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
+                x0 = _mm_unpacklo_epi32(x0, x2);
+                x2 = _mm_unpackhi_epi32(x2, x1);
+                x1 = _mm_unpacklo_epi32(x1, x3);
+
+                x3 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3,2,3,2));
+                x0 = _mm_unpacklo_epi64(x0, x1);
+                x1 = _mm_unpackhi_epi64(x1, x2);
+                x2 = _mm_unpacklo_epi64(x2, x3);
+            }
+
+            /* store */
+            _mm_stream_si128((__m128i *)&ycp[ 0], x0);
+            _mm_stream_si128((__m128i *)&ycp[16], x2);
+            _mm_stream_si128((__m128i *)&ycp[32], x1);
+        }
+    }
+    const int background_fill_count = ((48 - (output_linesize % 48)) % 48) >> 1;
+    if( background_fill_count )
+        for( int j = 0; j < output_height; j++ )
+        {
+            int16_t *ptr = (int16_t *)(buf + buf_linesize * j + output_linesize);
+            for( int i = 0; i < background_fill_count; i++ )
+                ptr[i] = 0;
+        }
+}
+
+void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+{
+    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 0 );
+}
+
+void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse4_1( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+{
+    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 1 );
 }
