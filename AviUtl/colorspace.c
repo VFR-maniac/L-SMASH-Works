@@ -198,6 +198,132 @@ static void convert_packed_chroma_to_planar( uint8_t *packed_chroma, uint8_t *pl
     }
 }
 
+static void inline __attribute__((always_inline)) convert_yuv420ple_i_to_yuv444p16le( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height, int bit_depth )
+{
+    const int lshft = 16 - bit_depth;
+    /* copy luma */
+    {
+        uint16_t *ptr_src_line = (uint16_t *)pic_data[0];
+        uint16_t *ptr_dst_line = (uint16_t *)dst[0];
+        const int dst_line_len = dst_linesize[0] / sizeof(uint16_t);
+        const int src_line_len = pic_linesize[0] / sizeof(uint16_t);
+        const int luma_width = (output_linesize / sizeof(uint16_t));
+        for( int y = 0; y < height; y++ )
+            for( int x = 0; x < luma_width; x++ )
+                ptr_dst_line[y*dst_line_len+x] = ptr_src_line[y*src_line_len+x] << lshft;
+    }
+    /* chroma upsampling for interlaced yuv420 */
+    const int src_chroma_width = (output_linesize / sizeof(uint16_t)) / 2;
+    for( int i_color = 1; i_color < 3; i_color++ )
+    {
+        uint16_t *ptr_src_line = (uint16_t *)pic_data[i_color];
+        uint16_t *ptr_dst_line = (uint16_t *)dst[i_color];
+        const int dst_line_len = dst_linesize[i_color] / sizeof(uint16_t);
+        const int src_line_len = pic_linesize[i_color] / sizeof(uint16_t);
+        /* first 2 lines */
+        int x;
+        uint16_t tmp[2][4];
+        uint64_t *tmp0 = (uint64_t *)tmp[0], *tmp1 = (uint64_t *)tmp[1];
+
+    /* this inner loop branch should be deleted by forced inline expansion and "lshft" constant propagation. */
+#define INTERPOLATE_CHROMA( k, x ) \
+    { \
+        int chroma0 = (5 * ptr_src_line[0 * src_line_len + x] + 3 * ptr_src_line[2 * src_line_len + x]); \
+        int chroma1 = (7 * ptr_src_line[1 * src_line_len + x] + 1 * ptr_src_line[3 * src_line_len + x]); \
+        int chroma2 = (1 * ptr_src_line[0 * src_line_len + x] + 7 * ptr_src_line[2 * src_line_len + x]); \
+        int chroma3 = (3 * ptr_src_line[1 * src_line_len + x] + 5 * ptr_src_line[3 * src_line_len + x]); \
+        if( lshft - 3 < 0 ) \
+        { \
+            tmp[k][0] = (chroma0 + (1<<(2-lshft))) >> (3-lshft); \
+            tmp[k][1] = (chroma1 + (1<<(2-lshft))) >> (3-lshft); \
+            tmp[k][2] = (chroma2 + (1<<(2-lshft))) >> (3-lshft); \
+            tmp[k][3] = (chroma3 + (1<<(2-lshft))) >> (3-lshft); \
+        } \
+        else if( lshft - 3 > 0 ) \
+        { \
+            tmp[k][0] = chroma0 << (lshft-3); \
+            tmp[k][1] = chroma1 << (lshft-3); \
+            tmp[k][2] = chroma2 << (lshft-3); \
+            tmp[k][3] = chroma3 << (lshft-3); \
+        } \
+        else \
+        { \
+            tmp[k][0] = chroma0; \
+            tmp[k][1] = chroma1; \
+            tmp[k][2] = chroma2; \
+            tmp[k][3] = chroma3; \
+        } \
+    }
+#define PUT_CHROMA( x, line ) \
+    { \
+        ptr_dst_line[dst_line_len * line + 2 * x + 0] = tmp[0][line]; \
+        ptr_dst_line[dst_line_len * line + 2 * x + 1] = (tmp[0][line] + tmp[1][line]) >> 1; \
+    }
+
+        tmp[0][0] = ptr_src_line[0] << lshft;
+        tmp[0][1] = ptr_src_line[src_line_len] << lshft;
+        for( x = 0; x < src_chroma_width - 1; x++ )
+        {
+            tmp[1][0] = ptr_src_line[x+1] << lshft;
+            tmp[1][1] = ptr_src_line[x+1 + src_line_len] << lshft;
+            for( int i = 0; i < 2; i++ )
+                PUT_CHROMA( x, i );
+            *tmp0 = *tmp1;
+        }
+        for( int i = 0; i < 2; i++ )
+            PUT_CHROMA( x, i );
+        ptr_dst_line += (dst_line_len << 1);
+
+        /* 5,3,7,1 - interlaced yuv420 to yuv422 interpolation with 1,1 - yuv422 to yuv444 interpolation. */
+        for( int y = 2; y < height - 2; y += 4, ptr_dst_line += (dst_line_len << 2), ptr_src_line += (src_line_len << 1) )
+        {
+            INTERPOLATE_CHROMA( 0, 0 );
+            for( x = 0; x < src_chroma_width - 1; x++ )
+            {
+                INTERPOLATE_CHROMA( 1, x+1 );
+                for( int i = 0; i < 4; i++ )
+                    PUT_CHROMA( x, i );
+                *tmp0 = *tmp1;
+            }
+            for( int i = 0; i < 4; i++ )
+                PUT_CHROMA( x, i );
+        }
+
+        /* last 2 lines */
+        tmp[0][0] = ptr_src_line[0] << lshft;
+        tmp[0][1] = ptr_src_line[src_line_len] << lshft;
+        for( x = 0; x < src_chroma_width - 1; x++ )
+        {
+            tmp[1][0] = ptr_src_line[x+1] << lshft;
+            tmp[1][1] = ptr_src_line[x+1 + src_line_len] << lshft;
+            for( int i = 0; i < 2; i++ )
+                PUT_CHROMA( x, i );
+            *tmp0 = *tmp1;
+        }
+        for( int i = 0; i < 2; i++ )
+            PUT_CHROMA( x, i );
+#undef INTERPOLATE_CHROMA
+#undef PUT_CHROMA
+    }
+}
+
+typedef void (*func_convert_yuv420ple_i_to_yuv444p16le)( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height );
+
+static void convert_yuv420p9le_i_to_yuv444p16le( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 9 );
+}
+
+static void convert_yuv420p10le_i_to_yuv444p16le( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 10 );
+}
+
+static void convert_yuv420p16le_i_to_yuv444p16le( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 16 );
+}
+
 static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     uint8_t *pic_y = pic_data[0];
@@ -264,8 +390,35 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
         MessageBox( HWND_DESKTOP, "Failed to av_image_alloc for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     int output_linesize = picture->width * YC48_SIZE;
+    static const struct
+    {
+        enum AVPixelFormat px_fmt;
+        func_convert_yuv420ple_i_to_yuv444p16le convert;
+    } yuv420_list[] = {
+        { AV_PIX_FMT_YUV420P9LE,  convert_yuv420p9le_i_to_yuv444p16le  },
+        { AV_PIX_FMT_YUV420P10LE, convert_yuv420p10le_i_to_yuv444p16le },
+        { AV_PIX_FMT_YUV420P16LE, convert_yuv420p16le_i_to_yuv444p16le },
+    };
+    int yuv420_index = -1;
+    if( picture->interlaced_frame )
+        for( int idx = 0; idx < _countof(yuv420_list); idx++ )
+            if( picture->format == yuv420_list[idx].px_fmt )
+            {
+                yuv420_index = idx;
+                break;
+            }
+
+    int output_height;
+    if( yuv420_index != -1 )
+    {
+        yuv420_list[yuv420_index].convert( dst_data, dst_linesize, picture->data, picture->linesize, picture->width * sizeof(uint16_t), picture->height );
+        output_height = picture->height;
+    }
+    else
+    {
+        output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
+    }
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int sse2_available = -1;
     if( sse2_available == -1 )

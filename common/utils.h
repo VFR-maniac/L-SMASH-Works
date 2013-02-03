@@ -27,6 +27,10 @@
 #define MAX( a, b ) ((a) > (b) ? (a) : (b))
 #define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
 
+#ifndef _countof
+#define _countof( _Array ) ( sizeof(_Array) / sizeof(_Array[0]) )
+#endif
+
 void *lw_malloc_zero( size_t size );
 
 void  lw_freep( void *pointer );
