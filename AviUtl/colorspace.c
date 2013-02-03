@@ -57,6 +57,13 @@ static int check_ssse3()
     return (CPUInfo[2] & 0x00000200) != 0;
 }
 
+static int check_sse41()
+{
+    int CPUInfo[4];
+    __cpuid(CPUInfo, 1);
+    return (CPUInfo[2] & 0x00080000) != 0;
+}
+
 void avoid_yuv_scale_conversion( int *input_pixel_format )
 {
     static const struct
@@ -307,8 +314,6 @@ static void inline __attribute__((always_inline)) convert_yuv420ple_i_to_yuv444p
     }
 }
 
-typedef void (*func_convert_yuv420ple_i_to_yuv444p16le)( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height );
-
 static void convert_yuv420p9le_i_to_yuv444p16le( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     convert_yuv420ple_i_to_yuv444p16le( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 9 );
@@ -394,11 +399,11 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     static const struct
     {
         enum AVPixelFormat px_fmt;
-        func_convert_yuv420ple_i_to_yuv444p16le convert;
+        func_convert_yuv420ple_i_to_yuv444p16le convert[2];
     } yuv420_list[] = {
-        { AV_PIX_FMT_YUV420P9LE,  convert_yuv420p9le_i_to_yuv444p16le  },
-        { AV_PIX_FMT_YUV420P10LE, convert_yuv420p10le_i_to_yuv444p16le },
-        { AV_PIX_FMT_YUV420P16LE, convert_yuv420p16le_i_to_yuv444p16le },
+        { AV_PIX_FMT_YUV420P9LE,  { convert_yuv420p9le_i_to_yuv444p16le,  convert_yuv420p9le_i_to_yuv444p16le_sse41  } },
+        { AV_PIX_FMT_YUV420P10LE, { convert_yuv420p10le_i_to_yuv444p16le, convert_yuv420p10le_i_to_yuv444p16le_sse41 } },
+        { AV_PIX_FMT_YUV420P16LE, { convert_yuv420p16le_i_to_yuv444p16le, convert_yuv420p16le_i_to_yuv444p16le_sse41 } },
     };
     int yuv420_index = -1;
     if( picture->interlaced_frame )
@@ -412,7 +417,10 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     int output_height;
     if( yuv420_index != -1 )
     {
-        yuv420_list[yuv420_index].convert( dst_data, dst_linesize, picture->data, picture->linesize, picture->width * sizeof(uint16_t), picture->height );
+        static int sse41_available = -1;
+        if( sse41_available == -1 )
+            sse41_available = check_sse41();
+        yuv420_list[yuv420_index].convert[sse41_available]( dst_data, dst_linesize, picture->data, picture->linesize, picture->width * sizeof(uint16_t), picture->height );
         output_height = picture->height;
     }
     else

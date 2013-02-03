@@ -29,9 +29,11 @@
 #ifdef __GNUC__
 #define AUI_ALIGN(x) __attribute__((aligned(x)))
 #define AUI_FUNC_ALIGN __attribute__((force_align_arg_pointer))
+#define AUI_FORCEINLINE inline __attribute__((always_inline))
 #else
 #define AUI_ALIGN(x) __declspec(align(x))
 #define AUI_FUNC_ALIGN
+#define AUI_FORCEINLINE __forceinline
 #endif
 
 #ifdef __GNUC__
@@ -366,4 +368,286 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
                 ptr[i] = yuy2_background;
         }
     }
+}
+
+#ifdef __GNUC__
+#pragma GCC target ("sse4.1")
+#endif
+#include <smmintrin.h>
+
+/* the inner loop branch should be deleted by forced inline expansion and "bit_depth" constant propagation. */
+static void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height, const int bit_depth )
+{
+    const int lshft = 16 - bit_depth;
+    /* copy luma */
+    {
+        uint16_t *ptr_src_line = (uint16_t *)pic_data[0];
+        uint16_t *ptr_dst_line = (uint16_t *)dst[0];
+        const int dst_line_len = dst_linesize[0] / sizeof(uint16_t);
+        const int src_line_len = pic_linesize[0] / sizeof(uint16_t);
+        const int luma_width = (output_linesize / sizeof(uint16_t));
+        for( int y = 0; y < height; y++ )
+        {
+            uint16_t *ptr_dst = ptr_dst_line + y * dst_line_len;
+            uint16_t *ptr_src = ptr_src_line + y * src_line_len;
+            uint16_t *ptr_src_fin = ptr_src + (luma_width & ~15);
+            for( ; ptr_src < ptr_src_fin; ptr_dst += 16, ptr_src += 16 )
+            {
+                __m128i x0 = _mm_load_si128((__m128i*)(ptr_src + 0));
+                __m128i x1 = _mm_load_si128((__m128i*)(ptr_src + 8));
+                if( lshft )
+                {
+                    x0 = _mm_slli_epi16(x0, lshft);
+                    x1 = _mm_slli_epi16(x1, lshft);
+                }
+                _mm_store_si128((__m128i*)(ptr_dst + 0), x0);
+                _mm_store_si128((__m128i*)(ptr_dst + 8), x1);
+            }
+            ptr_src_fin += (luma_width & 15);
+            for( ; ptr_src < ptr_src_fin; ptr_dst += 2, ptr_src += 2 )
+            {
+                ptr_dst[0] = ptr_src[0] << lshft;
+                ptr_dst[1] = ptr_src[1] << lshft;
+            }
+        }
+    }
+
+    static const uint16_t AUI_ALIGN(16) Array_5371[4][8] = {
+        { 5, 3, 5, 3, 5, 3, 5, 3 }, { 7, 1, 7, 1, 7, 1, 7, 1 },
+        { 1, 7, 1, 7, 1, 7, 1, 7 }, { 3, 5, 3, 5, 3, 5, 3, 5 },
+    };
+    const __m128i x_add = _mm_set1_epi32(1<<(2-lshft));
+    /* chroma upsampling for interlaced yuv420 */
+    const int src_chroma_width = (output_linesize / sizeof(uint16_t)) / 2;
+    for( int i_color = 1; i_color < 3; i_color++ )
+    {
+        __m128i x0, x1, x3, x4, x5;
+        __m128i x2 = _mm_setzero_si128();
+        uint16_t *ptr_src_line = (uint16_t *)pic_data[i_color];
+        uint16_t *ptr_dst_line = (uint16_t *)dst[i_color];
+        const int dst_line_len = dst_linesize[i_color] / sizeof(uint16_t);
+        const int src_line_len = pic_linesize[i_color] / sizeof(uint16_t);
+        /* first 2 lines */
+        for (int i = 0; i < 2; i++)
+        {
+            uint16_t *ptr_dst = ptr_dst_line + i * dst_line_len;
+            uint16_t *ptr_src = ptr_src_line + i * src_line_len;
+            uint16_t *ptr_src_fin = ptr_src + (src_chroma_width & ~7) - (((src_chroma_width & 7) == 0) << 3);
+
+            x0 = _mm_load_si128((__m128i*)ptr_src);
+            if( lshft )
+                x0 = _mm_slli_epi16(x0, lshft);
+
+            for( ; ptr_src < ptr_src_fin; ptr_src += 8, ptr_dst += 16 )
+            {
+                x1 = _mm_load_si128((__m128i*)(ptr_src + 8));
+                if( lshft )
+                    x1 = _mm_slli_epi16(x1, lshft);
+
+                x2 = _mm_alignr_epi8(x1, x0, 2);
+                x2 = _mm_avg_epu16(x2, x0);
+
+                _mm_store_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+                _mm_store_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+                x0 = x1;
+            }
+            ptr_src -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3));
+            ptr_dst -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3)) << 1;
+
+            x0 = _mm_loadu_si128((__m128i*)ptr_src);
+            if( lshft )
+                x0 = _mm_slli_epi16(x0, lshft);
+            x2 = _mm_srli_si128(x0, 2);
+
+            x2 = _mm_blend_epi16(x2, x0, 0x80);
+            x2 = _mm_avg_epu16(x2, x0);
+
+            _mm_storeu_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+            _mm_storeu_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+        }
+        ptr_dst_line += (dst_line_len << 1);
+
+        /* 5,3,7,1 - interlaced yuv420 to yuv422 interpolation with 1,1 - yuv422 to yuv444 interpolation. */
+        for( int y = 2; y < height - 2; y += 4, ptr_dst_line += (dst_line_len << 2), ptr_src_line += (src_line_len << 1) )
+        {
+            for( int i = 0; i < 4; i++ )
+            {
+                uint16_t *ptr_src = ptr_src_line + src_line_len * (i & 0x01);
+                uint16_t *ptr_dst = ptr_dst_line + dst_line_len * i;
+                uint16_t *ptr_src_fin = ptr_src + (src_chroma_width & ~7) - (((src_chroma_width & 7) == 0) << 3);
+
+                x2 = _mm_cmpeq_epi16(x2, x2);
+                x2 = _mm_slli_epi16(x2, 15);
+
+                x1 = _mm_load_si128((__m128i*)(ptr_src                      ));
+                x3 = _mm_load_si128((__m128i*)(ptr_src + (src_line_len << 1)));
+
+                x4 = _mm_unpacklo_epi16(x1, x3);
+                x5 = _mm_unpackhi_epi16(x1, x3);
+
+                x4 = _mm_sub_epi16(x4, x2);
+                x5 = _mm_sub_epi16(x5, x2);
+
+                x4 = _mm_madd_epi16(x4, _mm_load_si128((__m128i*)Array_5371[i]));
+                x5 = _mm_madd_epi16(x5, _mm_load_si128((__m128i*)Array_5371[i]));
+
+                x2 = _mm_cvtepu16_epi32(x2);
+                x2 = _mm_slli_epi32(x2, 3);
+
+                x4 = _mm_add_epi32(x4, x2);
+                x5 = _mm_add_epi32(x5, x2);
+
+                if (lshft - 3 < 0) {
+                    x4 = _mm_add_epi32(x4, x_add);
+                    x5 = _mm_add_epi32(x5, x_add);
+                    x4 = _mm_srai_epi32(x4, 3-lshft);
+                    x5 = _mm_srai_epi32(x5, 3-lshft);
+                } else if (lshft - 3 > 0) {
+                    x4 = _mm_slli_epi32(x4, lshft-3);
+                    x5 = _mm_slli_epi32(x5, lshft-3);
+                }
+
+                x0 = _mm_packus_epi32(x4, x5);
+
+                for( ; ptr_src < ptr_src_fin; ptr_src += 8, ptr_dst += 16 )
+                {
+                    x2 = _mm_cmpeq_epi16(x2, x2);
+                    x2 = _mm_slli_epi16(x2, 15);
+
+                    x1 = _mm_load_si128((__m128i*)(ptr_src                       + 8));
+                    x3 = _mm_load_si128((__m128i*)(ptr_src + (src_line_len << 1) + 8));
+
+                    x4 = _mm_unpacklo_epi16(x1, x3);
+                    x5 = _mm_unpackhi_epi16(x1, x3);
+
+                    x4 = _mm_sub_epi16(x4, x2);
+                    x5 = _mm_sub_epi16(x5, x2);
+
+                    x4 = _mm_madd_epi16(x4, _mm_load_si128((__m128i*)Array_5371[i]));
+                    x5 = _mm_madd_epi16(x5, _mm_load_si128((__m128i*)Array_5371[i]));
+
+                    x2 = _mm_cvtepu16_epi32(x2);
+                    x2 = _mm_slli_epi32(x2, 3);
+
+                    x4 = _mm_add_epi32(x4, x2);
+                    x5 = _mm_add_epi32(x5, x2);
+
+                    if (lshft - 3 < 0) {
+                        x4 = _mm_add_epi32(x4, x_add);
+                        x5 = _mm_add_epi32(x5, x_add);
+                        x4 = _mm_srai_epi32(x4, 3-lshft);
+                        x5 = _mm_srai_epi32(x5, 3-lshft);
+                    } else if (lshft - 3 > 0) {
+                        x4 = _mm_slli_epi32(x4, lshft-3);
+                        x5 = _mm_slli_epi32(x5, lshft-3);
+                    }
+
+                    x1 = _mm_packus_epi32(x4, x5);
+
+                    x2 = _mm_alignr_epi8(x1, x0, 2);
+                    x2 = _mm_avg_epu16(x2, x0);
+                    _mm_store_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+                    _mm_store_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+
+                    x0 = x1;
+                }
+                ptr_src -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3));
+                ptr_dst -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3)) << 1;
+
+                x1 = _mm_loadu_si128((__m128i*)(ptr_src                      ));
+                x3 = _mm_loadu_si128((__m128i*)(ptr_src + (src_line_len << 1)));
+
+                x2 = _mm_cmpeq_epi16(x2, x2);
+                x2 = _mm_slli_epi16(x2, 15);
+
+                x4 = _mm_unpacklo_epi16(x1, x3);
+                x5 = _mm_unpackhi_epi16(x1, x3);
+
+                x4 = _mm_sub_epi16(x4, x2);
+                x5 = _mm_sub_epi16(x5, x2);
+
+                x4 = _mm_madd_epi16(x4, _mm_load_si128((__m128i*)Array_5371[i]));
+                x5 = _mm_madd_epi16(x5, _mm_load_si128((__m128i*)Array_5371[i]));
+
+                x2 = _mm_cvtepu16_epi32(x2);
+                x2 = _mm_slli_epi32(x2, 3);
+
+                x4 = _mm_add_epi32(x4, x2);
+                x5 = _mm_add_epi32(x5, x2);
+
+                if (lshft - 3 < 0) {
+                    x4 = _mm_add_epi32(x4, x_add);
+                    x5 = _mm_add_epi32(x5, x_add);
+                    x4 = _mm_srai_epi32(x4, 3-lshft);
+                    x5 = _mm_srai_epi32(x5, 3-lshft);
+                } else if (lshft - 3 > 0) {
+                    x4 = _mm_slli_epi32(x4, lshft-3);
+                    x5 = _mm_slli_epi32(x5, lshft-3);
+                }
+
+                x0 = _mm_packus_epi32(x4, x5);
+
+                x2 = _mm_srli_si128(x0, 2);
+                x2 = _mm_blend_epi16(x2, x0, 0x80);
+                x2 = _mm_avg_epu16(x2, x0);
+
+                _mm_storeu_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+                _mm_storeu_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+            }
+        }
+
+        /* last 2 lines */
+        for (int i = 0; i < 2; i++)
+        {
+            uint16_t *ptr_dst = ptr_dst_line + i * dst_line_len;
+            uint16_t *ptr_src = ptr_src_line + i * src_line_len;
+            uint16_t *ptr_src_fin = ptr_src + (src_chroma_width & ~7) - (((src_chroma_width & 7) == 0) << 3);
+
+            x0 = _mm_load_si128((__m128i*)ptr_src);
+            if( lshft )
+                x0 = _mm_slli_epi16(x0, lshft);
+
+            for( ; ptr_src < ptr_src_fin; ptr_src += 8, ptr_dst += 16 )
+            {
+                x1 = _mm_load_si128((__m128i*)(ptr_src + 8));
+                if( lshft )
+                    x1 = _mm_slli_epi16(x1, lshft);
+
+                x2 = _mm_alignr_epi8(x1, x0, 2);
+                x2 = _mm_avg_epu16(x2, x0);
+
+                _mm_store_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+                _mm_store_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+                x0 = x1;
+            }
+            ptr_src -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3));
+            ptr_dst -= (8 - (src_chroma_width & 7) - (((src_chroma_width & 7) == 0) << 3)) << 1;
+
+            x0 = _mm_loadu_si128((__m128i*)ptr_src);
+            if( lshft )
+                x0 = _mm_slli_epi16(x0, lshft);
+            x2 = _mm_srli_si128(x0, 2);
+
+            x2 = _mm_blend_epi16(x2, x0, 0x80);
+            x2 = _mm_avg_epu16(x2, x0);
+
+            _mm_storeu_si128((__m128i*)(ptr_dst + 0), _mm_unpacklo_epi16(x0, x2));
+            _mm_storeu_si128((__m128i*)(ptr_dst + 8), _mm_unpackhi_epi16(x0, x2));
+        }
+    }
+}
+
+void AUI_FUNC_ALIGN convert_yuv420p9le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 9 );
+}
+
+void AUI_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 10 );
+}
+
+void AUI_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+{
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 16 );
 }
