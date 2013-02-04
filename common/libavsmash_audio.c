@@ -34,6 +34,7 @@ extern "C"
 #include <lsmash.h>
 #include <libavcodec/avcodec.h>
 #include <libavresample/avresample.h>
+#include <libavutil/mem.h>
 #include <libavutil/opt.h>
 #ifdef __cplusplus
 }
