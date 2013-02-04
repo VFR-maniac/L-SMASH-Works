@@ -58,11 +58,6 @@ typedef struct
 
 typedef struct
 {
-    uint32_t decoding_to_presentation;
-} order_converter_t;
-
-typedef struct
-{
     uint8_t  keyframe;
     uint8_t  is_leading;
     uint32_t sample_number;     /* unique value in decoding order */
@@ -70,6 +65,55 @@ typedef struct
     int64_t  dts;
     int64_t  file_offset;
 } video_frame_info_t;
+
+typedef struct
+{
+    uint32_t decoding_to_presentation;
+} order_converter_t;
+
+typedef struct
+{
+    AVFormatContext    *format;
+    int                 stream_index;
+    uint32_t            forward_seek_threshold;
+    int                 seek_mode;
+    /* */
+    int                 error;
+    AVCodecContext     *ctx;
+    AVIndexEntry       *index_entries;
+    int                 index_entries_count;
+    int                 seek_flags;
+    int                 seek_base;
+    int                 max_width;
+    int                 max_height;
+    int                 initial_width;
+    int                 initial_height;
+    enum AVPixelFormat  initial_pix_fmt;
+    enum AVCodecID      codec_id;
+    uint32_t            frame_count;
+    uint32_t            delay_count;
+    uint32_t            input_buffer_size;
+    uint8_t            *input_buffer;
+    AVFrame            *frame_buffer;
+    order_converter_t  *order_converter;    /* stored in decoding order */
+    uint8_t            *keyframe_list;      /* stored in decoding order */
+    video_frame_info_t *frame_list;         /* stored in presentation order */
+    uint32_t            last_frame_number;
+    uint32_t            last_rap_number;
+} video_decode_handler_t;
+
+typedef struct
+{
+    struct SwsContext       *sws_ctx;
+    int                      scaler_flags;
+    enum PixelFormat         output_pixel_format;
+    uint32_t                 first_valid_frame_number;
+    uint8_t                 *first_valid_frame_data;
+    int                      output_linesize;
+    uint32_t                 output_frame_size;
+    uint8_t                 *back_ground;
+    func_convert_colorspace *convert_colorspace;
+} video_output_handler_t;
 
 typedef struct
 {
@@ -90,41 +134,8 @@ typedef struct libav_handler_tag
     int                      threads;
     int                      dv_in_avi;     /* 1 = 'DV in AVI Type-1', 0 = otherwise */
     /* Video stuff */
-    int                      video_error;
-    int                      video_index;
-    enum AVCodecID           video_codec_id;
-    AVFormatContext         *video_format;
-    AVCodecContext          *video_ctx;
-    struct SwsContext       *sws_ctx;
-    AVIndexEntry            *video_index_entries;
-    int                      video_index_entries_count;
-    int                      video_width;   /* initial width */
-    int                      video_height;  /* initial height */
-    int                      video_output_width;
-    int                      video_output_height;
-    int                      scaler_flags;
-    enum AVPixelFormat       pix_fmt;       /* initial input pixel format */
-    enum AVPixelFormat       video_output_pixel_format;
-    int                      video_output_linesize;
-    uint32_t                 video_output_frame_size;
-    AVFrame                 *video_frame_buffer;
-    uint8_t                 *video_input_buffer;
-    uint32_t                 video_input_buffer_size;
-    uint32_t                 video_frame_count;
-    uint32_t                 last_video_frame_number;
-    uint32_t                 last_rap_number;
-    uint32_t                 video_delay_count;
-    uint32_t                 first_valid_video_frame_number;
-    uint8_t                 *first_valid_video_frame_data;
-    uint8_t                 *video_back_ground;
-    video_frame_info_t      *video_frame_list;      /* stored in presentation order */
-    uint8_t                 *keyframe_list;         /* stored in decoding order */
-    order_converter_t       *order_converter;       /* stored in decoding order */
-    int                      video_seek_flags;
-    int                      video_seek_base;
-    int                      seek_mode;
-    uint32_t                 forward_seek_threshold;
-    func_convert_colorspace *convert_colorspace;
+    video_decode_handler_t   vdh;
+    video_output_handler_t   voh;
     /* Audio stuff */
     int                      audio_error;
     int                      audio_index;
@@ -229,39 +240,39 @@ static inline int lineup_seek_base_candidates( libav_handler_t *hp )
 
 static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count )
 {
-    hp->video_seek_base = lineup_seek_base_candidates( hp );
-    video_frame_info_t *info = hp->video_frame_list;
+    hp->vdh.seek_base = lineup_seek_base_candidates( hp );
+    video_frame_info_t *info = hp->vdh.frame_list;
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
         {
-            hp->video_seek_base &= ~SEEK_PTS_BASED;
+            hp->vdh.seek_base &= ~SEEK_PTS_BASED;
             break;
         }
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].dts == AV_NOPTS_VALUE )
         {
-            hp->video_seek_base &= ~SEEK_DTS_BASED;
+            hp->vdh.seek_base &= ~SEEK_DTS_BASED;
             break;
         }
-    if( hp->video_seek_base & SEEK_FILE_OFFSET_BASED )
+    if( hp->vdh.seek_base & SEEK_FILE_OFFSET_BASED )
     {
         if( hp->format_flags & AVFMT_NO_BYTE_SEEK )
-            hp->video_seek_base &= ~SEEK_FILE_OFFSET_BASED;
+            hp->vdh.seek_base &= ~SEEK_FILE_OFFSET_BASED;
         else
         {
             uint32_t error_count = 0;
             for( uint32_t i = 1; i <= sample_count; i++ )
                 error_count += (info[i].file_offset == -1);
             if( error_count == sample_count )
-                hp->video_seek_base &= ~SEEK_FILE_OFFSET_BASED;
+                hp->vdh.seek_base &= ~SEEK_FILE_OFFSET_BASED;
         }
     }
-    if( (hp->video_seek_base & SEEK_PTS_BASED) && check_frame_reordering( info, sample_count ) )
+    if( (hp->vdh.seek_base & SEEK_PTS_BASED) && check_frame_reordering( info, sample_count ) )
     {
         /* Consider presentation order for keyframe detection.
          * Note: sample number is 1-origin. */
-        hp->order_converter = malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
-        if( !hp->order_converter )
+        hp->vdh.order_converter = malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
+        if( !hp->vdh.order_converter )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
             return -1;
@@ -280,14 +291,14 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
         }
         sort_decoding_order( &timestamp[1], sample_count );
         for( uint32_t i = 1; i <= sample_count; i++ )
-            hp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
+            hp->vdh.order_converter[i].decoding_to_presentation = timestamp[i].pts;
         free( timestamp );
     }
-    else if( hp->video_seek_base & SEEK_DTS_BASED )
+    else if( hp->vdh.seek_base & SEEK_DTS_BASED )
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
     /* Treat video frames with unique value as keyframe. */
-    if( hp->video_seek_base & SEEK_FILE_OFFSET_BASED )
+    if( hp->vdh.seek_base & SEEK_FILE_OFFSET_BASED )
     {
         info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].file_offset != -1);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -300,7 +311,7 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
                 info[j].keyframe = info[k].keyframe = 0;
         }
     }
-    else if( hp->video_seek_base & SEEK_PTS_BASED )
+    else if( hp->vdh.seek_base & SEEK_PTS_BASED )
     {
         info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].pts != AV_NOPTS_VALUE);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -313,7 +324,7 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
                 info[j].keyframe = info[k].keyframe = 0;
         }
     }
-    else if( hp->video_seek_base & SEEK_DTS_BASED )
+    else if( hp->vdh.seek_base & SEEK_DTS_BASED )
     {
         info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].dts != AV_NOPTS_VALUE);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -328,7 +339,7 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
     }
     /* Set up keyframe list: presentation order (info) -> decoding order (keyframe_list) */
     for( uint32_t i = 1; i <= sample_count; i++ )
-        hp->keyframe_list[ info[i].sample_number ] = info[i].keyframe;
+        hp->vdh.keyframe_list[ info[i].sample_number ] = info[i].keyframe;
     return 0;
 }
 
@@ -407,7 +418,7 @@ static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, A
 {
     /* Pick the first video timestamp.
      * If invalid, skip A/V gap calculation. */
-    int64_t video_ts = (hp->video_seek_base & SEEK_PTS_BASED) ? hp->video_frame_list[1].pts : hp->video_frame_list[1].dts;
+    int64_t video_ts = (hp->vdh.seek_base & SEEK_PTS_BASED) ? hp->vdh.frame_list[1].pts : hp->vdh.frame_list[1].dts;
     if( video_ts == AV_NOPTS_VALUE )
         return;
     /* Pick the first valid audio timestamp.
@@ -509,29 +520,29 @@ static inline void write_av_index_entry( FILE *index, AVIndexEntry *ie )
 
 static void disable_video_stream( libav_handler_t *hp )
 {
-    if( hp->video_frame_list )
+    if( hp->vdh.frame_list )
     {
-        free( hp->video_frame_list );
-        hp->video_frame_list = NULL;
+        free( hp->vdh.frame_list );
+        hp->vdh.frame_list = NULL;
     }
-    if( hp->keyframe_list )
+    if( hp->vdh.keyframe_list )
     {
-        free( hp->keyframe_list );
-        hp->keyframe_list = NULL;
+        free( hp->vdh.keyframe_list );
+        hp->vdh.keyframe_list = NULL;
     }
-    if( hp->order_converter )
+    if( hp->vdh.order_converter )
     {
-        free( hp->order_converter );
-        hp->order_converter = NULL;
+        free( hp->vdh.order_converter );
+        hp->vdh.order_converter = NULL;
     }
-    if( hp->video_index_entries )
+    if( hp->vdh.index_entries )
     {
-        av_free( hp->video_index_entries );
-        hp->video_index_entries = NULL;
+        av_free( hp->vdh.index_entries );
+        hp->vdh.index_entries = NULL;
     }
-    hp->video_index               = -1;
-    hp->video_index_entries_count = 0;
-    hp->video_frame_count         = 0;
+    hp->vdh.stream_index        = -1;
+    hp->vdh.index_entries_count = 0;
+    hp->vdh.frame_count         = 0;
 }
 
 static inline int read_frame( AVFormatContext *format_ctx, AVPacket *pkt )
@@ -586,7 +597,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->format_name  = (char *)format_ctx->iformat->name;
     hp->dv_in_avi    = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     hp->format_flags = format_ctx->iformat->flags;
-    hp->video_format = format_ctx;
+    hp->vdh.format   = format_ctx;
     hp->audio_format = format_ctx;
     int32_t video_index_pos = 0;
     int32_t audio_index_pos = 0;
@@ -629,18 +640,21 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
         {
             if( pkt_ctx->pix_fmt == AV_PIX_FMT_NONE )
-                investigate_pix_fmt_by_decoding( pkt_ctx, &pkt, hp->video_frame_buffer );
+                investigate_pix_fmt_by_decoding( pkt_ctx, &pkt, hp->vdh.frame_buffer );
             int dv_in_avi_init = 0;
-            if( hp->dv_in_avi == -1 && pkt_ctx->codec_id == AV_CODEC_ID_DVVIDEO && hp->video_index == -1 && !opt->force_audio )
+            if( hp->dv_in_avi        == -1
+             && hp->vdh.stream_index == -1
+             && pkt_ctx->codec_id    == AV_CODEC_ID_DVVIDEO
+             && opt->force_audio     == 0 )
             {
-                dv_in_avi_init  = 1;
-                hp->dv_in_avi   = 1;
-                hp->video_index = pkt.stream_index;
+                dv_in_avi_init       = 1;
+                hp->dv_in_avi        = 1;
+                hp->vdh.stream_index = pkt.stream_index;
             }
             int higher_resoluton = (pkt_ctx->width * pkt_ctx->height > video_resolution);   /* Replace lower resolution stream with higher. */
             if( dv_in_avi_init
-             || (!opt->force_video && (hp->video_index == -1 || (pkt.stream_index != hp->video_index && higher_resoluton)))
-             || (opt->force_video && hp->video_index == -1 && pkt.stream_index == opt->force_video_index) )
+             || (!opt->force_video && (hp->vdh.stream_index == -1 || (pkt.stream_index != hp->vdh.stream_index && higher_resoluton)))
+             || (opt->force_video && hp->vdh.stream_index == -1 && pkt.stream_index == opt->force_video_index) )
             {
                 /* Update active video stream. */
                 if( index )
@@ -651,19 +665,19 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     fseek( index, current_pos, SEEK_SET );
                 }
                 memset( video_info, 0, (video_sample_count + 1) * sizeof(video_frame_info_t) );
-                hp->video_ctx               = pkt_ctx;
-                hp->video_codec_id          = pkt_ctx->codec_id;
-                hp->video_index             = pkt.stream_index;
-                hp->video_input_buffer_size = 0;
-                video_resolution            = pkt_ctx->width * pkt_ctx->height;
-                video_sample_count          = 0;
-                last_keyframe_pts           = AV_NOPTS_VALUE;
-                hp->video_width         = pkt_ctx->width;
-                hp->video_height        = pkt_ctx->height;
-                hp->video_output_width  = pkt_ctx->width;
-                hp->video_output_height = pkt_ctx->height;
+                hp->vdh.ctx               = pkt_ctx;
+                hp->vdh.codec_id          = pkt_ctx->codec_id;
+                hp->vdh.stream_index      = pkt.stream_index;
+                hp->vdh.input_buffer_size = 0;
+                video_resolution          = pkt_ctx->width * pkt_ctx->height;
+                video_sample_count        = 0;
+                last_keyframe_pts         = AV_NOPTS_VALUE;
+                hp->vdh.initial_width     = pkt_ctx->width;
+                hp->vdh.initial_height    = pkt_ctx->height;
+                hp->vdh.max_width         = pkt_ctx->width;
+                hp->vdh.max_height        = pkt_ctx->height;
             }
-            if( pkt.stream_index == hp->video_index )
+            if( pkt.stream_index == hp->vdh.stream_index )
             {
                 ++video_sample_count;
                 video_info[video_sample_count].pts           = pkt.pts;
@@ -677,10 +691,10 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     video_info[video_sample_count].keyframe = 1;
                     last_keyframe_pts = pkt.pts;
                 }
-                if( pkt_ctx->width > hp->video_output_width )
-                    hp->video_output_width = pkt_ctx->width;
-                if( pkt_ctx->height > hp->video_output_height )
-                    hp->video_output_height = pkt_ctx->height;
+                if( hp->vdh.max_width  < pkt_ctx->width )
+                    hp->vdh.max_width  = pkt_ctx->width;
+                if( hp->vdh.max_height < pkt_ctx->height )
+                    hp->vdh.max_height = pkt_ctx->height;
                 if( video_sample_count + 1 == video_info_count )
                 {
                     video_info_count <<= 1;
@@ -692,7 +706,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     }
                     video_info = temp;
                 }
-                hp->video_input_buffer_size = max( hp->video_input_buffer_size, pkt.size );
+                hp->vdh.input_buffer_size = max( hp->vdh.input_buffer_size, pkt.size );
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
@@ -833,16 +847,16 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( abort )
             goto fail_index;
     }
-    if( hp->video_index >= 0 )
+    if( hp->vdh.stream_index >= 0 )
     {
-        hp->keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
-        if( !hp->keyframe_list )
+        hp->vdh.keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
+        if( !hp->vdh.keyframe_list )
             goto fail_index;
         for( uint32_t i = 0; i <= video_sample_count; i++ )
-            hp->keyframe_list[i] = video_info[i].keyframe;
-        hp->video_frame_list  = video_info;
-        hp->video_frame_count = video_sample_count;
-        hp->pix_fmt           = hp->video_ctx->pix_fmt;
+            hp->vdh.keyframe_list[i] = video_info[i].keyframe;
+        hp->vdh.frame_list      = video_info;
+        hp->vdh.frame_count     = video_sample_count;
+        hp->vdh.initial_pix_fmt = hp->vdh.ctx->pix_fmt;
         if( decide_video_seek_method( hp, video_sample_count ) )
             goto fail_index;
     }
@@ -920,9 +934,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         hp->audio_frame_count  = audio_sample_count;
         hp->audio_frame_length = constant_frame_length ? frame_length : 0;
         decide_audio_seek_method( hp, audio_sample_count );
-        if( opt->av_sync && hp->video_index >= 0 )
+        if( opt->av_sync && hp->vdh.stream_index >= 0 )
             calculate_av_gap( hp,
-                              format_ctx->streams[ hp->video_index ]->time_base,
+                              format_ctx->streams[ hp->vdh.stream_index ]->time_base,
                               format_ctx->streams[ hp->audio_index ]->time_base,
                               audio_sample_rate );
     }
@@ -938,21 +952,21 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
         {
             print_index( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_VIDEO, stream->nb_index_entries );
-            if( hp->video_index != stream_index )
+            if( hp->vdh.stream_index != stream_index )
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                     write_av_index_entry( index, &stream->index_entries[i] );
             else if( stream->nb_index_entries > 0 )
             {
-                hp->video_index_entries = av_malloc( stream->index_entries_allocated_size );
-                if( !hp->video_index_entries )
+                hp->vdh.index_entries = av_malloc( stream->index_entries_allocated_size );
+                if( !hp->vdh.index_entries )
                     goto fail_index;
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                 {
                     AVIndexEntry *ie = &stream->index_entries[i];
-                    hp->video_index_entries[i] = *ie;
+                    hp->vdh.index_entries[i] = *ie;
                     write_av_index_entry( index, ie );
                 }
-                hp->video_index_entries_count = stream->nb_index_entries;
+                hp->vdh.index_entries_count = stream->nb_index_entries;
             }
             print_index( index, "</StreamIndexEntries>\n" );
         }
@@ -984,7 +998,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     if( index )
         fclose( index );
     close_progress_dlg( &prg_dlg );
-    hp->video_format = NULL;
+    hp->vdh.format   = NULL;
     hp->audio_format = NULL;
     return;
 fail_index:
@@ -995,7 +1009,7 @@ fail_index:
     if( index )
         fclose( index );
     close_progress_dlg( &prg_dlg );
-    hp->video_format = NULL;
+    hp->vdh.format   = NULL;
     hp->audio_format = NULL;
     return;
 }
@@ -1030,13 +1044,13 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     hp->dv_in_avi = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     int video_present = (active_video_index >= 0);
     int audio_present = (active_audio_index >= 0);
-    hp->video_index = opt->force_video ? opt->force_video_index : active_video_index;
-    hp->audio_index = opt->force_audio ? opt->force_audio_index : active_audio_index;
+    hp->vdh.stream_index = opt->force_video ? opt->force_video_index : active_video_index;
+    hp->audio_index      = opt->force_audio ? opt->force_audio_index : active_audio_index;
     uint32_t video_info_count = 1 << 16;
     uint32_t audio_info_count = 1 << 16;
     video_frame_info_t *video_info = NULL;
     audio_frame_info_t *audio_info = NULL;
-    if( hp->video_index >= 0 )
+    if( hp->vdh.stream_index >= 0 )
     {
         video_info = malloc_zero( video_info_count * sizeof(video_frame_info_t) );
         if( !video_info )
@@ -1048,9 +1062,9 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         if( !audio_info )
             goto fail_parsing;
     }
-    hp->video_codec_id             = AV_CODEC_ID_NONE;
+    hp->vdh.codec_id               = AV_CODEC_ID_NONE;
     hp->audio_codec_id             = AV_CODEC_ID_NONE;
-    hp->pix_fmt                    = AV_PIX_FMT_NONE;
+    hp->vdh.initial_pix_fmt        = AV_PIX_FMT_NONE;
     hp->audio_output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
@@ -1080,15 +1094,15 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             if( hp->dv_in_avi == -1 && codec_id == AV_CODEC_ID_DVVIDEO && !opt->force_audio )
             {
                 hp->dv_in_avi = 1;
-                if( hp->video_index == -1 )
+                if( hp->vdh.stream_index == -1 )
                 {
-                    hp->video_index = stream_index;
+                    hp->vdh.stream_index = stream_index;
                     video_info = malloc_zero( video_info_count * sizeof(video_frame_info_t) );
                     if( !video_info )
                         goto fail_parsing;
                 }
             }
-            if( stream_index == hp->video_index )
+            if( stream_index == hp->vdh.stream_index )
             {
                 int key;
                 int width;
@@ -1097,24 +1111,24 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 if( sscanf( buf, "Key=%d,Width=%d,Height=%d,PixelFormat=%s",
                     &key, &width, &height, pix_fmt ) != 4 )
                     goto fail_parsing;
-                if( hp->video_codec_id == AV_CODEC_ID_NONE )
-                    hp->video_codec_id = codec_id;
-                if( hp->video_width == 0 || hp->video_height == 0 )
+                if( hp->vdh.codec_id == AV_CODEC_ID_NONE )
+                    hp->vdh.codec_id = codec_id;
+                if( hp->vdh.initial_width == 0 || hp->vdh.initial_height == 0 )
                 {
-                    hp->video_width         = width;
-                    hp->video_height        = height;
-                    hp->video_output_width  = width;
-                    hp->video_output_height = height;
+                    hp->vdh.initial_width  = width;
+                    hp->vdh.initial_height = height;
+                    hp->vdh.max_width      = width;
+                    hp->vdh.max_height     = height;
                 }
                 else
                 {
-                    if( width > hp->video_output_width )
-                        hp->video_output_width = width;
-                    if( height > hp->video_output_height )
-                        hp->video_output_height = height;
+                    if( hp->vdh.max_width  < width )
+                        hp->vdh.max_width  = width;
+                    if( hp->vdh.max_height < width )
+                        hp->vdh.max_height = height;
                 }
-                if( hp->pix_fmt == AV_PIX_FMT_NONE )
-                    hp->pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
+                if( hp->vdh.initial_pix_fmt == AV_PIX_FMT_NONE )
+                    hp->vdh.initial_pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
                 if( video_time_base.num == 0 || video_time_base.den == 0 )
                 {
                     video_time_base.num = time_base.num;
@@ -1217,7 +1231,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         }
     }
     if( video_present && opt->force_video && opt->force_video_index != -1
-     && (video_sample_count == 0 || hp->pix_fmt == AV_PIX_FMT_NONE || hp->video_width == 0 || hp->video_height == 0) )
+     && (video_sample_count == 0 || hp->vdh.initial_pix_fmt == AV_PIX_FMT_NONE || hp->vdh.initial_width == 0 || hp->vdh.initial_height == 0) )
         goto fail_parsing;  /* Need to re-create the index file. */
     if( audio_present && opt->force_audio && opt->force_audio_index != -1 && (audio_sample_count == 0 || audio_duration == 0) )
         goto fail_parsing;  /* Need to re-create the index file. */
@@ -1237,19 +1251,19 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             goto fail_parsing;
         if( index_entries_count > 0 )
         {
-            if( stream_index != hp->video_index && stream_index != hp->audio_index )
+            if( stream_index != hp->vdh.stream_index && stream_index != hp->audio_index )
             {
                 for( int i = 0; i < index_entries_count; i++ )
                     if( !fgets( buf, sizeof(buf), index ) )
                         goto fail_parsing;
             }
-            else if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == hp->video_index )
+            else if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == hp->vdh.stream_index )
             {
-                hp->video_index_entries_count = index_entries_count;
-                hp->video_index_entries = av_malloc( hp->video_index_entries_count * sizeof(AVIndexEntry) );
-                if( !hp->video_index_entries )
+                hp->vdh.index_entries_count = index_entries_count;
+                hp->vdh.index_entries = av_malloc( hp->vdh.index_entries_count * sizeof(AVIndexEntry) );
+                if( !hp->vdh.index_entries )
                     goto fail_parsing;
-                for( int i = 0; i < hp->video_index_entries_count; i++ )
+                for( int i = 0; i < hp->vdh.index_entries_count; i++ )
                 {
                     AVIndexEntry ie;
                     int size;
@@ -1259,7 +1273,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                         break;
                     ie.size  = size;
                     ie.flags = flags;
-                    hp->video_index_entries[i] = ie;
+                    hp->vdh.index_entries[i] = ie;
                     if( !fgets( buf, sizeof(buf), index ) )
                         goto fail_parsing;
                 }
@@ -1294,15 +1308,15 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     }
     if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
     {
-        if( hp->video_index >= 0 )
+        if( hp->vdh.stream_index >= 0 )
         {
-            hp->keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
-            if( !hp->keyframe_list )
+            hp->vdh.keyframe_list = malloc( (video_sample_count + 1) * sizeof(uint8_t) );
+            if( !hp->vdh.keyframe_list )
                 goto fail_parsing;
             for( uint32_t i = 0; i <= video_sample_count; i++ )
-                hp->keyframe_list[i] = video_info[i].keyframe;
-            hp->video_frame_list  = video_info;
-            hp->video_frame_count = video_sample_count;
+                hp->vdh.keyframe_list[i] = video_info[i].keyframe;
+            hp->vdh.frame_list  = video_info;
+            hp->vdh.frame_count = video_sample_count;
             if( decide_video_seek_method( hp, video_sample_count ) )
                 goto fail_parsing;
         }
@@ -1335,20 +1349,20 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             hp->audio_frame_count  = audio_sample_count;
             hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
-            if( opt->av_sync && hp->video_index >= 0 )
+            if( opt->av_sync && hp->vdh.stream_index >= 0 )
                 calculate_av_gap( hp, video_time_base, audio_time_base, audio_sample_rate );
         }
-        if( hp->video_index != active_video_index || hp->audio_index != active_audio_index )
+        if( hp->vdh.stream_index != active_video_index || hp->audio_index != active_audio_index )
         {
             /* Update the active stream indexes when specifying different stream indexes. */
             fseek( index, active_index_pos, SEEK_SET );
-            fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->video_index );
+            fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->vdh.stream_index );
             fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->audio_index );
         }
         return 0;
     }
 fail_parsing:
-    hp->video_frame_list = NULL;
+    hp->vdh.frame_list   = NULL;
     hp->audio_frame_list = NULL;
     if( video_info )
         free( video_info );
@@ -1362,8 +1376,8 @@ static void *open_file( char *file_path, reader_option_t *opt )
     libav_handler_t *hp = malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
-    hp->video_frame_buffer = avcodec_alloc_frame();
-    if( !hp->video_frame_buffer )
+    hp->vdh.frame_buffer = avcodec_alloc_frame();
+    if( !hp->vdh.frame_buffer )
     {
         free( hp );
         return NULL;
@@ -1371,7 +1385,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     hp->audio_frame_buffer = avcodec_alloc_frame();
     if( !hp->audio_frame_buffer )
     {
-        avcodec_free_frame( &hp->video_frame_buffer );
+        avcodec_free_frame( &hp->vdh.frame_buffer );
         free( hp );
         return NULL;
     }
@@ -1420,19 +1434,19 @@ static void *open_file( char *file_path, reader_option_t *opt )
             lavf_close_file( &format_ctx );
         goto fail;
     }
-    hp->threads     = opt->threads;
-    hp->video_index = -1;
-    hp->audio_index = -1;
+    hp->threads          = opt->threads;
+    hp->vdh.stream_index = -1;
+    hp->audio_index      = -1;
     create_index( hp, format_ctx, opt );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
     lavf_close_file( &format_ctx );
-    hp->video_ctx = NULL;
+    hp->vdh.ctx   = NULL;
     hp->audio_ctx = NULL;
     return hp;
 fail:
-    if( hp->video_frame_buffer )
-        avcodec_free_frame( &hp->video_frame_buffer );
+    if( hp->vdh.frame_buffer )
+        avcodec_free_frame( &hp->vdh.frame_buffer );
     if( hp->audio_frame_buffer )
         avcodec_free_frame( &hp->audio_frame_buffer );
     if( hp->file_path )
@@ -1444,40 +1458,40 @@ fail:
 static int get_video_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    int error = hp->video_index < 0
-             || hp->video_frame_count == 0
-             || lavf_open_file( &hp->video_format, hp->file_path );
-    AVCodecContext *ctx = !error ? hp->video_format->streams[ hp->video_index ]->codec : NULL;
-    if( error || open_decoder( ctx, hp->video_codec_id, hp->threads ) )
+    int error = hp->vdh.stream_index < 0
+             || hp->vdh.frame_count == 0
+             || lavf_open_file( &hp->vdh.format, hp->file_path );
+    AVCodecContext *ctx = !error ? hp->vdh.format->streams[ hp->vdh.stream_index ]->codec : NULL;
+    if( error || open_decoder( ctx, hp->vdh.codec_id, hp->threads ) )
     {
-        if( hp->video_index_entries )
+        if( hp->vdh.index_entries )
         {
-            av_free( hp->video_index_entries );
-            hp->video_index_entries = NULL;
+            av_free( hp->vdh.index_entries );
+            hp->vdh.index_entries = NULL;
         }
-        if( hp->video_frame_list )
+        if( hp->vdh.frame_list )
         {
-            free( hp->video_frame_list );
-            hp->video_frame_list = NULL;
+            free( hp->vdh.frame_list );
+            hp->vdh.frame_list = NULL;
         }
-        if( hp->order_converter )
+        if( hp->vdh.order_converter )
         {
-            free( hp->order_converter );
-            hp->order_converter = NULL;
+            free( hp->vdh.order_converter );
+            hp->vdh.order_converter = NULL;
         }
-        if( hp->keyframe_list )
+        if( hp->vdh.keyframe_list )
         {
-            free( hp->keyframe_list );
-            hp->keyframe_list = NULL;
+            free( hp->vdh.keyframe_list );
+            hp->vdh.keyframe_list = NULL;
         }
-        if( hp->video_format )
+        if( hp->vdh.format )
         {
-            lavf_close_file( &hp->video_format );
-            hp->video_format = NULL;
+            lavf_close_file( &hp->vdh.format );
+            hp->vdh.format = NULL;
         }
         return -1;
     }
-    hp->video_ctx = ctx;
+    hp->vdh.ctx = ctx;
     return 0;
 }
 
@@ -1578,19 +1592,19 @@ static int try_ntsc_framerate( lsmash_handler_t *h, double fps )
 static void setup_timestamp_info( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    AVStream *video_stream = hp->video_format->streams[ hp->video_index ];
-    if( h->video_sample_count == 1 || !(hp->video_seek_base & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
+    AVStream *video_stream = hp->vdh.format->streams[ hp->vdh.stream_index ];
+    if( h->video_sample_count == 1 || !(hp->vdh.seek_base & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
     {
         h->framerate_num = video_stream->r_frame_rate.num;
         h->framerate_den = video_stream->r_frame_rate.den;
         return;
     }
-    video_frame_info_t *info = hp->video_frame_list;
+    video_frame_info_t *info = hp->vdh.frame_list;
     int64_t  first_ts;
     int64_t  largest_ts;
     int64_t  second_largest_ts;
     uint64_t stream_timebase;
-    if( hp->video_seek_base & SEEK_PTS_BASED )
+    if( hp->vdh.seek_base & SEEK_PTS_BASED )
     {
         first_ts          = info[1].pts;
         largest_ts        = info[2].pts;
@@ -1641,15 +1655,21 @@ static void setup_timestamp_info( lsmash_handler_t *h )
     h->framerate_den = stream_timebase;
 }
 
-static void find_random_accessible_point( libav_handler_t *hp, uint32_t presentation_sample_number, uint32_t decoding_sample_number, uint32_t *rap_number )
+static void find_random_accessible_point
+(
+    video_decode_handler_t *vdhp,
+    uint32_t                presentation_sample_number,
+    uint32_t                decoding_sample_number,
+    uint32_t               *rap_number
+)
 {
-    uint8_t is_leading = hp->video_frame_list[presentation_sample_number].is_leading;
+    uint8_t is_leading = vdhp->frame_list[presentation_sample_number].is_leading;
     if( decoding_sample_number == 0 )
-        decoding_sample_number = hp->video_frame_list[presentation_sample_number].sample_number;
+        decoding_sample_number = vdhp->frame_list[presentation_sample_number].sample_number;
     *rap_number = decoding_sample_number;
     while( *rap_number )
     {
-        if( hp->keyframe_list[ *rap_number ] )
+        if( vdhp->keyframe_list[ *rap_number ] )
         {
             if( !is_leading )
                 break;
@@ -1662,16 +1682,19 @@ static void find_random_accessible_point( libav_handler_t *hp, uint32_t presenta
         *rap_number = 1;
 }
 
-static int64_t get_random_accessible_point_position( lsmash_handler_t *h, uint32_t rap_number )
+static int64_t get_random_accessible_point_position
+(
+    video_decode_handler_t *vdhp,
+    uint32_t                rap_number
+)
 {
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    uint32_t presentation_rap_number = hp->order_converter
-                                     ? hp->order_converter[rap_number].decoding_to_presentation
+    uint32_t presentation_rap_number = vdhp->order_converter
+                                     ? vdhp->order_converter[rap_number].decoding_to_presentation
                                      : rap_number;
-    return (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->video_frame_list[presentation_rap_number].file_offset
-         : (hp->video_seek_base & SEEK_PTS_BASED)         ? hp->video_frame_list[presentation_rap_number].pts
-         : (hp->video_seek_base & SEEK_DTS_BASED)         ? hp->video_frame_list[presentation_rap_number].dts
-         :                                                  hp->video_frame_list[presentation_rap_number].sample_number;
+    return (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? vdhp->frame_list[presentation_rap_number].file_offset
+         : (vdhp->seek_base & SEEK_PTS_BASED)         ? vdhp->frame_list[presentation_rap_number].pts
+         : (vdhp->seek_base & SEEK_DTS_BASED)         ? vdhp->frame_list[presentation_rap_number].dts
+         :                                              vdhp->frame_list[presentation_rap_number].sample_number;
 }
 
 static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
@@ -1720,58 +1743,58 @@ static int convert_colorspace( libav_handler_t *hp, AVFrame *picture, uint8_t *b
     int64_t width;
     int64_t height;
     int64_t format;
-    av_opt_get_int( hp->sws_ctx, "srcw",       0, &width );
-    av_opt_get_int( hp->sws_ctx, "srch",       0, &height );
-    av_opt_get_int( hp->sws_ctx, "src_format", 0, &format );
+    av_opt_get_int( hp->voh.sws_ctx, "srcw",       0, &width );
+    av_opt_get_int( hp->voh.sws_ctx, "srch",       0, &height );
+    av_opt_get_int( hp->voh.sws_ctx, "src_format", 0, &format );
     avoid_yuv_scale_conversion( &picture->format );
-    if( !hp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
+    if( !hp->voh.sws_ctx || picture->width != width || picture->height != height || picture->format != format )
     {
-        hp->sws_ctx = sws_getCachedContext( hp->sws_ctx,
-                                            picture->width, picture->height, picture->format,
-                                            picture->width, picture->height, hp->video_output_pixel_format,
-                                            hp->scaler_flags, NULL, NULL, NULL );
-        if( !hp->sws_ctx )
+        hp->voh.sws_ctx = sws_getCachedContext( hp->voh.sws_ctx,
+                                                picture->width, picture->height, picture->format,
+                                                picture->width, picture->height, hp->voh.output_pixel_format,
+                                                hp->voh.scaler_flags, NULL, NULL, NULL );
+        if( !hp->voh.sws_ctx )
             return 0;
-        memcpy( buf, hp->video_back_ground, hp->video_output_frame_size );
+        memcpy( buf, hp->voh.back_ground, hp->voh.output_frame_size );
     }
-    if( hp->convert_colorspace( hp->video_ctx, hp->sws_ctx, picture, buf, hp->video_output_linesize ) < 0 )
+    if( hp->voh.convert_colorspace( hp->vdh.ctx, hp->voh.sws_ctx, picture, buf, hp->voh.output_linesize ) < 0 )
         return 0;
-    return hp->video_output_frame_size;
+    return hp->voh.output_frame_size;
 }
 
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( !hp->video_ctx )
+    if( !hp->vdh.ctx )
         return 0;
-    hp->seek_mode              = opt->seek_mode;
-    hp->forward_seek_threshold = opt->forward_seek_threshold;
-    hp->video_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    hp->video_input_buffer = av_mallocz( hp->video_input_buffer_size );
-    if( !hp->video_input_buffer )
+    hp->vdh.seek_mode              = opt->seek_mode;
+    hp->vdh.forward_seek_threshold = opt->forward_seek_threshold;
+    hp->vdh.input_buffer_size     += FF_INPUT_BUFFER_PADDING_SIZE;
+    hp->vdh.input_buffer           = av_mallocz( hp->vdh.input_buffer_size );
+    if( !hp->vdh.input_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for video." );
         return -1;
     }
-    h->video_sample_count = hp->video_frame_count;
-    if( hp->video_index_entries )
+    h->video_sample_count = hp->vdh.frame_count;
+    if( hp->vdh.index_entries )
     {
-        AVStream *video_stream = hp->video_format->streams[ hp->video_index ];
-        for( int i = 0; i < hp->video_index_entries_count; i++ )
+        AVStream *video_stream = hp->vdh.format->streams[ hp->vdh.stream_index ];
+        for( int i = 0; i < hp->vdh.index_entries_count; i++ )
         {
-            AVIndexEntry *ie = &hp->video_index_entries[i];
+            AVIndexEntry *ie = &hp->vdh.index_entries[i];
             if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
                 return -1;
         }
-        av_free( hp->video_index_entries );
-        hp->video_index_entries = NULL;
+        av_free( hp->vdh.index_entries );
+        hp->vdh.index_entries = NULL;
     }
     setup_timestamp_info( h );
     /* swscale */
-    hp->video_ctx->width   = hp->video_width;
-    hp->video_ctx->height  = hp->video_height;
-    hp->video_ctx->pix_fmt = hp->pix_fmt;
-    output_colorspace_index index = determine_colorspace_conversion( &hp->video_ctx->pix_fmt, &hp->video_output_pixel_format );
+    hp->vdh.ctx->width   = hp->vdh.initial_width;
+    hp->vdh.ctx->height  = hp->vdh.initial_height;
+    hp->vdh.ctx->pix_fmt = hp->vdh.initial_pix_fmt;
+    output_colorspace_index index = determine_colorspace_conversion( &hp->vdh.ctx->pix_fmt, &hp->voh.output_pixel_format );
     static const struct
     {
         func_convert_colorspace *convert_colorspace;
@@ -1784,85 +1807,85 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    hp->scaler_flags = 1 << opt->scaler;
-    if( hp->scaler_flags != SWS_FAST_BILINEAR )
-        hp->scaler_flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
-    hp->sws_ctx = sws_getCachedContext( NULL,
-                                        hp->video_ctx->width, hp->video_ctx->height, hp->video_ctx->pix_fmt,
-                                        hp->video_ctx->width, hp->video_ctx->height, hp->video_output_pixel_format,
-                                        hp->scaler_flags, NULL, NULL, NULL );
-    if( !hp->sws_ctx )
+    hp->voh.scaler_flags = 1 << opt->scaler;
+    if( hp->voh.scaler_flags != SWS_FAST_BILINEAR )
+        hp->voh.scaler_flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
+    hp->voh.sws_ctx = sws_getCachedContext( NULL,
+                                            hp->vdh.ctx->width, hp->vdh.ctx->height, hp->vdh.ctx->pix_fmt,
+                                            hp->vdh.ctx->width, hp->vdh.ctx->height, hp->voh.output_pixel_format,
+                                            hp->voh.scaler_flags, NULL, NULL, NULL );
+    if( !hp->voh.sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
         return -1;
     }
-    hp->convert_colorspace = colorspace_table[index].convert_colorspace;
+    hp->voh.convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    h->video_format.biWidth       = hp->video_output_width;
-    h->video_format.biHeight      = hp->video_output_height;
+    h->video_format.biWidth       = hp->vdh.max_width;
+    h->video_format.biHeight      = hp->vdh.max_height;
     h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
-    hp->video_output_linesize   = MAKE_AVIUTL_PITCH( hp->video_output_width * h->video_format.biBitCount );
-    hp->video_output_frame_size = hp->video_output_linesize * hp->video_output_height;
-    hp->video_back_ground       = hp->video_output_frame_size ? malloc( hp->video_output_frame_size ) : NULL;
-    if( !hp->video_back_ground )
+    hp->voh.output_linesize   = MAKE_AVIUTL_PITCH( hp->vdh.max_width * h->video_format.biBitCount );
+    hp->voh.output_frame_size = hp->voh.output_linesize * hp->vdh.max_height;
+    hp->voh.back_ground       = hp->voh.output_frame_size ? malloc( hp->voh.output_frame_size ) : NULL;
+    if( !hp->voh.back_ground )
         return -1;
     if( h->video_format.biCompression != OUTPUT_TAG_YUY2 )
-        memset( hp->video_back_ground, 0, hp->video_output_frame_size );
+        memset( hp->voh.back_ground, 0, hp->voh.output_frame_size );
     else
     {
-        uint8_t *pic = hp->video_back_ground;
-        for( int i = 0; i < hp->video_output_height; i++ )
+        uint8_t *pic = hp->voh.back_ground;
+        for( int i = 0; i < hp->vdh.max_height; i++ )
         {
-            for( int j = 0; j < hp->video_output_linesize; j += 2 )
+            for( int j = 0; j < hp->voh.output_linesize; j += 2 )
             {
                 pic[j    ] = 0;
                 pic[j + 1] = 128;
             }
-            pic += hp->video_output_linesize;
+            pic += hp->voh.output_linesize;
         }
     }
     /* Find the first valid video frame. */
-    hp->video_seek_flags = (hp->video_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->video_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    hp->vdh.seek_flags = (hp->vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( h->video_sample_count != 1 )
     {
-        hp->video_seek_flags |= AVSEEK_FLAG_BACKWARD;
+        hp->vdh.seek_flags |= AVSEEK_FLAG_BACKWARD;
         uint32_t rap_number;
-        find_random_accessible_point( hp, 1, 0, &rap_number );
-        int64_t rap_pos = get_random_accessible_point_position( h, rap_number );
-        if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
-            av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
+        find_random_accessible_point( &hp->vdh, 1, 0, &rap_number );
+        int64_t rap_pos = get_random_accessible_point_position( &hp->vdh, rap_number );
+        if( av_seek_frame( hp->vdh.format, hp->vdh.stream_index, rap_pos, hp->vdh.seek_flags ) < 0 )
+            av_seek_frame( hp->vdh.format, hp->vdh.stream_index, rap_pos, hp->vdh.seek_flags | AVSEEK_FLAG_ANY );
     }
-    for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( hp->video_ctx ); i++ )
+    for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( hp->vdh.ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt );
-        AVFrame *picture = hp->video_frame_buffer;
+        get_sample( hp->vdh.format, hp->vdh.stream_index, &hp->vdh.input_buffer, &hp->vdh.input_buffer_size, &pkt );
+        AVFrame *picture = hp->vdh.frame_buffer;
         avcodec_get_frame_defaults( picture );
         int got_picture;
-        if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( hp->vdh.ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            hp->first_valid_video_frame_number = i - min( get_decoder_delay( hp->video_ctx ), hp->video_delay_count );
-            if( hp->first_valid_video_frame_number > 1 || h->video_sample_count == 1 )
+            hp->voh.first_valid_frame_number = i - min( get_decoder_delay( hp->vdh.ctx ), hp->vdh.delay_count );
+            if( hp->voh.first_valid_frame_number > 1 || h->video_sample_count == 1 )
             {
-                if( !hp->first_valid_video_frame_data )
+                if( !hp->voh.first_valid_frame_data )
                 {
-                    hp->first_valid_video_frame_data = malloc( hp->video_output_frame_size );
-                    if( !hp->first_valid_video_frame_data )
+                    hp->voh.first_valid_frame_data = malloc( hp->voh.output_frame_size );
+                    if( !hp->voh.first_valid_frame_data )
                         return -1;
-                    memcpy( hp->first_valid_video_frame_data, hp->video_back_ground, hp->video_output_frame_size );
+                    memcpy( hp->voh.first_valid_frame_data, hp->voh.back_ground, hp->voh.output_frame_size );
                 }
-                if( hp->video_output_frame_size != convert_colorspace( hp, picture, hp->first_valid_video_frame_data ) )
+                if( hp->voh.output_frame_size != convert_colorspace( hp, picture, hp->voh.first_valid_frame_data ) )
                     continue;
             }
             break;
         }
         else if( pkt.data )
-            ++ hp->video_delay_count;
+            ++ hp->vdh.delay_count;
     }
-    hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
+    hp->vdh.last_frame_number = h->video_sample_count + 1;  /* Force seeking at the first reading. */
     return 0;
 }
 
@@ -2002,16 +2025,22 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     return 0;
 }
 
-static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_picture, uint32_t sample_number )
+static int decode_video_sample
+(
+    video_decode_handler_t *vdhp,
+    AVFrame                *picture,
+    int                    *got_picture,
+    uint32_t                sample_number
+)
 {
     AVPacket pkt = { 0 };
-    if( get_sample( hp->video_format, hp->video_index, &hp->video_input_buffer, &hp->video_input_buffer_size, &pkt ) )
+    if( get_sample( vdhp->format, vdhp->stream_index, &vdhp->input_buffer, &vdhp->input_buffer_size, &pkt ) )
         return 1;
     if( pkt.flags & AV_PKT_FLAG_KEY )
-        hp->last_rap_number = sample_number;
+        vdhp->last_rap_number = sample_number;
     avcodec_get_frame_defaults( picture );
     int64_t pts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
-    int ret = avcodec_decode_video2( hp->video_ctx, picture, got_picture, &pkt );
+    int ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, &pkt );
     picture->pts = pts;
     if( ret < 0 )
     {
@@ -2021,7 +2050,11 @@ static int decode_video_sample( libav_handler_t *hp, AVFrame *picture, int *got_
     return 0;
 }
 
-static void flush_buffers( AVCodecContext *ctx, int *error )
+static void flush_buffers
+(
+    AVCodecContext *ctx,
+    int            *error
+)
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
@@ -2034,26 +2067,32 @@ static void flush_buffers( AVCodecContext *ctx, int *error )
     }
 }
 
-static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
-                            uint32_t presentation_sample_number, uint32_t rap_number,
-                            int64_t rap_pos, int error_ignorance )
+static uint32_t seek_video
+(
+    video_decode_handler_t *vdhp,
+    AVFrame                *picture,
+    uint32_t                presentation_sample_number,
+    uint32_t                rap_number,
+    int64_t                 rap_pos,
+    int                     error_ignorance
+)
 {
     /* Prepare to decode from random accessible sample. */
-    flush_buffers( hp->video_ctx, &hp->video_error );
-    if( hp->video_error )
+    flush_buffers( vdhp->ctx, &vdhp->error );
+    if( vdhp->error )
         return 0;
-    if( av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags ) < 0 )
-        av_seek_frame( hp->video_format, hp->video_index, rap_pos, hp->video_seek_flags | AVSEEK_FLAG_ANY );
-    hp->video_delay_count = 0;
+    if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
+        av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+    vdhp->delay_count = 0;
     int dummy;
     int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t i;
-    for( i = rap_number; i < presentation_sample_number + get_decoder_delay( hp->video_ctx ); i++ )
+    for( i = rap_number; i < presentation_sample_number + get_decoder_delay( vdhp->ctx ); i++ )
     {
-        int ret = decode_video_sample( hp, picture, &dummy, i );
+        int ret = decode_video_sample( vdhp, picture, &dummy, i );
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
-        if( i == hp->last_rap_number && picture->pts != AV_NOPTS_VALUE )
+        if( i == vdhp->last_rap_number && picture->pts != AV_NOPTS_VALUE )
             rap_pts = picture->pts;
         if( ret == -1 && (picture->pts == AV_NOPTS_VALUE || picture->pts >= rap_pts) && !error_ignorance )
         {
@@ -2063,26 +2102,33 @@ static uint32_t seek_video( libav_handler_t *hp, AVFrame *picture,
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
     }
-    hp->video_delay_count = min( get_decoder_delay( hp->video_ctx ), i - rap_number );
+    vdhp->delay_count = min( get_decoder_delay( vdhp->ctx ), i - rap_number );
     return i;
 }
 
-static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current, uint32_t goal, uint32_t video_sample_count )
+static int get_picture
+(
+    video_decode_handler_t *vdhp,
+    AVFrame                *picture,
+    uint32_t                current,
+    uint32_t                goal,
+    uint32_t                video_sample_count
+)
 {
     int got_picture = 0;
     while( current <= goal )
     {
-        int ret = decode_video_sample( hp, picture, &got_picture, current );
+        int ret = decode_video_sample( vdhp, picture, &got_picture, current );
         if( ret == -1 )
             return -1;
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
         ++current;
         if( !got_picture )
-            ++ hp->video_delay_count;
+            ++ vdhp->delay_count;
     }
     /* Flush the last frames. */
-    if( current > video_sample_count && get_decoder_delay( hp->video_ctx ) )
+    if( current > video_sample_count && get_decoder_delay( vdhp->ctx ) )
         while( current <= goal )
         {
             AVPacket pkt = { 0 };
@@ -2090,7 +2136,7 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
             pkt.data = NULL;
             pkt.size = 0;
             avcodec_get_frame_defaults( picture );
-            if( avcodec_decode_video2( hp->video_ctx, picture, &got_picture, &pkt ) < 0 )
+            if( avcodec_decode_video2( vdhp->ctx, picture, &got_picture, &pkt ) < 0 )
             {
                 DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_OK, "Failed to decode and flush a video frame." );
                 return -1;
@@ -2100,52 +2146,44 @@ static int get_picture( libav_handler_t *hp, AVFrame *picture, uint32_t current,
     return got_picture ? 0 : -1;
 }
 
-static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
+static int get_video_frame
+(
+    video_decode_handler_t *vdhp,
+    uint32_t                frame_number,
+    uint32_t                frame_count
+)
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( hp->video_error )
-        return 0;
-    ++sample_number;            /* sample_number is 1-origin. */
-    if( sample_number == 1 )
-        memcpy( buf, hp->video_back_ground, hp->video_output_frame_size );
-    if( sample_number < hp->first_valid_video_frame_number || h->video_sample_count == 1 )
-    {
-        /* Copy the first valid video frame data. */
-        memcpy( buf, hp->first_valid_video_frame_data, hp->video_output_frame_size );
-        hp->last_video_frame_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video frame. */
-        return hp->video_output_frame_size;
-    }
-    AVFrame *picture = hp->video_frame_buffer;
+    AVFrame *picture = vdhp->frame_buffer;
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
-    int seek_mode = hp->seek_mode;
-    int64_t rap_pos = INT64_MIN;
-    if( sample_number > hp->last_video_frame_number
-     && sample_number <= hp->last_video_frame_number + hp->forward_seek_threshold )
+    int      seek_mode = vdhp->seek_mode;
+    int64_t  rap_pos   = INT64_MIN;
+    if( frame_number > vdhp->last_frame_number
+     && frame_number <= vdhp->last_frame_number + vdhp->forward_seek_threshold )
     {
-        start_number = hp->last_video_frame_number + 1 + hp->video_delay_count;
-        rap_number = hp->last_rap_number;
+        start_number = vdhp->last_frame_number + 1 + vdhp->delay_count;
+        rap_number   = vdhp->last_rap_number;
     }
     else
     {
-        find_random_accessible_point( hp, sample_number, 0, &rap_number );
-        if( rap_number == hp->last_rap_number && sample_number > hp->last_video_frame_number )
-            start_number = hp->last_video_frame_number + 1 + hp->video_delay_count;
+        find_random_accessible_point( vdhp, frame_number, 0, &rap_number );
+        if( rap_number == vdhp->last_rap_number && frame_number > vdhp->last_frame_number )
+            start_number = vdhp->last_frame_number + 1 + vdhp->delay_count;
         else
         {
             /* Require starting to decode from random accessible sample. */
-            rap_pos = get_random_accessible_point_position( h, rap_number );
-            hp->last_rap_number = rap_number;
-            start_number = seek_video( hp, picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+            rap_pos = get_random_accessible_point_position( vdhp, rap_number );
+            vdhp->last_rap_number = rap_number;
+            start_number = seek_video( vdhp, picture, frame_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
         }
     }
     /* Get desired picture. */
     int error_count = 0;
-    while( start_number == 0 || get_picture( hp, picture, start_number, sample_number + hp->video_delay_count, h->video_sample_count ) )
+    while( start_number == 0 || get_picture( vdhp, picture, start_number, frame_number + vdhp->delay_count, frame_count ) )
     {
         /* Failed to get desired picture. */
-        if( hp->video_error || seek_mode == SEEK_MODE_AGGRESSIVE )
+        if( vdhp->error || seek_mode == SEEK_MODE_AGGRESSIVE )
             goto video_fail;
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
         {
@@ -2157,19 +2195,41 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         else
         {
             /* Retry to decode from more past random accessible sample. */
-            find_random_accessible_point( hp, sample_number, rap_number - 1, &rap_number );
-            rap_pos = get_random_accessible_point_position( h, rap_number );
-            hp->last_rap_number = rap_number;
+            find_random_accessible_point( vdhp, frame_number, rap_number - 1, &rap_number );
+            rap_pos = get_random_accessible_point_position( vdhp, rap_number );
+            vdhp->last_rap_number = rap_number;
         }
-        start_number = seek_video( hp, picture, sample_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
+        start_number = seek_video( vdhp, picture, frame_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
     }
-    hp->last_video_frame_number = sample_number;
-    return convert_colorspace( hp, picture, buf );
+    vdhp->last_frame_number = frame_number;
+    return 0;
 video_fail:
     /* fatal error of decoding */
     DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Couldn't read video frame." );
-    return 0;
+    return -1;
 #undef MAX_ERROR_COUNT
+}
+
+static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
+{
+    libav_handler_t        *hp   = (libav_handler_t *)h->video_private;
+    video_decode_handler_t *vdhp = &hp->vdh;
+    if( vdhp->error )
+        return 0;
+    video_output_handler_t *vohp = &hp->voh;
+    ++frame_number;            /* frame_number is 1-origin. */
+    if( frame_number == 1 )
+        memcpy( buf, vohp->back_ground, vohp->output_frame_size );
+    if( frame_number < vohp->first_valid_frame_number || h->video_sample_count == 1 )
+    {
+        /* Copy the first valid video frame data. */
+        memcpy( buf, vohp->first_valid_frame_data, vohp->output_frame_size );
+        vdhp->last_frame_number = h->video_sample_count + 1;    /* Force seeking at the next access for valid video frame. */
+        return vohp->output_frame_size;
+    }
+    if( get_video_frame( vdhp, frame_number, h->video_sample_count ) )
+        return 0;
+    return convert_colorspace( hp, vdhp->frame_buffer, buf );
 }
 
 static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
@@ -2447,7 +2507,7 @@ audio_out:
 static int is_keyframe( lsmash_handler_t *h, int sample_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    return hp->video_frame_list[sample_number + 1].keyframe;
+    return hp->vdh.frame_list[sample_number + 1].keyframe;
 }
 
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
@@ -2470,24 +2530,24 @@ static void video_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp )
         return;
-    if( hp->video_input_buffer )
-        av_free( hp->video_input_buffer );
-    if( hp->video_back_ground )
-        free( hp->video_back_ground );
-    if( hp->first_valid_video_frame_data )
-        free( hp->first_valid_video_frame_data );
-    if( hp->video_frame_list )
-        free( hp->video_frame_list );
-    if( hp->order_converter )
-        free( hp->order_converter );
-    if( hp->keyframe_list )
-        free( hp->keyframe_list );
-    if( hp->video_index_entries )
-        av_free( hp->video_index_entries );
-    if( hp->sws_ctx )
-        sws_freeContext( hp->sws_ctx );
-    if( hp->video_format )
-        lavf_close_file( &hp->video_format );
+    if( hp->voh.back_ground )
+        free( hp->voh.back_ground );
+    if( hp->voh.first_valid_frame_data )
+        free( hp->voh.first_valid_frame_data );
+    if( hp->voh.sws_ctx )
+        sws_freeContext( hp->voh.sws_ctx );
+    if( hp->vdh.input_buffer )
+        av_free( hp->vdh.input_buffer );
+    if( hp->vdh.frame_list )
+        free( hp->vdh.frame_list );
+    if( hp->vdh.order_converter )
+        free( hp->vdh.order_converter );
+    if( hp->vdh.keyframe_list )
+        free( hp->vdh.keyframe_list );
+    if( hp->vdh.index_entries )
+        av_free( hp->vdh.index_entries );
+    if( hp->vdh.format )
+        lavf_close_file( &hp->vdh.format );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )
@@ -2514,8 +2574,8 @@ static void close_file( void *private_stuff )
     libav_handler_t *hp = (libav_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->video_frame_buffer )
-        avcodec_free_frame( &hp->video_frame_buffer );
+    if( hp->vdh.frame_buffer )
+        avcodec_free_frame( &hp->vdh.frame_buffer );
     if( hp->audio_frame_buffer )
         avcodec_free_frame( &hp->audio_frame_buffer );
     if( hp->file_path )
