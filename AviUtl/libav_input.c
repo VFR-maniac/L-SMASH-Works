@@ -126,47 +126,58 @@ typedef struct
     int64_t  file_offset;
 } audio_frame_info_t;
 
+typedef struct
+{
+    AVFormatContext    *format;
+    int                 stream_index;
+    /* */
+    int                 error;
+    AVCodecContext     *ctx;
+    AVIndexEntry       *index_entries;
+    int                 index_entries_count;
+    int                 seek_base;
+    enum AVCodecID      codec_id;
+    uint32_t            frame_count;
+    uint32_t            delay_count;
+    uint32_t            input_buffer_size;
+    uint8_t            *input_buffer;
+    AVFrame            *frame_buffer;
+    AVPacket            packet;
+    audio_frame_info_t *frame_list;
+    uint32_t            frame_length;
+    uint32_t            last_frame_number;
+    uint64_t            next_pcm_sample_number;
+} audio_decode_handler_t;
+
+typedef struct
+{
+    AVAudioResampleContext *avr_ctx;
+    uint8_t                *resampled_buffer;
+    int                     resampled_buffer_size;
+    int                     input_planes;
+    int                     input_block_align;
+    uint64_t                output_channel_layout;
+    enum AVSampleFormat     output_sample_format;
+    int                     output_block_align;
+    int                     output_sample_rate;
+    int                     output_bits_per_sample;
+    int                     s24_output;
+} audio_output_handler_t;
+
 typedef struct libav_handler_tag
 {
-    char                    *file_path;
-    char                    *format_name;
-    int                      format_flags;
-    int                      threads;
-    int                      dv_in_avi;     /* 1 = 'DV in AVI Type-1', 0 = otherwise */
+    char                  *file_path;
+    char                  *format_name;
+    int                    format_flags;
+    int                    threads;
+    int                    dv_in_avi;   /* 1 = 'DV in AVI Type-1', 0 = otherwise */
     /* Video stuff */
-    video_decode_handler_t   vdh;
-    video_output_handler_t   voh;
+    video_decode_handler_t vdh;
+    video_output_handler_t voh;
     /* Audio stuff */
-    int                      audio_error;
-    int                      audio_index;
-    enum AVCodecID           audio_codec_id;
-    AVFormatContext         *audio_format;
-    AVCodecContext          *audio_ctx;
-    AVAudioResampleContext  *avr_ctx;
-    AVIndexEntry            *audio_index_entries;
-    int                      audio_index_entries_count;
-    AVFrame                 *audio_frame_buffer;
-    AVPacket                 audio_packet;
-    enum AVSampleFormat      audio_output_sample_format;
-    uint8_t                 *audio_input_buffer;
-    uint32_t                 audio_input_buffer_size;
-    uint8_t                 *audio_resampled_buffer;
-    uint32_t                 audio_resampled_buffer_size;
-    uint32_t                 audio_frame_count;
-    uint32_t                 audio_delay_count;
-    uint32_t                 audio_frame_length;
-    audio_frame_info_t      *audio_frame_list;
-    int                      audio_seek_base;
-    uint32_t                 next_audio_pcm_sample_number;
-    uint32_t                 last_audio_frame_number;
-    uint64_t                 audio_output_channel_layout;
-    int64_t                  av_gap;
-    int                      audio_planes;
-    int                      audio_input_block_align;
-    int                      audio_output_block_align;
-    int                      audio_output_sample_rate;
-    int                      audio_output_bits_per_sample;
-    int                      audio_s24_output;
+    audio_decode_handler_t adh;
+    audio_output_handler_t aoh;
+    int64_t                av_gap;
 } libav_handler_t;
 
 static int lavf_open_file( AVFormatContext **format_ctx, char *file_path )
@@ -345,38 +356,38 @@ static int decide_video_seek_method( libav_handler_t *hp, uint32_t sample_count 
 
 static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count )
 {
-    hp->audio_seek_base = lineup_seek_base_candidates( hp );
-    audio_frame_info_t *info = hp->audio_frame_list;
+    hp->adh.seek_base = lineup_seek_base_candidates( hp );
+    audio_frame_info_t *info = hp->adh.frame_list;
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
         {
-            hp->audio_seek_base &= ~SEEK_PTS_BASED;
+            hp->adh.seek_base &= ~SEEK_PTS_BASED;
             break;
         }
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].dts == AV_NOPTS_VALUE )
         {
-            hp->audio_seek_base &= ~SEEK_DTS_BASED;
+            hp->adh.seek_base &= ~SEEK_DTS_BASED;
             break;
         }
-    if( hp->audio_seek_base & SEEK_FILE_OFFSET_BASED )
+    if( hp->adh.seek_base & SEEK_FILE_OFFSET_BASED )
     {
         if( hp->format_flags & AVFMT_NO_BYTE_SEEK )
-            hp->audio_seek_base &= ~SEEK_FILE_OFFSET_BASED;
+            hp->adh.seek_base &= ~SEEK_FILE_OFFSET_BASED;
         else
         {
             uint32_t error_count = 0;
             for( uint32_t i = 1; i <= sample_count; i++ )
                 error_count += (info[i].file_offset == -1);
             if( error_count == sample_count )
-                hp->audio_seek_base &= ~SEEK_FILE_OFFSET_BASED;
+                hp->adh.seek_base &= ~SEEK_FILE_OFFSET_BASED;
         }
     }
-    if( !(hp->audio_seek_base & SEEK_PTS_BASED) && (hp->audio_seek_base & SEEK_DTS_BASED) )
+    if( !(hp->adh.seek_base & SEEK_PTS_BASED) && (hp->adh.seek_base & SEEK_DTS_BASED) )
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
     /* Treat audio frames with unique value as a keyframe. */
-    if( hp->audio_seek_base & SEEK_FILE_OFFSET_BASED )
+    if( hp->adh.seek_base & SEEK_FILE_OFFSET_BASED )
     {
         info[1].keyframe = (info[1].file_offset != -1);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -387,7 +398,7 @@ static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count
             else
                 info[i].keyframe = 1;
     }
-    else if( hp->audio_seek_base & SEEK_PTS_BASED )
+    else if( hp->adh.seek_base & SEEK_PTS_BASED )
     {
         info[1].keyframe = (info[1].pts != AV_NOPTS_VALUE);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -398,7 +409,7 @@ static void decide_audio_seek_method( libav_handler_t *hp, uint32_t sample_count
             else
                 info[i].keyframe = 1;
     }
-    else if( hp->audio_seek_base & SEEK_DTS_BASED )
+    else if( hp->adh.seek_base & SEEK_DTS_BASED )
     {
         info[1].keyframe = (info[1].dts != AV_NOPTS_VALUE);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -425,21 +436,21 @@ static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, A
      * If not found, skip A/V gap calculation. */
     int64_t  audio_ts        = 0;
     uint32_t audio_ts_number = 0;
-    if( hp->audio_seek_base & SEEK_PTS_BASED )
+    if( hp->adh.seek_base & SEEK_PTS_BASED )
     {
-        for( uint32_t i = 1; i <= hp->audio_frame_count; i++ )
-            if( hp->audio_frame_list[i].pts != AV_NOPTS_VALUE )
+        for( uint32_t i = 1; i <= hp->adh.frame_count; i++ )
+            if( hp->adh.frame_list[i].pts != AV_NOPTS_VALUE )
             {
-                audio_ts        = hp->audio_frame_list[i].pts;
+                audio_ts        = hp->adh.frame_list[i].pts;
                 audio_ts_number = i;
                 break;
             }
     }
     else
-        for( uint32_t i = 1; i <= hp->audio_frame_count; i++ )
-            if( hp->audio_frame_list[i].dts != AV_NOPTS_VALUE )
+        for( uint32_t i = 1; i <= hp->adh.frame_count; i++ )
+            if( hp->adh.frame_list[i].dts != AV_NOPTS_VALUE )
             {
-                audio_ts        = hp->audio_frame_list[i].dts;
+                audio_ts        = hp->adh.frame_list[i].dts;
                 audio_ts_number = i;
                 break;
             }
@@ -447,9 +458,9 @@ static void calculate_av_gap( libav_handler_t *hp, AVRational video_time_base, A
         return;
     /* Estimate the first audio timestamp if invalid. */
     AVRational audio_sample_base = (AVRational){ 1, sample_rate };
-    for( uint32_t i = 1, delay_count = 0; i < min( audio_ts_number + delay_count, hp->audio_frame_count ); i++ )
-        if( hp->audio_frame_list[i].length != -1 )
-            audio_ts -= av_rescale_q( hp->audio_frame_list[i].length, audio_sample_base, audio_time_base );
+    for( uint32_t i = 1, delay_count = 0; i < min( audio_ts_number + delay_count, hp->adh.frame_count ); i++ )
+        if( hp->adh.frame_list[i].length != -1 )
+            audio_ts -= av_rescale_q( hp->adh.frame_list[i].length, audio_sample_base, audio_time_base );
         else
             ++delay_count;
     /* Calculate A/V gap in audio samplerate. */
@@ -569,7 +580,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         free( video_info );
         return;
     }
-    avcodec_get_frame_defaults( hp->audio_frame_buffer );
+    avcodec_get_frame_defaults( hp->adh.frame_buffer );
     /*
         # Structure of Libav reader index file
         <LibavReaderIndexFile=5>
@@ -598,7 +609,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     hp->dv_in_avi    = !strcmp( hp->format_name, "avi" ) ? -1 : 0;
     hp->format_flags = format_ctx->iformat->flags;
     hp->vdh.format   = format_ctx;
-    hp->audio_format = format_ctx;
+    hp->adh.format   = format_ctx;
     int32_t video_index_pos = 0;
     int32_t audio_index_pos = 0;
     if( index )
@@ -720,7 +731,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
         else
         {
-            if( hp->audio_index == -1 && (!opt->force_audio || (opt->force_audio && pkt.stream_index == opt->force_audio_index)) )
+            if( hp->adh.stream_index == -1 && (!opt->force_audio || (opt->force_audio && pkt.stream_index == opt->force_audio_index)) )
             {
                 /* Update active audio stream. */
                 if( index )
@@ -730,9 +741,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", pkt.stream_index );
                     fseek( index, current_pos, SEEK_SET );
                 }
-                hp->audio_ctx      = pkt_ctx;
-                hp->audio_codec_id = pkt_ctx->codec_id;
-                hp->audio_index    = pkt.stream_index;
+                hp->adh.ctx          = pkt_ctx;
+                hp->adh.codec_id     = pkt_ctx->codec_id;
+                hp->adh.stream_index = pkt.stream_index;
             }
             if( pkt.stream_index > max_audio_index )
             {
@@ -758,18 +769,18 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 while( temp.size > 0 )
                 {
                     int decode_complete;
-                    int wasted_data_length = avcodec_decode_audio4( pkt_ctx, hp->audio_frame_buffer, &decode_complete, &temp );
+                    int wasted_data_length = avcodec_decode_audio4( pkt_ctx, hp->adh.frame_buffer, &decode_complete, &temp );
                     if( wasted_data_length < 0 )
                     {
-                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( hp->audio_frame_buffer->channel_layout );
-                        pkt_ctx->sample_rate = hp->audio_frame_buffer->sample_rate;
+                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( hp->adh.frame_buffer->channel_layout );
+                        pkt_ctx->sample_rate = hp->adh.frame_buffer->sample_rate;
                         break;
                     }
                     temp.size -= wasted_data_length;
                     temp.data += wasted_data_length;
                     if( decode_complete )
                     {
-                        frame_length += hp->audio_frame_buffer->nb_samples;
+                        frame_length += hp->adh.frame_buffer->nb_samples;
                         output_audio = 1;
                     }
                 }
@@ -779,7 +790,7 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     ++ (*delay_count);
                 }
             }
-            if( pkt.stream_index == hp->audio_index )
+            if( pkt.stream_index == hp->adh.stream_index )
             {
                 if( frame_length != -1 )
                     audio_duration += frame_length;
@@ -815,12 +826,12 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                     if( pkt_ctx->channel_layout == 0 )
                         pkt_ctx->channel_layout = av_get_default_channel_layout( pkt_ctx->channels );
                     if( av_get_channel_layout_nb_channels( pkt_ctx->channel_layout )
-                      > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
-                        hp->audio_output_channel_layout = pkt_ctx->channel_layout;
-                    hp->audio_output_sample_format   = select_better_sample_format( hp->audio_output_sample_format, pkt_ctx->sample_fmt );
-                    hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
-                    hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
-                    hp->audio_input_buffer_size      = max( hp->audio_input_buffer_size, pkt.size );
+                      > av_get_channel_layout_nb_channels( hp->aoh.output_channel_layout ) )
+                        hp->aoh.output_channel_layout = pkt_ctx->channel_layout;
+                    hp->aoh.output_sample_format   = select_better_sample_format( hp->aoh.output_sample_format, pkt_ctx->sample_fmt );
+                    hp->aoh.output_sample_rate     = max( hp->aoh.output_sample_rate, audio_sample_rate );
+                    hp->aoh.output_bits_per_sample = max( hp->aoh.output_bits_per_sample, bits_per_sample );
+                    hp->adh.input_buffer_size      = max( hp->adh.input_buffer_size, pkt.size );
                 }
             }
             /* Write an audio packet info to the index file. */
@@ -880,10 +891,10 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
                 null_pkt.data = NULL;
                 null_pkt.size = 0;
                 int decode_complete;
-                if( avcodec_decode_audio4( pkt_ctx, hp->audio_frame_buffer, &decode_complete, &null_pkt ) >= 0 )
+                if( avcodec_decode_audio4( pkt_ctx, hp->adh.frame_buffer, &decode_complete, &null_pkt ) >= 0 )
                 {
-                    frame_length = decode_complete ? hp->audio_frame_buffer->nb_samples : 0;
-                    if( stream_index == hp->audio_index )
+                    frame_length = decode_complete ? hp->adh.frame_buffer->nb_samples : 0;
+                    if( stream_index == hp->adh.stream_index )
                     {
                         audio_duration += frame_length;
                         if( audio_duration > INT32_MAX )
@@ -905,9 +916,9 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         }
         free( audio_delay_count );
     }
-    if( hp->audio_index >= 0 )
+    if( hp->adh.stream_index >= 0 )
     {
-        if( hp->dv_in_avi == 1 && format_ctx->streams[ hp->audio_index ]->nb_index_entries == 0 )
+        if( hp->dv_in_avi == 1 && format_ctx->streams[ hp->adh.stream_index ]->nb_index_entries == 0 )
         {
             /* DV in AVI Type-1 */
             audio_sample_count = video_info ? min( video_sample_count, audio_sample_count ) : 0;
@@ -930,14 +941,14 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
             }
             hp->dv_in_avi = 0;
         }
-        hp->audio_frame_list   = audio_info;
-        hp->audio_frame_count  = audio_sample_count;
-        hp->audio_frame_length = constant_frame_length ? frame_length : 0;
+        hp->adh.frame_list   = audio_info;
+        hp->adh.frame_count  = audio_sample_count;
+        hp->adh.frame_length = constant_frame_length ? frame_length : 0;
         decide_audio_seek_method( hp, audio_sample_count );
         if( opt->av_sync && hp->vdh.stream_index >= 0 )
             calculate_av_gap( hp,
                               format_ctx->streams[ hp->vdh.stream_index ]->time_base,
-                              format_ctx->streams[ hp->audio_index ]->time_base,
+                              format_ctx->streams[ hp->adh.stream_index ]->time_base,
                               audio_sample_rate );
     }
     else
@@ -973,23 +984,23 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
         else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
         {
             print_index( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_AUDIO, stream->nb_index_entries );
-            if( hp->audio_index != stream_index )
+            if( hp->adh.stream_index != stream_index )
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                     write_av_index_entry( index, &stream->index_entries[i] );
             else if( stream->nb_index_entries > 0 )
             {
                 /* Audio stream in matroska container requires index_entries for seeking.
                  * This avoids for re-reading the file to create index_entries since the file will be closed once. */
-                hp->audio_index_entries = av_malloc( stream->index_entries_allocated_size );
-                if( !hp->audio_index_entries )
+                hp->adh.index_entries = av_malloc( stream->index_entries_allocated_size );
+                if( !hp->adh.index_entries )
                     goto fail_index;
                 for( int i = 0; i < stream->nb_index_entries; i++ )
                 {
                     AVIndexEntry *ie = &stream->index_entries[i];
-                    hp->audio_index_entries[i] = *ie;
+                    hp->adh.index_entries[i] = *ie;
                     write_av_index_entry( index, ie );
                 }
-                hp->audio_index_entries_count = stream->nb_index_entries;
+                hp->adh.index_entries_count = stream->nb_index_entries;
             }
             print_index( index, "</StreamIndexEntries>\n" );
         }
@@ -998,8 +1009,8 @@ static void create_index( libav_handler_t *hp, AVFormatContext *format_ctx, read
     if( index )
         fclose( index );
     close_progress_dlg( &prg_dlg );
-    hp->vdh.format   = NULL;
-    hp->audio_format = NULL;
+    hp->vdh.format = NULL;
+    hp->adh.format = NULL;
     return;
 fail_index:
     free( video_info );
@@ -1009,8 +1020,8 @@ fail_index:
     if( index )
         fclose( index );
     close_progress_dlg( &prg_dlg );
-    hp->vdh.format   = NULL;
-    hp->audio_format = NULL;
+    hp->vdh.format = NULL;
+    hp->adh.format = NULL;
     return;
 }
 
@@ -1045,7 +1056,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
     int video_present = (active_video_index >= 0);
     int audio_present = (active_audio_index >= 0);
     hp->vdh.stream_index = opt->force_video ? opt->force_video_index : active_video_index;
-    hp->audio_index      = opt->force_audio ? opt->force_audio_index : active_audio_index;
+    hp->adh.stream_index = opt->force_audio ? opt->force_audio_index : active_audio_index;
     uint32_t video_info_count = 1 << 16;
     uint32_t audio_info_count = 1 << 16;
     video_frame_info_t *video_info = NULL;
@@ -1056,16 +1067,16 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         if( !video_info )
             goto fail_parsing;
     }
-    if( hp->audio_index >= 0 )
+    if( hp->adh.stream_index >= 0 )
     {
         audio_info = malloc_zero( audio_info_count * sizeof(audio_frame_info_t) );
         if( !audio_info )
             goto fail_parsing;
     }
-    hp->vdh.codec_id               = AV_CODEC_ID_NONE;
-    hp->audio_codec_id             = AV_CODEC_ID_NONE;
-    hp->vdh.initial_pix_fmt        = AV_PIX_FMT_NONE;
-    hp->audio_output_sample_format = AV_SAMPLE_FMT_NONE;
+    hp->vdh.codec_id             = AV_CODEC_ID_NONE;
+    hp->adh.codec_id             = AV_CODEC_ID_NONE;
+    hp->vdh.initial_pix_fmt      = AV_PIX_FMT_NONE;
+    hp->aoh.output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
@@ -1160,7 +1171,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
         {
             if( !fgets( buf, sizeof(buf), index ) )
                 goto fail_parsing;
-            if( stream_index == hp->audio_index )
+            if( stream_index == hp->adh.stream_index )
             {
                 uint64_t layout;
                 int      channels;
@@ -1171,8 +1182,8 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 if( sscanf( buf, "Channels=%d:0x%"SCNx64",SampleRate=%d,SampleFormat=%[^,],BitsPerSample=%d,Length=%d",
                             &channels, &layout, &sample_rate, sample_fmt, &bits_per_sample, &frame_length ) != 6 )
                     goto fail_parsing;
-                if( hp->audio_codec_id == AV_CODEC_ID_NONE )
-                    hp->audio_codec_id = codec_id;
+                if( hp->adh.codec_id == AV_CODEC_ID_NONE )
+                    hp->adh.codec_id = codec_id;
                 if( (channels | layout | sample_rate | bits_per_sample) && audio_duration <= INT32_MAX )
                 {
                     if( audio_sample_rate == 0 )
@@ -1185,12 +1196,12 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     if( layout == 0 )
                         layout = av_get_default_channel_layout( channels );
                     if( av_get_channel_layout_nb_channels( layout )
-                      > av_get_channel_layout_nb_channels( hp->audio_output_channel_layout ) )
-                        hp->audio_output_channel_layout = layout;
-                    hp->audio_output_sample_format   = select_better_sample_format( hp->audio_output_sample_format,
-                                                                                    av_get_sample_fmt( (const char *)sample_fmt ) );
-                    hp->audio_output_sample_rate     = max( hp->audio_output_sample_rate, audio_sample_rate );
-                    hp->audio_output_bits_per_sample = max( hp->audio_output_bits_per_sample, bits_per_sample );
+                      > av_get_channel_layout_nb_channels( hp->aoh.output_channel_layout ) )
+                        hp->aoh.output_channel_layout = layout;
+                    hp->aoh.output_sample_format   = select_better_sample_format( hp->aoh.output_sample_format,
+                                                                                  av_get_sample_fmt( (const char *)sample_fmt ) );
+                    hp->aoh.output_sample_rate     = max( hp->aoh.output_sample_rate, audio_sample_rate );
+                    hp->aoh.output_bits_per_sample = max( hp->aoh.output_bits_per_sample, bits_per_sample );
                     ++audio_sample_count;
                     audio_info[audio_sample_count].pts           = pts;
                     audio_info[audio_sample_count].dts           = dts;
@@ -1199,9 +1210,9 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     audio_info[audio_sample_count].sample_rate   = sample_rate;
                 }
                 else
-                    for( uint32_t i = 1; i <= hp->audio_delay_count; i++ )
+                    for( uint32_t i = 1; i <= hp->adh.delay_count; i++ )
                     {
-                        uint32_t audio_frame_number = audio_sample_count - hp->audio_delay_count + i;
+                        uint32_t audio_frame_number = audio_sample_count - hp->adh.delay_count + i;
                         if( audio_frame_number > audio_sample_count )
                             goto fail_parsing;
                         audio_info[audio_frame_number].length = frame_length;
@@ -1218,10 +1229,10 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                     audio_info = temp;
                 }
                 if( frame_length == -1 )
-                    ++ hp->audio_delay_count;
-                else if( audio_sample_count > hp->audio_delay_count )
+                    ++ hp->adh.delay_count;
+                else if( audio_sample_count > hp->adh.delay_count )
                 {
-                    uint32_t audio_frame_number = audio_sample_count - hp->audio_delay_count;
+                    uint32_t audio_frame_number = audio_sample_count - hp->adh.delay_count;
                     audio_info[audio_frame_number].length = frame_length;
                     if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                         constant_frame_length = 0;
@@ -1251,7 +1262,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             goto fail_parsing;
         if( index_entries_count > 0 )
         {
-            if( stream_index != hp->vdh.stream_index && stream_index != hp->audio_index )
+            if( stream_index != hp->vdh.stream_index && stream_index != hp->adh.stream_index )
             {
                 for( int i = 0; i < index_entries_count; i++ )
                     if( !fgets( buf, sizeof(buf), index ) )
@@ -1278,13 +1289,13 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                         goto fail_parsing;
                 }
             }
-            else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->audio_index )
+            else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == hp->adh.stream_index )
             {
-                hp->audio_index_entries_count = index_entries_count;
-                hp->audio_index_entries = av_malloc( hp->audio_index_entries_count * sizeof(AVIndexEntry) );
-                if( !hp->audio_index_entries )
+                hp->adh.index_entries_count = index_entries_count;
+                hp->adh.index_entries = av_malloc( hp->adh.index_entries_count * sizeof(AVIndexEntry) );
+                if( !hp->adh.index_entries )
                     goto fail_parsing;
-                for( int i = 0; i < hp->audio_index_entries_count; i++ )
+                for( int i = 0; i < hp->adh.index_entries_count; i++ )
                 {
                     AVIndexEntry ie;
                     int size;
@@ -1294,7 +1305,7 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                         break;
                     ie.size  = size;
                     ie.flags = flags;
-                    hp->audio_index_entries[i] = ie;
+                    hp->adh.index_entries[i] = ie;
                     if( !fgets( buf, sizeof(buf), index ) )
                         goto fail_parsing;
                 }
@@ -1320,9 +1331,9 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
             if( decide_video_seek_method( hp, video_sample_count ) )
                 goto fail_parsing;
         }
-        if( hp->audio_index >= 0 )
+        if( hp->adh.stream_index >= 0 )
         {
-            if( hp->dv_in_avi == 1 && hp->audio_index_entries_count == 0 )
+            if( hp->dv_in_avi == 1 && hp->adh.index_entries_count == 0 )
             {
                 /* DV in AVI Type-1 */
                 audio_sample_count = min( video_sample_count, audio_sample_count );
@@ -1345,25 +1356,25 @@ static int parse_index( libav_handler_t *hp, FILE *index, reader_option_t *opt )
                 }
                 hp->dv_in_avi = 0;
             }
-            hp->audio_frame_list   = audio_info;
-            hp->audio_frame_count  = audio_sample_count;
-            hp->audio_frame_length = constant_frame_length ? audio_info[1].length : 0;
+            hp->adh.frame_list   = audio_info;
+            hp->adh.frame_count  = audio_sample_count;
+            hp->adh.frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( hp, audio_sample_count );
             if( opt->av_sync && hp->vdh.stream_index >= 0 )
                 calculate_av_gap( hp, video_time_base, audio_time_base, audio_sample_rate );
         }
-        if( hp->vdh.stream_index != active_video_index || hp->audio_index != active_audio_index )
+        if( hp->vdh.stream_index != active_video_index || hp->adh.stream_index != active_audio_index )
         {
             /* Update the active stream indexes when specifying different stream indexes. */
             fseek( index, active_index_pos, SEEK_SET );
             fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", hp->vdh.stream_index );
-            fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->audio_index );
+            fprintf( index, "<ActiveAudioStreamIndex>%+011d</ActiveAudioStreamIndex>\n", hp->adh.stream_index );
         }
         return 0;
     }
 fail_parsing:
-    hp->vdh.frame_list   = NULL;
-    hp->audio_frame_list = NULL;
+    hp->vdh.frame_list = NULL;
+    hp->adh.frame_list = NULL;
     if( video_info )
         free( video_info );
     if( audio_info )
@@ -1382,8 +1393,8 @@ static void *open_file( char *file_path, reader_option_t *opt )
         free( hp );
         return NULL;
     }
-    hp->audio_frame_buffer = avcodec_alloc_frame();
-    if( !hp->audio_frame_buffer )
+    hp->adh.frame_buffer = avcodec_alloc_frame();
+    if( !hp->adh.frame_buffer )
     {
         avcodec_free_frame( &hp->vdh.frame_buffer );
         free( hp );
@@ -1436,19 +1447,19 @@ static void *open_file( char *file_path, reader_option_t *opt )
     }
     hp->threads          = opt->threads;
     hp->vdh.stream_index = -1;
-    hp->audio_index      = -1;
+    hp->adh.stream_index = -1;
     create_index( hp, format_ctx, opt );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
     lavf_close_file( &format_ctx );
-    hp->vdh.ctx   = NULL;
-    hp->audio_ctx = NULL;
+    hp->vdh.ctx = NULL;
+    hp->adh.ctx = NULL;
     return hp;
 fail:
     if( hp->vdh.frame_buffer )
         avcodec_free_frame( &hp->vdh.frame_buffer );
-    if( hp->audio_frame_buffer )
-        avcodec_free_frame( &hp->audio_frame_buffer );
+    if( hp->adh.frame_buffer )
+        avcodec_free_frame( &hp->adh.frame_buffer );
     if( hp->file_path )
         free( hp->file_path );
     free( hp );
@@ -1498,30 +1509,30 @@ static int get_video_track( lsmash_handler_t *h )
 static int get_audio_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    int error = hp->audio_index < 0
-             || hp->audio_frame_count == 0
-             || lavf_open_file( &hp->audio_format, hp->file_path );
-    AVCodecContext *ctx = !error ? hp->audio_format->streams[ hp->audio_index ]->codec : NULL;
-    if( error || open_decoder( ctx, hp->audio_codec_id, hp->threads ) )
+    int error = hp->adh.stream_index < 0
+             || hp->adh.frame_count == 0
+             || lavf_open_file( &hp->adh.format, hp->file_path );
+    AVCodecContext *ctx = !error ? hp->adh.format->streams[ hp->adh.stream_index ]->codec : NULL;
+    if( error || open_decoder( ctx, hp->adh.codec_id, hp->threads ) )
     {
-        if( hp->audio_index_entries )
+        if( hp->adh.index_entries )
         {
-            av_free( hp->audio_index_entries );
-            hp->audio_index_entries = NULL;
+            av_free( hp->adh.index_entries );
+            hp->adh.index_entries = NULL;
         }
-        if( hp->audio_frame_list )
+        if( hp->adh.frame_list )
         {
-            free( hp->audio_frame_list );
-            hp->audio_frame_list = NULL;
+            free( hp->adh.frame_list );
+            hp->adh.frame_list = NULL;
         }
-        if( hp->audio_format )
+        if( hp->adh.format )
         {
-            lavf_close_file( &hp->audio_format );
-            hp->audio_format = NULL;
+            lavf_close_file( &hp->adh.format );
+            hp->adh.format = NULL;
         }
         return -1;
     }
-    hp->audio_ctx = ctx;
+    hp->adh.ctx = ctx;
     return 0;
 }
 
@@ -1889,139 +1900,145 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static uint32_t count_overall_pcm_samples( libav_handler_t *hp )
+static uint32_t count_overall_pcm_samples
+(
+    audio_decode_handler_t *adhp,
+    int                     output_sample_rate
+)
 {
-    audio_frame_info_t *frame_list    = hp->audio_frame_list;
-    int      current_sample_rate      = frame_list[1].sample_rate > 0 ? frame_list[1].sample_rate : hp->audio_ctx->sample_rate;
+    audio_frame_info_t *frame_list    = adhp->frame_list;
+    int      current_sample_rate      = frame_list[1].sample_rate > 0 ? frame_list[1].sample_rate : adhp->ctx->sample_rate;
     uint32_t current_frame_length     = frame_list[1].length;
     uint32_t audio_frame_count        = 0;
     uint64_t pcm_sample_count         = 0;
     uint32_t overall_pcm_sample_count = 0;
-    for( uint32_t i = 1; i <= hp->audio_frame_count; i++ )
+    for( uint32_t i = 1; i <= adhp->frame_count; i++ )
     {
         if( (current_sample_rate != frame_list[i].sample_rate && frame_list[i].sample_rate > 0)
          || current_frame_length != frame_list[i].length )
         {
-            uint32_t resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate || pcm_sample_count == 0
+            uint32_t resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                             ? pcm_sample_count
-                                            : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
+                                            : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
             overall_pcm_sample_count += resampled_sample_count;
             audio_frame_count = 0;
             pcm_sample_count  = 0;
-            current_sample_rate  = frame_list[i].sample_rate > 0 ? frame_list[i].sample_rate : hp->audio_ctx->sample_rate;
+            current_sample_rate  = frame_list[i].sample_rate > 0 ? frame_list[i].sample_rate : adhp->ctx->sample_rate;
             current_frame_length = frame_list[i].length;
         }
         pcm_sample_count += frame_list[i].length;
         ++audio_frame_count;
     }
-    current_sample_rate = frame_list[ hp->audio_frame_count ].sample_rate > 0
-                        ? frame_list[ hp->audio_frame_count ].sample_rate
-                        : hp->audio_ctx->sample_rate;
+    current_sample_rate = frame_list[ adhp->frame_count ].sample_rate > 0
+                        ? frame_list[ adhp->frame_count ].sample_rate
+                        : adhp->ctx->sample_rate;
     if( pcm_sample_count )
-        overall_pcm_sample_count += (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
+        overall_pcm_sample_count += (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
     return overall_pcm_sample_count;
 }
 
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( !hp->audio_ctx )
+    audio_decode_handler_t *adhp = &hp->adh;
+    if( !adhp->ctx )
         return 0;
-    hp->audio_input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    hp->audio_input_buffer = av_mallocz( hp->audio_input_buffer_size );
-    if( !hp->audio_input_buffer )
+    adhp->input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
+    adhp->input_buffer       = av_mallocz( adhp->input_buffer_size );
+    if( !adhp->input_buffer )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for audio." );
         return -1;
     }
-    h->audio_pcm_sample_count = count_overall_pcm_samples( hp );
+    audio_output_handler_t *aohp = &hp->aoh;
+    h->audio_pcm_sample_count = count_overall_pcm_samples( adhp, aohp->output_sample_rate );
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
         return -1;
     }
-    if( hp->av_gap && hp->audio_output_sample_rate != hp->audio_ctx->sample_rate )
-        hp->av_gap = ((int64_t)hp->av_gap * hp->audio_output_sample_rate - 1) / hp->audio_ctx->sample_rate + 1;
+    if( hp->av_gap && aohp->output_sample_rate != adhp->ctx->sample_rate )
+        hp->av_gap = ((int64_t)hp->av_gap * aohp->output_sample_rate - 1) / adhp->ctx->sample_rate + 1;
     h->audio_pcm_sample_count += hp->av_gap;
-    hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
-    if( hp->audio_index_entries )
+    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;     /* Force seeking at the first reading. */
+    if( adhp->index_entries )
     {
-        AVStream *audio_stream = hp->audio_format->streams[ hp->audio_index ];
-        for( int i = 0; i < hp->audio_index_entries_count; i++ )
+        AVStream *audio_stream = adhp->format->streams[ adhp->stream_index ];
+        for( int i = 0; i < adhp->index_entries_count; i++ )
         {
-            AVIndexEntry *ie = &hp->audio_index_entries[i];
+            AVIndexEntry *ie = &adhp->index_entries[i];
             if( av_add_index_entry( audio_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
                 return -1;
         }
-        av_free( hp->audio_index_entries );
-        hp->audio_index_entries = NULL;
+        av_free( adhp->index_entries );
+        adhp->index_entries = NULL;
     }
-    avcodec_get_frame_defaults( hp->audio_frame_buffer );
+    avcodec_get_frame_defaults( adhp->frame_buffer );
     /* Set up resampler. */
-    hp->avr_ctx = avresample_alloc_context();
-    if( !hp->avr_ctx )
+    aohp->avr_ctx = avresample_alloc_context();
+    if( !aohp->avr_ctx )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avresample_alloc_context." );
         return -1;
     }
-    if( hp->audio_ctx->channel_layout == 0 )
-        hp->audio_ctx->channel_layout = av_get_default_channel_layout( hp->audio_ctx->channels );
-    hp->audio_output_sample_format = decide_audio_output_sample_format( hp->audio_output_sample_format, hp->audio_output_bits_per_sample );
-    av_opt_set_int( hp->avr_ctx, "in_channel_layout",   hp->audio_ctx->channel_layout,   0 );
-    av_opt_set_int( hp->avr_ctx, "in_sample_fmt",       hp->audio_ctx->sample_fmt,       0 );
-    av_opt_set_int( hp->avr_ctx, "in_sample_rate",      hp->audio_ctx->sample_rate,      0 );
-    av_opt_set_int( hp->avr_ctx, "out_channel_layout",  hp->audio_output_channel_layout, 0 );
-    av_opt_set_int( hp->avr_ctx, "out_sample_fmt",      hp->audio_output_sample_format,  0 );
-    av_opt_set_int( hp->avr_ctx, "out_sample_rate",     hp->audio_output_sample_rate,    0 );
-    av_opt_set_int( hp->avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,              0 );
-    if( avresample_open( hp->avr_ctx ) < 0 )
+    if( adhp->ctx->channel_layout == 0 )
+        adhp->ctx->channel_layout = av_get_default_channel_layout( adhp->ctx->channels );
+    aohp->output_sample_format = decide_audio_output_sample_format( aohp->output_sample_format, aohp->output_bits_per_sample );
+    av_opt_set_int( aohp->avr_ctx, "in_channel_layout",   adhp->ctx->channel_layout,   0 );
+    av_opt_set_int( aohp->avr_ctx, "in_sample_fmt",       adhp->ctx->sample_fmt,       0 );
+    av_opt_set_int( aohp->avr_ctx, "in_sample_rate",      adhp->ctx->sample_rate,      0 );
+    av_opt_set_int( aohp->avr_ctx, "out_channel_layout",  aohp->output_channel_layout, 0 );
+    av_opt_set_int( aohp->avr_ctx, "out_sample_fmt",      aohp->output_sample_format,  0 );
+    av_opt_set_int( aohp->avr_ctx, "out_sample_rate",     aohp->output_sample_rate,    0 );
+    av_opt_set_int( aohp->avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
+    if( avresample_open( aohp->avr_ctx ) < 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to open resampler." );
         return -1;
     }
     /* Decide output Bits Per Sample. */
-    int output_channels = av_get_channel_layout_nb_channels( hp->audio_output_channel_layout );
-    if( hp->audio_output_sample_format == AV_SAMPLE_FMT_S32
-     && (hp->audio_output_bits_per_sample == 0 || hp->audio_output_bits_per_sample == 24) )
+    int output_channels = av_get_channel_layout_nb_channels( aohp->output_channel_layout );
+    if( aohp->output_sample_format == AV_SAMPLE_FMT_S32
+     && (aohp->output_bits_per_sample == 0 || aohp->output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
-        if( hp->audio_frame_length )
+        if( adhp->frame_length )
         {
-            hp->audio_resampled_buffer_size = get_linesize( output_channels, hp->audio_frame_length, hp->audio_output_sample_format );
-            hp->audio_resampled_buffer      = av_malloc( hp->audio_resampled_buffer_size );
-            if( !hp->audio_resampled_buffer )
+            aohp->resampled_buffer_size = get_linesize( output_channels, adhp->frame_length, aohp->output_sample_format );
+            aohp->resampled_buffer      = av_malloc( aohp->resampled_buffer_size );
+            if( !aohp->resampled_buffer )
             {
                 DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory for resampling." );
                 return -1;
             }
         }
-        hp->audio_s24_output             = 1;
-        hp->audio_output_bits_per_sample = 24;
+        aohp->s24_output             = 1;
+        aohp->output_bits_per_sample = 24;
     }
     else
-        hp->audio_output_bits_per_sample = av_get_bytes_per_sample( hp->audio_output_sample_format ) * 8;
+        aohp->output_bits_per_sample = av_get_bytes_per_sample( aohp->output_sample_format ) * 8;
     /* Support of WAVEFORMATEXTENSIBLE is much restrictive on AviUtl, so we always use WAVEFORMATEX instead. */
     WAVEFORMATEX *Format = &h->audio_format.Format;
     Format->nChannels       = output_channels;
-    Format->nSamplesPerSec  = hp->audio_output_sample_rate;
-    Format->wBitsPerSample  = hp->audio_output_bits_per_sample;
+    Format->nSamplesPerSec  = aohp->output_sample_rate;
+    Format->wBitsPerSample  = aohp->output_bits_per_sample;
     Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
     Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
     Format->wFormatTag      = WAVE_FORMAT_PCM;
     Format->cbSize          = 0;
     /* Set up the number of planes and the block alignment of decoded and output data. */
-    int input_channels = av_get_channel_layout_nb_channels( hp->audio_ctx->channel_layout );
-    if( av_sample_fmt_is_planar( hp->audio_ctx->sample_fmt ) )
+    int input_channels = av_get_channel_layout_nb_channels( adhp->ctx->channel_layout );
+    if( av_sample_fmt_is_planar( adhp->ctx->sample_fmt ) )
     {
-        hp->audio_planes            = input_channels;
-        hp->audio_input_block_align = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt );
+        aohp->input_planes      = input_channels;
+        aohp->input_block_align = av_get_bytes_per_sample( adhp->ctx->sample_fmt );
     }
     else
     {
-        hp->audio_planes            = 1;
-        hp->audio_input_block_align = av_get_bytes_per_sample( hp->audio_ctx->sample_fmt ) * input_channels;
+        aohp->input_planes      = 1;
+        aohp->input_block_align = av_get_bytes_per_sample( adhp->ctx->sample_fmt ) * input_channels;
     }
-    hp->audio_output_block_align = Format->nBlockAlign;
+    aohp->output_block_align = Format->nBlockAlign;
     return 0;
 }
 
@@ -2232,13 +2249,19 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
     return convert_colorspace( hp, vdhp->frame_buffer, buf );
 }
 
-static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos, uint64_t *start_offset )
+static int find_start_audio_frame
+(
+    audio_decode_handler_t *adhp,
+    int                     output_sample_rate,
+    uint64_t                start_frame_pos,
+    uint64_t               *start_offset
+)
 {
-    audio_frame_info_t *frame_list = hp->audio_frame_list;
+    audio_frame_info_t *frame_list = adhp->frame_list;
     uint32_t frame_number                    = 1;
     uint64_t current_frame_pos               = 0;
     uint64_t next_frame_pos                  = 0;
-    int      current_sample_rate             = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : hp->audio_ctx->sample_rate;
+    int      current_sample_rate             = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : adhp->ctx->sample_rate;
     uint32_t current_frame_length            = frame_list[frame_number].length;
     uint64_t resampled_sample_count          = 0;   /* the number of accumulated PCM samples after resampling per sequence */
     uint64_t pcm_sample_count                = 0;   /* the number of accumulated PCM samples before resampling per sequence */
@@ -2252,115 +2275,131 @@ static int find_start_audio_frame( libav_handler_t *hp, uint64_t start_frame_pos
             /* Encountered a new sequence. */
             prior_sequences_resampled_count += resampled_sample_count;
             pcm_sample_count = 0;
-            current_sample_rate  = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : hp->audio_ctx->sample_rate;
+            current_sample_rate  = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : adhp->ctx->sample_rate;
             current_frame_length = frame_list[frame_number].length;
         }
         pcm_sample_count += current_frame_length;
-        resampled_sample_count = hp->audio_output_sample_rate == current_sample_rate || pcm_sample_count == 0
+        resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                ? pcm_sample_count
-                               : (pcm_sample_count * hp->audio_output_sample_rate - 1) / current_sample_rate + 1;
+                               : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
         next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
         if( start_frame_pos < next_frame_pos )
             break;
         ++frame_number;
-    } while( frame_number <= hp->audio_frame_count );
+    } while( frame_number <= adhp->frame_count );
     *start_offset = start_frame_pos - current_frame_pos;
-    if( *start_offset && current_sample_rate != hp->audio_output_sample_rate )
-        *start_offset = (*start_offset * current_sample_rate - 1) / hp->audio_output_sample_rate + 1;
+    if( *start_offset && current_sample_rate != output_sample_rate )
+        *start_offset = (*start_offset * current_sample_rate - 1) / output_sample_rate + 1;
     return frame_number;
 }
 
-static void seek_audio( libav_handler_t *hp, uint32_t frame_number, AVPacket *pkt )
+static void seek_audio
+(
+    audio_decode_handler_t *adhp,
+    uint32_t                frame_number,
+    AVPacket               *pkt,
+    int                     dv_in_avi
+)
 {
     /* Get an unique value of the closest past audio keyframe. */
     uint32_t rap_number = frame_number;
-    while( rap_number && !hp->audio_frame_list[rap_number].keyframe )
+    while( rap_number && !adhp->frame_list[rap_number].keyframe )
         --rap_number;
     if( rap_number == 0 )
         rap_number = 1;
-    int64_t rap_pos = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? hp->audio_frame_list[rap_number].file_offset
-                    : (hp->audio_seek_base & SEEK_PTS_BASED)         ? hp->audio_frame_list[rap_number].pts
-                    : (hp->audio_seek_base & SEEK_DTS_BASED)         ? hp->audio_frame_list[rap_number].dts
-                    :                                                  hp->audio_frame_list[rap_number].sample_number;
+    int64_t rap_pos = (adhp->seek_base & SEEK_FILE_OFFSET_BASED) ? adhp->frame_list[rap_number].file_offset
+                    : (adhp->seek_base & SEEK_PTS_BASED)         ? adhp->frame_list[rap_number].pts
+                    : (adhp->seek_base & SEEK_DTS_BASED)         ? adhp->frame_list[rap_number].dts
+                    :                                              adhp->frame_list[rap_number].sample_number;
     /* Seek to audio keyframe.
      * Note: av_seek_frame() for DV in AVI Type-1 requires stream_index = 0. */
-    int flags = (hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : hp->audio_seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    int stream_index = hp->dv_in_avi == 1 ? 0 : hp->audio_index;
-    if( av_seek_frame( hp->audio_format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
-        av_seek_frame( hp->audio_format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
+    int flags = (adhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : adhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    int stream_index = dv_in_avi == 1 ? 0 : adhp->stream_index;
+    if( av_seek_frame( adhp->format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
+        av_seek_frame( adhp->format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
     /* Seek to the target audio frame and get it. */
     for( uint32_t i = rap_number; i <= frame_number; )
     {
-        if( get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt ) )
+        if( get_sample( adhp->format, adhp->stream_index, &adhp->input_buffer, &adhp->input_buffer_size, pkt ) )
             break;
         if( i == rap_number
-         && (((hp->audio_seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || hp->audio_frame_list[i].file_offset > pkt->pos))
-         ||  ((hp->audio_seek_base & SEEK_PTS_BASED)         && (pkt->pts == AV_NOPTS_VALUE || hp->audio_frame_list[i].pts > pkt->pts))
-         ||  ((hp->audio_seek_base & SEEK_DTS_BASED)         && (pkt->dts == AV_NOPTS_VALUE || hp->audio_frame_list[i].dts > pkt->dts))) )
+         && (((adhp->seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || adhp->frame_list[i].file_offset > pkt->pos))
+         ||  ((adhp->seek_base & SEEK_PTS_BASED)         && (pkt->pts == AV_NOPTS_VALUE || adhp->frame_list[i].pts > pkt->pts))
+         ||  ((adhp->seek_base & SEEK_DTS_BASED)         && (pkt->dts == AV_NOPTS_VALUE || adhp->frame_list[i].dts > pkt->dts))) )
             continue;   /* Seeking was too backward. */
         ++i;
     }
 }
 
-static int waste_decoded_audio_samples( libav_handler_t *hp, int input_sample_count, int wanted_sample_count, uint8_t **out_data, int sample_offset )
+static int consume_decoded_audio_samples
+(
+    audio_output_handler_t *aohp,
+    AVFrame                *frame,
+    int                     input_sample_count,
+    int                     wanted_sample_count,
+    uint8_t               **out_data,
+    int                     sample_offset
+)
 {
     /* Input */
-    uint8_t *in_data[ hp->audio_planes ];
-    int decoded_data_offset = sample_offset * hp->audio_input_block_align;
-    for( int i = 0; i < hp->audio_planes; i++ )
-        in_data[i] = hp->audio_frame_buffer->extended_data[i] + decoded_data_offset;
+    uint8_t *in_data[AVRESAMPLE_MAX_CHANNELS];
+    int decoded_data_offset = sample_offset * aohp->input_block_align;
+    for( int i = 0; i < aohp->input_planes; i++ )
+        in_data[i] = frame->extended_data[i] + decoded_data_offset;
     audio_samples_t in;
-    in.channel_layout = hp->audio_frame_buffer->channel_layout;
+    in.channel_layout = frame->channel_layout;
     in.sample_count   = input_sample_count;
-    in.sample_format  = hp->audio_frame_buffer->format;
+    in.sample_format  = frame->format;
     in.data           = in_data;
     /* Output */
     uint8_t *resampled_buffer = NULL;
-    if( hp->audio_s24_output )
+    if( aohp->s24_output )
     {
-        int out_channels = get_channel_layout_nb_channels( hp->audio_output_channel_layout );
-        int out_linesize = get_linesize( out_channels, wanted_sample_count, hp->audio_output_sample_format );
-        if( !hp->audio_resampled_buffer || out_linesize > hp->audio_resampled_buffer_size )
+        int out_channels = get_channel_layout_nb_channels( aohp->output_channel_layout );
+        int out_linesize = get_linesize( out_channels, wanted_sample_count, aohp->output_sample_format );
+        if( !aohp->resampled_buffer || out_linesize > aohp->resampled_buffer_size )
         {
-            uint8_t *temp = av_realloc( hp->audio_resampled_buffer, out_linesize );
+            uint8_t *temp = av_realloc( aohp->resampled_buffer, out_linesize );
             if( !temp )
                 return 0;
-            hp->audio_resampled_buffer_size = out_linesize;
-            hp->audio_resampled_buffer      = temp;
+            aohp->resampled_buffer_size = out_linesize;
+            aohp->resampled_buffer      = temp;
         }
-        resampled_buffer = hp->audio_resampled_buffer;
+        resampled_buffer = aohp->resampled_buffer;
     }
     audio_samples_t out;
-    out.channel_layout = hp->audio_output_channel_layout;
+    out.channel_layout = aohp->output_channel_layout;
     out.sample_count   = wanted_sample_count;
-    out.sample_format  = hp->audio_output_sample_format;
+    out.sample_format  = aohp->output_sample_format;
     out.data           = resampled_buffer ? &resampled_buffer : out_data;
     /* Resample */
-    int resampled_size = resample_audio( hp->avr_ctx, &out, &in );
+    int resampled_size = resample_audio( aohp->avr_ctx, &out, &in );
     if( resampled_buffer && resampled_size > 0 )
-        resampled_size = resample_s32_to_s24( out_data, hp->audio_resampled_buffer, resampled_size );
-    return resampled_size > 0 ? resampled_size / hp->audio_output_block_align : 0;
+        resampled_size = resample_s32_to_s24( out_data, aohp->resampled_buffer, resampled_size );
+    return resampled_size > 0 ? resampled_size / aohp->output_block_align : 0;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "start = %d, wanted_length = %d", start, wanted_length );
-    libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( hp->audio_error )
+    libav_handler_t        *hp   = (libav_handler_t *)h->audio_private;
+    audio_decode_handler_t *adhp = &hp->adh;
+    audio_output_handler_t *aohp = &hp->aoh;
+    if( adhp->error )
         return 0;
     uint32_t frame_number;
     uint64_t seek_offset;
     int      output_length = 0;
     int      already_gotten;
-    AVPacket *pkt = &hp->audio_packet;
-    if( start > 0 && start == hp->next_audio_pcm_sample_number )
+    AVPacket *pkt = &adhp->packet;
+    if( start > 0 && start == adhp->next_pcm_sample_number )
     {
-        frame_number = hp->last_audio_frame_number;
-        if( hp->audio_frame_buffer->extended_data
-         && hp->audio_frame_buffer->extended_data[0] )
+        frame_number = adhp->last_frame_number;
+        if( adhp->frame_buffer->extended_data
+         && adhp->frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
-            int resampled_length = waste_decoded_audio_samples( hp, 0, wanted_length, (uint8_t **)&buf, 0 );
+            int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, 0, wanted_length, (uint8_t **)&buf, 0 );
             output_length += resampled_length;
             wanted_length -= resampled_length;
             if( wanted_length <= 0 )
@@ -2374,59 +2413,59 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     else
     {
         /* Seek audio stream. */
-        if( flush_resampler_buffers( hp->avr_ctx ) < 0 )
+        if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
             MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to flush resampler buffers.\nIt is recommended you reopen the file." );
-            hp->audio_error = 1;
+            adhp->error = 1;
             return 0;
         }
-        flush_buffers( hp->audio_ctx, &hp->audio_error );
-        if( hp->audio_error )
+        flush_buffers( adhp->ctx, &adhp->error );
+        if( adhp->error )
             return 0;
-        hp->audio_delay_count            = 0;
-        hp->next_audio_pcm_sample_number = 0;
-        hp->last_audio_frame_number      = 0;
+        adhp->delay_count            = 0;
+        adhp->next_pcm_sample_number = 0;
+        adhp->last_frame_number      = 0;
         uint64_t start_frame_pos;
         if( start >= 0 )
             start_frame_pos = start;
         else
         {
             int silence_length = -start;
-            put_silence_audio_samples( silence_length * hp->audio_output_block_align, hp->audio_output_bits_per_sample == 8, (uint8_t **)&buf );
+            put_silence_audio_samples( silence_length * aohp->output_block_align, aohp->output_bits_per_sample == 8, (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;
         }
-        frame_number = find_start_audio_frame( hp, start_frame_pos, &seek_offset );
-        seek_audio( hp, frame_number, pkt );
+        frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &seek_offset );
+        seek_audio( adhp, frame_number, pkt, hp->dv_in_avi );
         already_gotten = 1;
     }
     do
     {
         if( already_gotten )
             already_gotten = 0;
-        else if( frame_number > hp->audio_frame_count )
+        else if( frame_number > adhp->frame_count )
         {
-            if( hp->audio_delay_count )
+            if( adhp->delay_count )
             {
                 /* Null packet */
                 av_init_packet( pkt );
                 pkt->data = NULL;
                 pkt->size = 0;
-                -- hp->audio_delay_count;
+                -- adhp->delay_count;
             }
             else
                 goto audio_out;
         }
         else if( pkt->size <= 0 )
             /* Getting a sample must be after flushing all remaining samples in resampler's FIFO buffer. */
-            get_sample( hp->audio_format, hp->audio_index, &hp->audio_input_buffer, &hp->audio_input_buffer_size, pkt );
+            get_sample( adhp->format, adhp->stream_index, &adhp->input_buffer, &adhp->input_buffer_size, pkt );
         int output_audio = 0;
         do
         {
-            avcodec_get_frame_defaults( hp->audio_frame_buffer );
+            avcodec_get_frame_defaults( adhp->frame_buffer );
             int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( hp->audio_ctx, hp->audio_frame_buffer, &decode_complete, pkt );
+            int wasted_data_length = avcodec_decode_audio4( adhp->ctx, adhp->frame_buffer, &decode_complete, pkt );
             if( wasted_data_length < 0 )
             {
                 pkt->size = 0;  /* Force to get the next sample. */
@@ -2440,46 +2479,46 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             else if( !decode_complete )
                 goto audio_out;
             if( decode_complete
-             && hp->audio_frame_buffer->extended_data
-             && hp->audio_frame_buffer->extended_data[0] )
+             && adhp->frame_buffer->extended_data
+             && adhp->frame_buffer->extended_data[0] )
             {
                 /* Check channel layout, sample rate and sample format of decoded audio samples. */
                 int64_t channel_layout;
                 int64_t sample_rate;
                 int64_t sample_format;
-                av_opt_get_int( hp->avr_ctx, "in_channel_layout", 0, &channel_layout );
-                av_opt_get_int( hp->avr_ctx, "in_sample_rate",    0, &sample_rate );
-                av_opt_get_int( hp->avr_ctx, "in_sample_fmt",     0, &sample_format );
-                if( hp->audio_frame_buffer->channel_layout == 0 )
-                    hp->audio_frame_buffer->channel_layout = av_get_default_channel_layout( hp->audio_ctx->channels );
-                if( hp->audio_frame_buffer->channel_layout != channel_layout
-                 || hp->audio_frame_buffer->sample_rate    != sample_rate
-                 || hp->audio_frame_buffer->format         != sample_format )
+                av_opt_get_int( aohp->avr_ctx, "in_channel_layout", 0, &channel_layout );
+                av_opt_get_int( aohp->avr_ctx, "in_sample_rate",    0, &sample_rate );
+                av_opt_get_int( aohp->avr_ctx, "in_sample_fmt",     0, &sample_format );
+                if( adhp->frame_buffer->channel_layout == 0 )
+                    adhp->frame_buffer->channel_layout = av_get_default_channel_layout( adhp->ctx->channels );
+                if( adhp->frame_buffer->channel_layout != channel_layout
+                 || adhp->frame_buffer->sample_rate    != sample_rate
+                 || adhp->frame_buffer->format         != sample_format )
                 {
                     /* Detected a change of channel layout, sample rate or sample format.
                      * Reconfigure audio resampler. */
-                    if( update_resampler_configuration( hp->avr_ctx,
-                                                        hp->audio_output_channel_layout,
-                                                        hp->audio_output_sample_rate,
-                                                        hp->audio_output_sample_format,
-                                                        hp->audio_frame_buffer->channel_layout,
-                                                        hp->audio_frame_buffer->sample_rate,
-                                                        hp->audio_frame_buffer->format,
-                                                        &hp->audio_planes,
-                                                        &hp->audio_input_block_align ) < 0 )
+                    if( update_resampler_configuration( aohp->avr_ctx,
+                                                        aohp->output_channel_layout,
+                                                        aohp->output_sample_rate,
+                                                        aohp->output_sample_format,
+                                                        adhp->frame_buffer->channel_layout,
+                                                        adhp->frame_buffer->sample_rate,
+                                                        adhp->frame_buffer->format,
+                                                        &aohp->input_planes,
+                                                        &aohp->input_block_align ) < 0 )
                     {
                         MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to reconfigure resampler.\nIt is recommended you reopen the file." );
-                        hp->audio_error = 1;
+                        adhp->error = 1;
                         goto audio_out;
                     }
                 }
                 /* Process decoded audio samples. */
-                int decoded_length = hp->audio_frame_buffer->nb_samples;
+                int decoded_length = adhp->frame_buffer->nb_samples;
                 if( decoded_length > seek_offset )
                 {
                     /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
                     int useful_length = decoded_length - seek_offset;
-                    int resampled_length = waste_decoded_audio_samples( hp, useful_length, wanted_length, (uint8_t **)&buf, seek_offset );
+                    int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, useful_length, wanted_length, (uint8_t **)&buf, seek_offset );
                     output_length += resampled_length;
                     wanted_length -= resampled_length;
                     seek_offset = 0;
@@ -2492,15 +2531,15 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
             }
         } while( pkt->size > 0 );
         if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
-            ++ hp->audio_delay_count;
+            ++ adhp->delay_count;
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "frame_number = %d, decoded_length = %d, output_length = %d",
-                                         frame_number, hp->audio_frame_buffer->nb_samples, output_length );
+                                         frame_number, adhp->frame_buffer->nb_samples, output_length );
         ++frame_number;
     } while( 1 );
 audio_out:
     DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_OK, "output_length = %d", output_length );
-    hp->next_audio_pcm_sample_number = start + output_length;
-    hp->last_audio_frame_number = frame_number;
+    adhp->next_pcm_sample_number = start + output_length;
+    adhp->last_frame_number = frame_number;
     return output_length;
 }
 
@@ -2518,7 +2557,7 @@ static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int 
     audio_delay += hp->av_gap;
     if( *start < audio_delay && end <= audio_delay )
     {
-        hp->next_audio_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
+        hp->adh.next_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
         return 0;
     }
     *start -= audio_delay;
@@ -2555,18 +2594,18 @@ static void audio_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp )
         return;
-    if( hp->audio_input_buffer )
-        av_free( hp->audio_input_buffer );
-    if( hp->audio_resampled_buffer )
-        av_free( hp->audio_resampled_buffer );
-    if( hp->audio_index_entries )
-        av_free( hp->audio_index_entries );
-    if( hp->avr_ctx )
-        avresample_free( &hp->avr_ctx );
-    if( hp->audio_ctx )
-        avcodec_close( hp->audio_ctx );
-    if( hp->audio_format )
-        lavf_close_file( &hp->audio_format );
+    if( hp->aoh.resampled_buffer )
+        av_free( hp->aoh.resampled_buffer );
+    if( hp->aoh.avr_ctx )
+        avresample_free( &hp->aoh.avr_ctx );
+    if( hp->adh.input_buffer )
+        av_free( hp->adh.input_buffer );
+    if( hp->adh.index_entries )
+        av_free( hp->adh.index_entries );
+    if( hp->adh.ctx )
+        avcodec_close( hp->adh.ctx );
+    if( hp->adh.format )
+        lavf_close_file( &hp->adh.format );
 }
 
 static void close_file( void *private_stuff )
@@ -2576,8 +2615,8 @@ static void close_file( void *private_stuff )
         return;
     if( hp->vdh.frame_buffer )
         avcodec_free_frame( &hp->vdh.frame_buffer );
-    if( hp->audio_frame_buffer )
-        avcodec_free_frame( &hp->audio_frame_buffer );
+    if( hp->adh.frame_buffer )
+        avcodec_free_frame( &hp->adh.frame_buffer );
     if( hp->file_path )
         free( hp->file_path );
     free( hp );
