@@ -37,12 +37,14 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
-#include "audio.h"
+#include "audio_output.h"
 
 #include "../common/resample.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
+
+#define MIN( a, b ) ((a) > (b) ? (b) : (a))
 
 typedef struct
 {
@@ -569,7 +571,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         int got_picture;
         if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            vohp->first_valid_sample_number = i - min( get_decoder_delay( config->ctx ), config->delay_count );
+            vohp->first_valid_sample_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_sample_number > 1 || h->video_sample_count == 1 )
             {
                 if( !vohp->first_valid_sample_data )
@@ -618,7 +620,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     aohp->output_bits_per_sample = config->prefer.bits_per_sample;
     /* */
     adhp->root = hp->root;
-    h->audio_pcm_sample_count = count_overall_pcm_samples( adhp, aohp->output_sample_rate, &aohp->skip_decoded_samples );
+    h->audio_pcm_sample_count = libavsmash_count_overall_pcm_samples( adhp, aohp->output_sample_rate, &aohp->skip_decoded_samples );
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
@@ -719,7 +721,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         vdhp->last_sample_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video sample. */
         return vohp->output_sample_size;
     }
-    if( get_video_frame( vdhp, sample_number, h->video_sample_count ) )
+    if( libavsmash_get_video_frame( vdhp, sample_number, h->video_sample_count ) )
         return 0;
     return convert_colorspace( hp, vdhp->frame_buffer, buf );
 }
@@ -727,8 +729,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
-    return get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
-
+    return libavsmash_get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
 }
 
 static int is_keyframe( lsmash_handler_t *h, int sample_number )

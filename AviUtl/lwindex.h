@@ -1,7 +1,7 @@
 /*****************************************************************************
- * libavsmash_video.h
+ * lwindex.h
  *****************************************************************************
- * Copyright (C) 2012-2013 L-SMASH Works project
+ * Copyright (C) 2013 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *
@@ -18,44 +18,50 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license. */
+/* This file is available under an ISC license.
+ * However, when distributing its binary file, it will be under LGPL or GPL.
+ * Don't distribute it if its license is GPL. */
 
-#define SEEK_MODE_NORMAL     0
-#define SEEK_MODE_UNSAFE     1
-#define SEEK_MODE_AGGRESSIVE 2
-
-typedef struct
-{
-    uint32_t composition_to_decoding;
-} order_converter_t;
+#define INDEX_FILE_VERSION 5
 
 typedef struct
 {
-    lsmash_root_t        *root;
-    uint32_t              track_ID;
-    uint32_t              forward_seek_threshold;
-    int                   seek_mode;
-    codec_configuration_t config;
-    AVFrame              *frame_buffer;
-    order_converter_t    *order_converter;
-    uint32_t              last_sample_number;
-    uint32_t              last_rap_number;
-} video_decode_handler_t;
+    int threads;
+    int av_sync;
+    int no_create_index;
+    int force_video;
+    int force_video_index;
+    int force_audio;
+    int force_audio_index;
+} lwav_option_t;
 
-static inline uint32_t get_decoding_sample_number
-(
-    order_converter_t *order_converter,
-    uint32_t           composition_sample_number
-)
+typedef struct
 {
-    return order_converter
-         ? order_converter[composition_sample_number].composition_to_decoding
-         : composition_sample_number;
-}
+    char   *file_path;
+    char   *format_name;
+    int     format_flags;
+    int     threads;
+    int64_t av_gap;
+} lwav_file_handler_t;
 
-int libavsmash_get_video_frame
+void create_index
 (
+    lwav_file_handler_t    *lwhp,
     video_decode_handler_t *vdhp,
-    uint32_t                sample_number,
-    uint32_t                sample_count
+    audio_decode_handler_t *adhp,
+    audio_output_handler_t *aohp,
+    AVFormatContext        *format_ctx,
+    lwav_option_t          *opt,
+    progress_indicator_t   *indicator,
+    progress_handler_t     *php
+);
+
+int parse_index
+(
+    lwav_file_handler_t    *lwhp,
+    video_decode_handler_t *vdhp,
+    audio_decode_handler_t *adhp,
+    audio_output_handler_t *aohp,
+    lwav_option_t          *opt,
+    FILE                   *index
 );

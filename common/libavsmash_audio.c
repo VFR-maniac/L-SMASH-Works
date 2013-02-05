@@ -44,7 +44,7 @@ extern "C"
 #include "libavsmash.h"
 #include "libavsmash_audio.h"
 
-uint64_t count_overall_pcm_samples
+uint64_t libavsmash_count_overall_pcm_samples
 (
     audio_decode_handler_t *adhp,
     int                     output_sample_rate,
@@ -299,7 +299,7 @@ static int consume_decoded_audio_samples
     return resampled_size > 0 ? resampled_size / aohp->output_block_align : 0;
 }
 
-uint64_t get_pcm_audio_samples
+uint64_t libavsmash_get_pcm_audio_samples
 (
     audio_decode_handler_t *adhp,
     audio_output_handler_t *aohp,

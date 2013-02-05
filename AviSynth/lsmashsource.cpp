@@ -336,7 +336,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     PVideoFrame frame = env->NewVideoFrame( vi );
     if( config->error )
         return frame;
-    if( get_video_frame( &vdh, sample_number, vi.num_frames ) )
+    if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) )
         return frame;
     if( make_frame( &voh, vdh.frame_buffer, frame, env ) )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
@@ -547,7 +547,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     aoh.output_sample_rate     = config->prefer.sample_rate;
     aoh.output_bits_per_sample = config->prefer.bits_per_sample;
     /* */
-    vi.num_audio_samples = count_overall_pcm_samples( &adh, aoh.output_sample_rate, &aoh.skip_decoded_samples );
+    vi.num_audio_samples = libavsmash_count_overall_pcm_samples( &adh, aoh.output_sample_rate, &aoh.skip_decoded_samples );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
     adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
@@ -626,7 +626,7 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    return (void)get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
+    return (void)libavsmash_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
 }
 
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )

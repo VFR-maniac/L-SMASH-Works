@@ -234,7 +234,7 @@ static int get_picture
     return got_picture ? 0 : -1;
 }
 
-int get_video_frame
+int libavsmash_get_video_frame
 (
     video_decode_handler_t *vdhp,
     uint32_t                sample_number,

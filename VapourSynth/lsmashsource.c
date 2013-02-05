@@ -287,7 +287,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     hp->eh.out       = NULL;
     hp->eh.frame_ctx = frame_ctx;
     hp->eh.vsapi     = vsapi;
-    if( get_video_frame( vdhp, sample_number, vi->numFrames ) )
+    if( libavsmash_get_video_frame( vdhp, sample_number, vi->numFrames ) )
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
