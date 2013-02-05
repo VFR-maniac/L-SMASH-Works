@@ -107,7 +107,7 @@ static void message_box_desktop( void *message_priv, const char *message, ... )
 
 static void *open_file( char *file_name, reader_option_t *opt )
 {
-    libavsmash_handler_t *hp = malloc_zero( sizeof(libavsmash_handler_t) );
+    libavsmash_handler_t *hp = lw_malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return NULL;
     hp->uType = MB_ICONERROR | MB_OK;
@@ -154,28 +154,6 @@ open_fail:
     return NULL;
 }
 
-static inline uint64_t get_gcd( uint64_t a, uint64_t b )
-{
-    if( !b )
-        return a;
-    while( 1 )
-    {
-        uint64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
-}
-
-static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
-{
-    uint64_t reduce = get_gcd( *a, *b );
-    *a /= reduce;
-    *b /= reduce;
-    return reduce;
-}
-
 static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
@@ -213,7 +191,7 @@ static int setup_timestamp_info( lsmash_handler_t *h, uint32_t track_ID )
     {
         /* Consider composition order for keyframe detection.
          * Note: sample number for L-SMASH is 1-origin. */
-        hp->vdh.order_converter = malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        hp->vdh.order_converter = lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
         if( !hp->vdh.order_converter )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory." );
@@ -436,7 +414,7 @@ static void destroy_disposable( void *private_stuff )
 static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample_count )
 {
     video_info_handler_t *vihp = &hp->vih;
-    vihp->keyframe_list = malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
+    vihp->keyframe_list = lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
     if( !vihp->keyframe_list )
         return -1;
     video_decode_handler_t *vdhp = &hp->vdh;
@@ -543,12 +521,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Set up a black frame of back ground. */
     vohp->output_linesize = MAKE_AVIUTL_PITCH( output_width * h->video_format.biBitCount );
     vohp->output_sample_size = vohp->output_linesize * output_height;
-    vohp->back_ground = vohp->output_sample_size ? malloc( vohp->output_sample_size ) : NULL;
+    vohp->back_ground = vohp->output_sample_size ? lw_malloc_zero( vohp->output_sample_size ) : NULL;
     if( !vohp->back_ground )
         return -1;
-    if( h->video_format.biCompression != OUTPUT_TAG_YUY2 )
-        memset( vohp->back_ground, 0, vohp->output_sample_size );
-    else
+    if( h->video_format.biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = vohp->back_ground;
         for( int i = 0; i < output_height; i++ )
@@ -576,10 +552,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             {
                 if( !vohp->first_valid_sample_data )
                 {
-                    vohp->first_valid_sample_data = malloc( vohp->output_sample_size );
+                    vohp->first_valid_sample_data = lw_memdup( vohp->back_ground, vohp->output_sample_size );
                     if( !vohp->first_valid_sample_data )
                         return -1;
-                    memcpy( vohp->first_valid_sample_data, vohp->back_ground, vohp->output_sample_size );
                 }
                 if( vohp->output_sample_size != convert_colorspace( hp, picture, vohp->first_valid_sample_data ) )
                     continue;

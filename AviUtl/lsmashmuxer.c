@@ -39,6 +39,8 @@
 #include "resource.h"
 #include "progress_dlg.h"
 
+#include "../common/utils.h"
+
 /* chapter handling */
 #define CHAPTER_BUFSIZE 512
 #define UTF8_BOM "\xEF\xBB\xBF"
@@ -261,15 +263,6 @@ static void get_settings( lsmash_handler_t *hp )
     hp->av_sync = 1;
 }
 
-static void *malloc_zero( size_t size )
-{
-    void *p = malloc( size );
-    if( !p )
-        return NULL;
-    memset( p, 0, size );
-    return p;
-}
-
 static uint64_t get_empty_duration( lsmash_root_t *root, uint32_t track_ID, uint32_t movie_timescale, uint32_t media_timescale )
 {
     /* Consider empty duration if the first edit is an empty edit. */
@@ -361,13 +354,12 @@ static void get_first_track_of_type( input_movie_t *input, uint32_t number_of_tr
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find valid summaries." );
         return;
     }
-    in_track->summaries = malloc( in_track->number_of_summaries * sizeof(input_summary_t) );
+    in_track->summaries = lw_malloc_zero( in_track->number_of_summaries * sizeof(input_summary_t) );
     if( !in_track->summaries )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to alloc input summaries." );
         return;
     }
-    memset( in_track->summaries, 0, in_track->number_of_summaries * sizeof(input_summary_t) );
     for( i = 0; i < in_track->number_of_summaries; i++ )
     {
         lsmash_summary_t *summary = lsmash_get_summary( input->root, in_track->track_ID, i + 1 );
@@ -412,7 +404,7 @@ static int setup_movie_order_converter( input_movie_t *input )
     if( composition_sample_delay )
     {
         /* Note: sample number for L-SMASH is 1-origin. */
-        input->order_converter = malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        input->order_converter = lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
         if( !input->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
@@ -434,7 +426,7 @@ static int open_input_movie( lsmash_handler_t *hp, FILE_INFO *fi, int file_id )
     if( !input_array )
         return -1;
     hp->input = input_array;
-    input_movie_t *input = malloc_zero( sizeof(input_movie_t) );
+    input_movie_t *input = lw_malloc_zero( sizeof(input_movie_t) );
     if( !input )
     {
         input_array[hp->number_of_inputs] = NULL;
@@ -496,7 +488,7 @@ static int get_composition_delay( lsmash_root_t *root, uint32_t track_ID,
     {
         if( lsmash_get_sample_info_from_media_timeline( root, track_ID, i, &sample ) )
             return -1;
-        min_cts = min( min_cts, sample.cts + ctd_shift );
+        min_cts = MIN( min_cts, sample.cts + ctd_shift );
         if( min_cts <= sample.dts )
             break;  /* The minimum CTS of this video sequence must not be found here and later. */
     }
@@ -527,7 +519,7 @@ static int setup_exported_range_of_sequence( lsmash_handler_t *hp, input_movie_t
          * If you want to select P[3] as the end of presentation of a sequence, you need also B[2] obviously.
          * If you want to select B[2] as the end of presentation of a sequence, you need also P[3] obviously. */
         for( uint32_t i = 1; i < presentation_end_sample_number; i++ )
-            video_sequence->media_end_sample_number = max( video_sequence->media_end_sample_number, get_decoding_sample_number( input->order_converter, i ) );
+            video_sequence->media_end_sample_number = MAX( video_sequence->media_end_sample_number, get_decoding_sample_number( input->order_converter, i ) );
         /* Find the closest random accessible point, which may be placed in outside of a presentation.
          * A sequence shall start from it or follow the portion of media that includes it.
          * If the closest random accessible point is placed in outside of a presentation,
@@ -761,12 +753,12 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
         aviutl_video_sample[i].sequence_number = hp->number_of_sequences;
         aviutl_video_sample[i].sample_number   = source_video_number + 1;   /* source_video_number is in ascending order of composition. */
     }
-    hp->sequence[VIDEO_TRACK] = malloc_zero( hp->number_of_sequences * sizeof(sequence_t) );
+    hp->sequence[VIDEO_TRACK] = lw_malloc_zero( hp->number_of_sequences * sizeof(sequence_t) );
     if( !hp->sequence[VIDEO_TRACK] )
         goto fail;
     if( hp->with_audio )
     {
-        hp->sequence[AUDIO_TRACK] = malloc_zero( hp->number_of_sequences * sizeof(sequence_t) );
+        hp->sequence[AUDIO_TRACK] = lw_malloc_zero( hp->number_of_sequences * sizeof(sequence_t) );
         if( !hp->sequence[AUDIO_TRACK] )
             goto fail;
     }
@@ -784,29 +776,12 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
     }
     for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
         if( hp->input[i]->order_converter )
-        {
-            free( hp->input[i]->order_converter );
-            hp->input[i]->order_converter = NULL;
-        }
+            lw_freep( &hp->input[i]->order_converter );
     free( aviutl_video_sample );
     return 0;
 fail:
     free( aviutl_video_sample );
     return -1;
-}
-
-static inline uint64_t get_gcd( uint64_t a, uint64_t b )
-{
-    if( !b )
-        return a;
-    while( 1 )
-    {
-        uint64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
 }
 
 static inline uint64_t get_lcm( uint64_t a, uint64_t b )
@@ -869,7 +844,7 @@ static int setup_sequence_order_converter( sequence_t *sequence, uint32_t *compo
     if( *composition_sample_delay )
     {
         /* Note: sample number for L-SMASH is 1-origin. */
-        sequence->order_converter = malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        sequence->order_converter = lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
         if( !sequence->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
@@ -961,7 +936,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
         uint32_t composition_sample_delay;
         if( setup_sequence_order_converter( sequence, &composition_sample_delay ) )
             return -1;
-        hp->composition_sample_delay = max( hp->composition_sample_delay, composition_sample_delay );
+        hp->composition_sample_delay = MAX( hp->composition_sample_delay, composition_sample_delay );
         /* Get the smallest CTS within the current video sequence. */
         input = sequence->input;
         input_track_t *in_track = &input->track[VIDEO_TRACK];
@@ -1255,7 +1230,7 @@ static int do_mux( lsmash_handler_t *hp )
             }
             sample[type]                      = NULL;
             sequence[type]->last_sample_delta = sample_delta;
-            output->largest_dts               = max( output->largest_dts, in_track->dts );
+            output->largest_dts               = MAX( output->largest_dts, in_track->dts );
             update_largest_cts( out_track, sample_cts );
             if( sequence[type]->current_sample_number >= sequence[type]->presentation_start_sample_number
              && sequence[type]->current_sample_number <= sequence[type]->presentation_end_sample_number )
@@ -1461,10 +1436,7 @@ static void cleanup_option( FILTER *fp )
     if( !fp )
         return;
     if( fp->ex_data_ptr )
-    {
-        free( fp->ex_data_ptr );
-        fp->ex_data_ptr = NULL;
-    }
+        lw_freep( &fp->ex_data_ptr );
     fp->ex_data_size = 0;
 }
 
@@ -1488,7 +1460,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             option_t *opt = (option_t *)fp->ex_data_ptr;
             if( !opt )
             {
-                opt = malloc_zero( sizeof(option_t) );
+                opt = lw_malloc_zero( sizeof(option_t) );
                 if( !opt )
                 {
                     MessageBox( HWND_DESKTOP, "Failed to allocate memory for option.", "lsmashmuxer", MB_ICONERROR | MB_OK );

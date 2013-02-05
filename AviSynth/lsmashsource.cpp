@@ -45,6 +45,7 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
+#include "../common/utils.h"
 #include "../common/resample.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
@@ -59,8 +60,6 @@ extern "C"
 #ifndef INT32_MAX
 #define INT32_MAX 0x7fffffffL
 #endif
-
-#define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
 
 static void throw_error( void *message_priv, const char *message, ... )
 {
@@ -124,28 +123,6 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
     /* */
     vdh.config.error_message = throw_error;
     return movie_param.number_of_tracks;
-}
-
-static inline uint64_t get_gcd( uint64_t a, uint64_t b )
-{
-    if( !b )
-        return a;
-    while( 1 )
-    {
-        uint64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
-}
-
-static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
-{
-    uint64_t reduce = get_gcd( *a, *b );
-    *a /= reduce;
-    *b /= reduce;
-    return reduce;
 }
 
 static void setup_timestamp_info( video_decode_handler_t *hp, VideoInfo *vi, uint64_t media_timescale, IScriptEnvironment *env )
@@ -302,7 +279,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         int got_picture;
         if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            voh.first_valid_frame_number = i - min( get_decoder_delay( config->ctx ), config->delay_count );
+            voh.first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
             {
                 PVideoFrame temp = env->NewVideoFrame( vi );

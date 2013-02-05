@@ -35,8 +35,6 @@
 #define INDEX_FILE_EXT      "*.index"
 #define ANY_FILE_EXT        "*.*"
 
-#define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
-
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
     INPUT_PLUGIN_FLAG_VIDEO | INPUT_PLUGIN_FLAG_AUDIO,              /* INPUT_PLUGIN_FLAG_VIDEO : support images
@@ -60,15 +58,6 @@ INPUT_PLUGIN_TABLE input_plugin_table =
 EXTERN_C INPUT_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetInputPluginTable( void )
 {
     return &input_plugin_table;
-}
-
-void *malloc_zero( size_t size )
-{
-    void *p = malloc( size );
-    if( !p )
-        return NULL;
-    memset( p, 0, size );
-    return p;
 }
 
 static reader_option_t reader_opt = { 0 };
@@ -129,7 +118,7 @@ static void get_settings( void )
             reader_opt.force_video_index = -1;
         }
         else
-            reader_opt.force_video_index = max( reader_opt.force_video_index, -1 );
+            reader_opt.force_video_index = MAX( reader_opt.force_video_index, -1 );
         if( !fgets( buf, sizeof(buf), ini )
          || sscanf( buf, "force_audio_index=%d:%d",
                     &reader_opt.force_audio, &reader_opt.force_audio_index ) != 2 )
@@ -138,7 +127,7 @@ static void get_settings( void )
             reader_opt.force_audio_index = -1;
         }
         else
-            reader_opt.force_audio_index = max( reader_opt.force_audio_index, -1 );
+            reader_opt.force_audio_index = MAX( reader_opt.force_audio_index, -1 );
         /* seek_mode */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "seek_mode=%d", &video_opt->seek_mode ) != 1 )
             video_opt->seek_mode = 0;
@@ -172,8 +161,8 @@ static void get_settings( void )
         }
         else
         {
-            video_opt->width  = max( video_opt->width,  32 );
-            video_opt->height = max( video_opt->height, 32 );
+            video_opt->width  = MAX( video_opt->width,  32 );
+            video_opt->height = MAX( video_opt->height, 32 );
         }
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_framerate=%d/%d", &video_opt->framerate_num, &video_opt->framerate_den ) != 2 )
         {
@@ -182,8 +171,8 @@ static void get_settings( void )
         }
         else
         {
-            video_opt->framerate_num = max( video_opt->framerate_num, 1 );
-            video_opt->framerate_den = max( video_opt->framerate_den, 1 );
+            video_opt->framerate_num = MAX( video_opt->framerate_num, 1 );
+            video_opt->framerate_den = MAX( video_opt->framerate_den, 1 );
         }
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&video_opt->colorspace ) != 1 )
             video_opt->colorspace = OUTPUT_YUY2;
@@ -218,7 +207,7 @@ static void get_settings( void )
 
 INPUT_HANDLE func_open( LPSTR file )
 {
-    lsmash_handler_t *hp = (lsmash_handler_t *)malloc_zero( sizeof(lsmash_handler_t) );
+    lsmash_handler_t *hp = (lsmash_handler_t *)lw_malloc_zero( sizeof(lsmash_handler_t) );
     if( !hp )
         return NULL;
     hp->video_reader = READER_NONE;
@@ -517,7 +506,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     }
                     /* threads */
                     GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.threads = max( atoi( edit_buf ), 0 );
+                    reader_opt.threads = MAX( atoi( edit_buf ), 0 );
                     if( reader_opt.threads > 0 )
                         fprintf( ini, "threads=%d\n", reader_opt.threads );
                     else
@@ -531,11 +520,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* force stream index */
                     reader_opt.force_video = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_GETCHECK, 0, 0 ));
                     GetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.force_video_index = max( atoi( edit_buf ), -1 );
+                    reader_opt.force_video_index = MAX( atoi( edit_buf ), -1 );
                     fprintf( ini, "force_video_index=%d:%d\n", reader_opt.force_video, reader_opt.force_video_index );
                     reader_opt.force_audio = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_AUDIO ), BM_GETCHECK, 0, 0 ));
                     GetDlgItemText( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.force_audio_index = max( atoi( edit_buf ), -1 );
+                    reader_opt.force_audio_index = MAX( atoi( edit_buf ), -1 );
                     fprintf( ini, "force_audio_index=%d:%d\n", reader_opt.force_audio, reader_opt.force_audio_index );
                     /* seek_mode */
                     video_opt->seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
@@ -560,13 +549,13 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->width = max( atoi( edit_buf ), 32 );
+                    video_opt->width = MAX( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->height = max( atoi( edit_buf ), 32 );
+                    video_opt->height = MAX( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->framerate_num = max( atoi( edit_buf ), 1 );
+                    video_opt->framerate_num = MAX( atoi( edit_buf ), 1 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->framerate_den = max( atoi( edit_buf ), 1 );
+                    video_opt->framerate_den = MAX( atoi( edit_buf ), 1 );
                     video_opt->colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->width, video_opt->height );
                     fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->framerate_num, video_opt->framerate_den );

@@ -28,6 +28,8 @@
 #include "libav_dec.h"
 #include "libav_video.h"
 
+#include "../common/utils.h"
+
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
@@ -46,25 +48,13 @@ int get_desired_video_track
     if( error || open_decoder( ctx, vdhp->codec_id, threads ) )
     {
         if( vdhp->index_entries )
-        {
-            av_free( vdhp->index_entries );
-            vdhp->index_entries = NULL;
-        }
+            av_freep( &vdhp->index_entries );
         if( vdhp->frame_list )
-        {
-            free( vdhp->frame_list );
-            vdhp->frame_list = NULL;
-        }
+            lw_freep( &vdhp->frame_list );
         if( vdhp->order_converter )
-        {
-            free( vdhp->order_converter );
-            vdhp->order_converter = NULL;
-        }
+            lw_freep( &vdhp->order_converter );
         if( vdhp->keyframe_list )
-        {
-            free( vdhp->keyframe_list );
-            vdhp->keyframe_list = NULL;
-        }
+            lw_freep( &vdhp->keyframe_list );
         if( vdhp->format )
         {
             lavf_close_file( &vdhp->format );

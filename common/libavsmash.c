@@ -45,6 +45,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "libavsmash.h"
 
 #define BYTE_SWAP_16( x ) ((( x ) << 8 & 0xff00)  | (( x ) >> 8 & 0x00ff))
@@ -59,13 +60,12 @@ int get_summaries( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t
         strcpy( error_string, "Failed to find valid summaries.\n" );
         goto fail;
     }
-    libavsmash_summary_t *summaries = (libavsmash_summary_t *)malloc( summary_count * sizeof(libavsmash_summary_t) );
+    libavsmash_summary_t *summaries = (libavsmash_summary_t *)lw_malloc_zero( summary_count * sizeof(libavsmash_summary_t) );
     if( !summaries )
     {
         strcpy( error_string, "Failed to alloc input summaries.\n" );
         goto fail;
     }
-    memset( summaries, 0, summary_count * sizeof(libavsmash_summary_t) );
     for( uint32_t i = 0; i < summary_count; i++ )
     {
         lsmash_summary_t *summary = lsmash_get_summary( root, track_ID, i + 1 );
@@ -617,8 +617,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     avcodec_close( ctx );
     if( ctx->extradata )
     {
-        av_free( ctx->extradata );
-        ctx->extradata      = NULL;
+        av_freep( &ctx->extradata );
         ctx->extradata_size = 0;
     }
     /* Find an appropriate decoder. */
@@ -806,13 +805,12 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     if( config->count <= 1 )
         return config->error ? -1 : 0;
     /* Investigate other decoder configurations and pick preferred settings from them. */
-    uint8_t *index_list = (uint8_t *)malloc( config->count );
+    uint8_t *index_list = (uint8_t *)lw_malloc_zero( config->count );
     if( !index_list )
     {
         config->error = 1;
         return -1;
     }
-    memset( index_list, 0, config->count );
     uint32_t valid_index_count = (config->index && config->index <= config->count);
     if( valid_index_count )
         index_list[ config->index - 1 ] = 1;

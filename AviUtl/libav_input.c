@@ -104,7 +104,7 @@ static void close_indicator( progress_handler_t *php )
 
 static void *open_file( char *file_path, reader_option_t *opt )
 {
-    libav_handler_t *hp = malloc_zero( sizeof(libav_handler_t) );
+    libav_handler_t *hp = lw_malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
     hp->uType = MB_ICONERROR | MB_OK;
@@ -166,11 +166,10 @@ static void *open_file( char *file_path, reader_option_t *opt )
     /* Open file. */
     if( !lwhp->file_path )
     {
-        lwhp->file_path = malloc( file_path_length + 1 );
+        lwhp->file_path = lw_malloc_zero( file_path_length + 1 );
         if( !lwhp->file_path )
             goto fail;
         memcpy( lwhp->file_path, file_path, file_path_length );
-        lwhp->file_path[file_path_length] = '\0';
     }
     av_register_all();
     avcodec_register_all();
@@ -234,28 +233,6 @@ static int get_audio_track( lsmash_handler_t *h )
     ehp->message_priv  = &hp->uType;
     ehp->error_message = message_box_desktop;
     return 0;
-}
-
-static inline uint64_t get_gcd( uint64_t a, uint64_t b )
-{
-    if( !b )
-        return a;
-    while( 1 )
-    {
-        uint64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
-}
-
-static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
-{
-    uint64_t reduce = get_gcd( *a, *b );
-    *a /= reduce;
-    *b /= reduce;
-    return reduce;
 }
 
 static inline double sigexp10( double value, double *exponent )
@@ -415,8 +392,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
                 return -1;
         }
-        av_free( hp->vdh.index_entries );
-        hp->vdh.index_entries = NULL;
+        av_freep( &hp->vdh.index_entries );
     }
     setup_timestamp_info( h );
     /* swscale */
@@ -458,12 +434,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Set up a black frame of back ground. */
     hp->voh.output_linesize   = MAKE_AVIUTL_PITCH( hp->vdh.max_width * h->video_format.biBitCount );
     hp->voh.output_frame_size = hp->voh.output_linesize * hp->vdh.max_height;
-    hp->voh.back_ground       = hp->voh.output_frame_size ? malloc( hp->voh.output_frame_size ) : NULL;
+    hp->voh.back_ground       = hp->voh.output_frame_size ? lw_malloc_zero( hp->voh.output_frame_size ) : NULL;
     if( !hp->voh.back_ground )
         return -1;
-    if( h->video_format.biCompression != OUTPUT_TAG_YUY2 )
-        memset( hp->voh.back_ground, 0, hp->voh.output_frame_size );
-    else
+    if( h->video_format.biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = hp->voh.back_ground;
         for( int i = 0; i < hp->vdh.max_height; i++ )
@@ -501,10 +475,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             {
                 if( !hp->voh.first_valid_frame_data )
                 {
-                    hp->voh.first_valid_frame_data = malloc( hp->voh.output_frame_size );
+                    hp->voh.first_valid_frame_data = lw_memdup( hp->voh.back_ground, hp->voh.output_frame_size );
                     if( !hp->voh.first_valid_frame_data )
                         return -1;
-                    memcpy( hp->voh.first_valid_frame_data, hp->voh.back_ground, hp->voh.output_frame_size );
                 }
                 if( hp->voh.output_frame_size != convert_colorspace( hp, picture, hp->voh.first_valid_frame_data ) )
                     continue;
@@ -551,8 +524,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
             if( av_add_index_entry( audio_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
                 return -1;
         }
-        av_free( adhp->index_entries );
-        adhp->index_entries = NULL;
+        av_freep( &adhp->index_entries );
     }
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /* Set up resampler. */

@@ -34,11 +34,9 @@
 #include "VapourSynth.h"
 #include "video_output.h"
 
+#include "../common/utils.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
-
-#define MIN( a, b ) ((a) > (b) ? (b) : (a))
-#define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
 
 typedef struct
 {
@@ -359,28 +357,6 @@ static uint32_t open_file( lsmas_handler_t *hp, const char *source )
     return movie_param.number_of_tracks;
 }
 
-static inline uint64_t get_gcd( uint64_t a, uint64_t b )
-{
-    if( !b )
-        return a;
-    while( 1 )
-    {
-        uint64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
-}
-
-static inline uint64_t reduce_fraction( uint64_t *a, uint64_t *b )
-{
-    uint64_t reduce = get_gcd( *a, *b );
-    *a /= reduce;
-    *b /= reduce;
-    return reduce;
-}
-
 static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
 {
     video_decode_handler_t *vdhp = &hp->vdh;
@@ -419,7 +395,7 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
     {
         /* Consider composition order for keyframe detection.
          * Note: sample number for L-SMASH is 1-origin. */
-        vdhp->order_converter = malloc( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        vdhp->order_converter = lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
         if( !vdhp->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
@@ -556,13 +532,12 @@ static void VS_CC vs_filter_create( const VSMap *in, VSMap *out, void *user_data
         return;
     }
     /* Allocate the handler of this plugin. */
-    lsmas_handler_t *hp = malloc( sizeof(lsmas_handler_t) );
+    lsmas_handler_t *hp = lw_malloc_zero( sizeof(lsmas_handler_t) );
     if( !hp )
     {
         vsapi->setError( out, "lsmas: failed to allocate the handler." );
         return;
     }
-    memset( hp, 0, sizeof(lsmas_handler_t) );
     hp->eh.out       = out;
     hp->eh.frame_ctx = NULL;
     hp->eh.vsapi     = vsapi;

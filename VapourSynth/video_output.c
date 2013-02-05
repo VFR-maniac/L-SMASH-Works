@@ -26,6 +26,7 @@
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
+#include <libavutil/mem.h>
 
 #include "VapourSynth.h"
 #include "video_output.h"

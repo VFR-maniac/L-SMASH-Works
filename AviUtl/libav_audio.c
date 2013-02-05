@@ -31,6 +31,7 @@
 #include "libav_dec.h"
 #include "libav_audio.h"
 
+#include "../common/utils.h"
 #include "../common/resample.h"
 
 int get_desired_audio_track
@@ -47,15 +48,9 @@ int get_desired_audio_track
     if( error || open_decoder( ctx, adhp->codec_id, threads ) )
     {
         if( adhp->index_entries )
-        {
-            av_free( adhp->index_entries );
-            adhp->index_entries = NULL;
-        }
+            av_freep( &adhp->index_entries );
         if( adhp->frame_list )
-        {
-            free( adhp->frame_list );
-            adhp->frame_list = NULL;
-        }
+            lw_freep( &adhp->frame_list );
         if( adhp->format )
         {
             lavf_close_file( &adhp->format );

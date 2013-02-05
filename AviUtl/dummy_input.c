@@ -32,7 +32,7 @@ typedef struct
 
 static void *open_file( char *file_name, reader_option_t *opt )
 {
-    return malloc_zero( sizeof(dummy_handler_t) );
+    return lw_malloc_zero( sizeof(dummy_handler_t) );
 }
 
 static int get_first_video_track( lsmash_handler_t *h )
@@ -65,7 +65,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     hp->dummy_size = linesize * opt->height;
     if( hp->dummy_size <= 0 )
         return -1;
-    hp->dummy_data = malloc( hp->dummy_size );
+    hp->dummy_data = lw_malloc_zero( hp->dummy_size );
     if( !hp->dummy_data )
         return -1;
     uint8_t *pic = hp->dummy_data;
@@ -73,7 +73,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     {
         case OUTPUT_TAG_YC48 :
         case OUTPUT_TAG_RGB :
-            memset( pic, 0, hp->dummy_size );
             break;
         case OUTPUT_TAG_YUY2 :
             for( int i = 0; i < opt->height; i++ )
@@ -87,8 +86,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             }
             break;
         default :
-            free( hp->dummy_data );
-            hp->dummy_data = NULL;
+            lw_freep( &hp->dummy_data );
             return -1;
     }
     /* BITMAPINFOHEADER */

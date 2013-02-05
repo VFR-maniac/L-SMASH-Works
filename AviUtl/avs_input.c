@@ -159,7 +159,7 @@ static void *open_file( char *file_name, reader_option_t *opt )
     if( ext[0] != '.' || ext[1] != 'a' || ext[2] != 'v' || ext[3] != 's' )
         return NULL;
     /* Try to open the file as avisynth script. */
-    avs_handler_t *hp = malloc_zero( sizeof(avs_handler_t) );
+    avs_handler_t *hp = lw_malloc_zero( sizeof(avs_handler_t) );
     if( !hp )
         return NULL;
     AVS_Value res = initialize_avisynth( hp, file_name );
