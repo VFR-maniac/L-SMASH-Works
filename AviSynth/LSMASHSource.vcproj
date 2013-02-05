@@ -171,6 +171,10 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath=".\exlibs.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\common\libavsmash.c"
 				>
 				<FileConfiguration
@@ -258,12 +262,20 @@
 					/>
 				</FileConfiguration>
 			</File>
+			<File
+				RelativePath=".\video_output.cpp"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"
 			Filter="h;hpp;hxx;hm;inl;inc;xsd"
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
+			<File
+				RelativePath=".\audio_output.h"
+				>
+			</File>
 			<File
 				RelativePath=".\avisynth.h"
 				>
@@ -281,7 +293,15 @@
 				>
 			</File>
 			<File
+				RelativePath=".\lsmashsource.h"
+				>
+			</File>
+			<File
 				RelativePath="..\common\resample.h"
+				>
+			</File>
+			<File
+				RelativePath=".\video_output.h"
 				>
 			</File>
 		</Filter>

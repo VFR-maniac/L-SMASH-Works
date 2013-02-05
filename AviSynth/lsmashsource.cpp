@@ -50,18 +50,11 @@ extern "C"
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
 
-#pragma warning( disable:4996 )
+#include "video_output.h"
+#include "audio_output.h"
+#include "lsmashsource.h"
 
-#pragma comment( lib, "libgcc.a" )
-#pragma comment( lib, "libz.a" )
-#pragma comment( lib, "libbz2.a" )
-#pragma comment( lib, "liblsmash.a" )
-#pragma comment( lib, "libavutil.a" )
-#pragma comment( lib, "libavcodec.a" )
-#pragma comment( lib, "libavformat.a" )
-#pragma comment( lib, "libswscale.a" )
-#pragma comment( lib, "libavresample.a" )
-#pragma comment( lib, "libwsock32.a" )
+#pragma warning( disable:4996 )
 
 #ifndef INT32_MAX
 #define INT32_MAX 0x7fffffffL
@@ -80,51 +73,17 @@ static void throw_error( void *message_priv, const char *message, ... )
     env->ThrowError( (const char *)temp );
 }
 
-typedef void func_make_black_background( PVideoFrame &frame );
-typedef int func_make_frame( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env );
-
-typedef struct
-{
-    struct SwsContext          *sws_ctx;
-    int                         scaler_flags;
-    enum PixelFormat            output_pixel_format;
-    PVideoFrame                *first_valid_frame;
-    uint32_t                    first_valid_frame_number;
-    func_make_black_background *make_black_background;
-    func_make_frame            *make_frame;
-} video_output_handler_t;
-
-class LSMASHVideoSource : public IClip
-{
-private:
-    VideoInfo              vi;
-    video_decode_handler_t vh;
-    video_output_handler_t voh;
-    AVFormatContext       *format_ctx;
-    uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_video_track( const char *source, uint32_t track_number, int threads, IScriptEnvironment *env );
-    void prepare_video_decoding( IScriptEnvironment *env );
-public:
-    LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env );
-    ~LSMASHVideoSource();
-    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env );
-    bool __stdcall GetParity( int n ) { return false; }
-    void __stdcall GetAudio( void *buf, __int64 start, __int64 count, IScriptEnvironment *env ) {}
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
-};
-
 LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env )
 {
-    memset( &vi, 0, sizeof(VideoInfo) );
-    memset( &vh, 0, sizeof(video_decode_handler_t) );
+    memset( &vi,  0, sizeof(VideoInfo) );
+    memset( &vdh, 0, sizeof(video_decode_handler_t) );
     memset( &voh, 0, sizeof(video_output_handler_t) );
-    format_ctx                = NULL;
-    vh.seek_mode              = seek_mode;
-    vh.forward_seek_threshold = forward_seek_threshold;
-    voh.first_valid_frame     = NULL;
+    format_ctx                 = NULL;
+    vdh.seek_mode              = seek_mode;
+    vdh.forward_seek_threshold = forward_seek_threshold;
+    voh.first_valid_frame      = NULL;
     get_video_track( source, track_number, threads, env );
-    lsmash_discard_boxes( vh.root );
+    lsmash_discard_boxes( vdh.root );
     prepare_video_decoding( env );
 }
 
@@ -132,27 +91,27 @@ LSMASHVideoSource::~LSMASHVideoSource()
 {
     if( voh.first_valid_frame )
         delete voh.first_valid_frame;
-    if( vh.order_converter )
-        delete [] vh.order_converter;
-    if( vh.frame_buffer )
-        avcodec_free_frame( &vh.frame_buffer );
+    if( vdh.order_converter )
+        delete [] vdh.order_converter;
+    if( vdh.frame_buffer )
+        avcodec_free_frame( &vdh.frame_buffer );
     if( voh.sws_ctx )
         sws_freeContext( voh.sws_ctx );
-    cleanup_configuration( &vh.config );
+    cleanup_configuration( &vdh.config );
     if( format_ctx )
         avformat_close_input( &format_ctx );
-    lsmash_destroy_root( vh.root );
+    lsmash_destroy_root( vdh.root );
 }
 
 uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *env )
 {
     /* L-SMASH */
-    vh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !vh.root )
+    vdh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
+    if( !vdh.root )
         env->ThrowError( "LSMASHVideoSource: failed to lsmash_open_movie." );
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( vh.root, &movie_param );
+    lsmash_get_movie_parameters( vdh.root, &movie_param );
     if( movie_param.number_of_tracks == 0 )
         env->ThrowError( "LSMASHVideoSource: the number of tracks equals 0." );
     /* libavformat */
@@ -163,7 +122,7 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
     if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to avformat_find_stream_info." );
     /* */
-    vh.config.error_message = throw_error;
+    vdh.config.error_message = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -264,11 +223,11 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         /* Get the first video track. */
         for( i = 1; i <= number_of_tracks; i++ )
         {
-            vh.track_ID = lsmash_get_track_ID( vh.root, i );
-            if( vh.track_ID == 0 )
+            vdh.track_ID = lsmash_get_track_ID( vdh.root, i );
+            if( vdh.track_ID == 0 )
                 env->ThrowError( "LSMASHVideoSource: failed to find video track." );
             lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( vh.root, vh.track_ID, &media_param ) )
+            if( lsmash_get_media_parameters( vdh.root, vdh.track_ID, &media_param ) )
                 env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
             if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
                 break;
@@ -279,21 +238,21 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
     else
     {
         /* Get the desired video track. */
-        vh.track_ID = lsmash_get_track_ID( vh.root, track_number );
-        if( vh.track_ID == 0 )
+        vdh.track_ID = lsmash_get_track_ID( vdh.root, track_number );
+        if( vdh.track_ID == 0 )
             env->ThrowError( "LSMASHVideoSource: failed to find video track." );
         lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( vh.root, vh.track_ID, &media_param ) )
+        if( lsmash_get_media_parameters( vdh.root, vdh.track_ID, &media_param ) )
             env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
         if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
             env->ThrowError( "LSMASHVideoSource: the track you specified is not a video track." );
     }
-    if( lsmash_construct_timeline( vh.root, vh.track_ID ) )
+    if( lsmash_construct_timeline( vdh.root, vdh.track_ID ) )
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
-    if( get_summaries( vh.root, vh.track_ID, &vh.config ) )
+    if( get_summaries( vdh.root, vdh.track_ID, &vdh.config ) )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
-    vi.num_frames = lsmash_get_sample_count_in_media_timeline( vh.root, vh.track_ID );
-    setup_timestamp_info( &vh, &vi, media_param.timescale, env );
+    vi.num_frames = lsmash_get_sample_count_in_media_timeline( vdh.root, vdh.track_ID );
+    setup_timestamp_info( &vdh, &vi, media_param.timescale, env );
     /* libavformat */
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == format_ctx->nb_streams )
@@ -301,7 +260,7 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
     /* libavcodec */
     AVStream *stream = format_ctx->streams[i];
     AVCodecContext *ctx = stream->codec;
-    vh.config.ctx = ctx;
+    vdh.config.ctx = ctx;
     AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
     if( !codec )
         env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
@@ -310,169 +269,22 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
-static int make_frame_yuv420p( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
-{
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUV420P, 16 ) < 0 )
-        return -1;
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    env->BitBlt( frame->GetWritePtr( PLANAR_Y ), frame->GetPitch( PLANAR_Y ), dst_data[0], dst_linesize[0], picture->width,     picture->height ); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_U ), frame->GetPitch( PLANAR_U ), dst_data[1], dst_linesize[1], picture->width / 2, picture->height / 2 ); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_V ), frame->GetPitch( PLANAR_V ), dst_data[2], dst_linesize[2], picture->width / 2, picture->height / 2 ); 
-    av_free( dst_data[0] );
-    return 0;
-}
-
-static int make_frame_yuv422( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
-{
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUYV422, 16 ) < 0 )
-        return -1;
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    env->BitBlt( frame->GetWritePtr(), frame->GetPitch(), dst_data[0], dst_linesize[0], picture->width * 2, picture->height );
-    av_free( dst_data[0] );
-    return 0;
-}
-
-static int make_frame_rgba32( struct SwsContext *sws_ctx, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
-{
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGRA, 16 ) < 0 )
-        return -1;
-    sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    env->BitBlt( frame->GetWritePtr() + frame->GetPitch() * (frame->GetHeight() - 1), -frame->GetPitch(), dst_data[0], dst_linesize[0], picture->width * 4, picture->height ); 
-    av_free( dst_data[0] );
-    return 0;
-}
-
-static void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
-{
-    static const struct
-    {
-        enum AVPixelFormat full;
-        enum AVPixelFormat limited;
-    } range_hack_table[]
-        = {
-            { AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUV420P },
-            { AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
-            { AV_PIX_FMT_NONE,     AV_PIX_FMT_NONE    }
-          };
-    for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
-        if( *input_pixel_format == range_hack_table[i].full )
-            *input_pixel_format = range_hack_table[i].limited;
-}
-
-int determine_colorspace_conversion( enum AVPixelFormat *input_pixel_format, enum AVPixelFormat *output_pixel_format, int *output_pixel_type )
-{
-    avoid_yuv_scale_conversion( input_pixel_format );
-    switch( *input_pixel_format )
-    {
-        case AV_PIX_FMT_YUV420P :
-        case AV_PIX_FMT_NV12 :
-        case AV_PIX_FMT_NV21 :
-            *output_pixel_format = AV_PIX_FMT_YUV420P;  /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
-            *output_pixel_type   = VideoInfo::CS_I420;
-            return 1;
-        case AV_PIX_FMT_YUYV422 :
-        case AV_PIX_FMT_YUV422P :
-        case AV_PIX_FMT_UYVY422 :
-            *output_pixel_format = AV_PIX_FMT_YUYV422;  /* packed YUV 4:2:2, 16bpp */
-            *output_pixel_type   = VideoInfo::CS_YUY2;
-            return 2;
-        case AV_PIX_FMT_ARGB :
-        case AV_PIX_FMT_RGBA :
-        case AV_PIX_FMT_ABGR :
-        case AV_PIX_FMT_BGRA :
-        case AV_PIX_FMT_RGB24 :
-        case AV_PIX_FMT_BGR24 :
-        case AV_PIX_FMT_GBRP :
-            *output_pixel_format = AV_PIX_FMT_BGRA;     /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
-            *output_pixel_type   = VideoInfo::CS_BGR32;
-            return 3;
-        default :
-            *output_pixel_format = AV_PIX_FMT_NONE;
-            *output_pixel_type   = VideoInfo::CS_UNKNOWN;
-            return 0;
-    }
-}
-
-static void make_black_background_yuv420p( PVideoFrame &frame )
-{
-    memset( frame->GetWritePtr( PLANAR_Y ), 0x00, frame->GetPitch( PLANAR_Y ) * frame->GetHeight( PLANAR_Y ) );
-    memset( frame->GetWritePtr( PLANAR_U ), 0x80, frame->GetPitch( PLANAR_U ) * frame->GetHeight( PLANAR_U ) );
-    memset( frame->GetWritePtr( PLANAR_V ), 0x80, frame->GetPitch( PLANAR_V ) * frame->GetHeight( PLANAR_V ) );
-}
-
-static void make_black_background_yuv422( PVideoFrame &frame )
-{
-    uint32_t *p = (uint32_t *)frame->GetWritePtr();
-    int num_loops = frame->GetPitch() * frame->GetHeight() / 4;
-    for( int i = 0; i < num_loops; i++ )
-        *p++ = 0x00800080;
-}
-
-static void make_black_background_rgba32( PVideoFrame &frame )
-{
-    memset( frame->GetWritePtr(), 0x00, frame->GetPitch() * frame->GetHeight() );
-}
-
-static int make_frame( video_output_handler_t *ohp, AVFrame *picture, PVideoFrame &frame, IScriptEnvironment *env )
-{
-    /* Convert color space. We don't change the presentation resolution. */
-    int64_t width;
-    int64_t height;
-    int64_t format;
-    av_opt_get_int( ohp->sws_ctx, "srcw",       0, &width );
-    av_opt_get_int( ohp->sws_ctx, "srch",       0, &height );
-    av_opt_get_int( ohp->sws_ctx, "src_format", 0, &format );
-    avoid_yuv_scale_conversion( (enum AVPixelFormat *)&picture->format );
-    if( !ohp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
-    {
-        /* Update scaler. */
-        ohp->sws_ctx = sws_getCachedContext( ohp->sws_ctx,
-                                             picture->width, picture->height, (enum AVPixelFormat)picture->format,
-                                             picture->width, picture->height, ohp->output_pixel_format,
-                                             ohp->scaler_flags, NULL, NULL, NULL );
-        if( !ohp->sws_ctx )
-            return -1;
-    }
-    ohp->make_black_background( frame );
-    return ohp->make_frame( ohp->sws_ctx, picture, frame, env );
-}
-
 void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 {
-    vh.frame_buffer = avcodec_alloc_frame();
-    if( !vh.frame_buffer )
+    vdh.frame_buffer = avcodec_alloc_frame();
+    if( !vdh.frame_buffer )
         env->ThrowError( "LSMASHVideoSource: failed to allocate video frame buffer." );
     /* Initialize the video decoder configuration. */
-    codec_configuration_t *config = &vh.config;
+    codec_configuration_t *config = &vdh.config;
     config->message_priv = env;
-    if( initialize_decoder_configuration( vh.root, vh.track_ID, config ) )
+    if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
     enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
-    static const struct
-    {
-        func_make_black_background *make_black_background;
-        func_make_frame            *make_frame;
-    } frame_maker_func_table[] =
-        {
-            { NULL, NULL },
-            { make_black_background_yuv420p, make_frame_yuv420p },
-            { make_black_background_yuv422,  make_frame_yuv422  },
-            { make_black_background_rgba32,  make_frame_rgba32  }
-        };
-    int frame_maker_index = determine_colorspace_conversion( &config->ctx->pix_fmt, &voh.output_pixel_format, &vi.pixel_type );
-    if( frame_maker_index == 0 )
+    if( determine_colorspace_conversion( &voh, &config->ctx->pix_fmt, &vi.pixel_type ) < 0 )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
-    voh.make_black_background = frame_maker_func_table[frame_maker_index].make_black_background;
-    voh.make_frame            = frame_maker_func_table[frame_maker_index].make_frame;
     voh.scaler_flags = SWS_FAST_BILINEAR;
     voh.sws_ctx = sws_getCachedContext( NULL,
                                         config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
@@ -484,8 +296,8 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        get_sample( vh.root, vh.track_ID, i, &vh.config, &pkt );
-        AVFrame *picture = vh.frame_buffer;
+        get_sample( vdh.root, vdh.track_ID, i, &vdh.config, &pkt );
+        AVFrame *picture = vdh.frame_buffer;
         avcodec_get_frame_defaults( picture );
         int got_picture;
         if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
@@ -507,7 +319,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         else if( pkt.data )
             ++ config->delay_count;
     }
-    vh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
+    vdh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
 }
 
 PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *env )
@@ -516,40 +328,20 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     if( sample_number < voh.first_valid_frame_number || vi.num_frames == 1 )
     {
         /* Copy the first valid video frame. */
-        vh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the next access for valid video sample. */
+        vdh.last_sample_number = vi.num_frames + 1;     /* Force seeking at the next access for valid video sample. */
         return *voh.first_valid_frame;
     }
-    codec_configuration_t *config = &vh.config;
+    codec_configuration_t *config = &vdh.config;
     config->message_priv = env;
     PVideoFrame frame = env->NewVideoFrame( vi );
     if( config->error )
         return frame;
-    if( get_video_frame( &vh, sample_number, vi.num_frames ) )
+    if( get_video_frame( &vdh, sample_number, vi.num_frames ) )
         return frame;
-    if( make_frame( &voh, vh.frame_buffer, frame, env ) )
+    if( make_frame( &voh, vdh.frame_buffer, frame, env ) )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return frame;
 }
-
-class LSMASHAudioSource : public IClip
-{
-private:
-    VideoInfo              vi;
-    audio_decode_handler_t adh;
-    audio_output_handler_t aoh;
-    AVFormatContext       *format_ctx;
-    uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
-    void prepare_audio_decoding( IScriptEnvironment *env );
-public:
-    LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
-    ~LSMASHAudioSource();
-    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
-    bool __stdcall GetParity( int n ) { return false; }
-    void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
-};
 
 LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
@@ -738,25 +530,6 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     ctx->thread_count = 0;
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
-}
-
-static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
-{
-    /* Avisynth doesn't support IEEE double precision floating point format. */
-    switch( input_sample_format )
-    {
-        case AV_SAMPLE_FMT_U8 :
-        case AV_SAMPLE_FMT_U8P :
-            return AV_SAMPLE_FMT_U8;
-        case AV_SAMPLE_FMT_S16 :
-        case AV_SAMPLE_FMT_S16P :
-            return AV_SAMPLE_FMT_S16;
-        case AV_SAMPLE_FMT_S32 :
-        case AV_SAMPLE_FMT_S32P :
-            return AV_SAMPLE_FMT_S32;
-        default :
-            return AV_SAMPLE_FMT_FLT;
-    }
 }
 
 void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
