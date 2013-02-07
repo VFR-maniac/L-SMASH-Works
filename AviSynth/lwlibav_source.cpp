@@ -337,7 +337,7 @@ void __stdcall LWLibavAudioSource::GetAudio( void *buf, __int64 start, __int64 w
 AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
     const char *source                 = args[0].AsString();
-    int         track_number           = args[1].AsInt( -1 );
+    int         stream_index           = args[1].AsInt( -1 );
     int         threads                = args[2].AsInt( 0 );
     int         no_create_index        = args[3].AsInt( 0 );
     int         seek_mode              = args[4].AsInt( 0 );
@@ -348,8 +348,8 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.threads           = threads >= 0 ? threads : 0;
     opt.av_sync           = 0;
     opt.no_create_index   = no_create_index;
-    opt.force_video       = (track_number >= 0);
-    opt.force_video_index = track_number >= 0 ? track_number : -1;
+    opt.force_video       = (stream_index >= 0);
+    opt.force_video_index = stream_index >= 0 ? stream_index : -1;
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
@@ -360,7 +360,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
     const char *source          = args[0].AsString();
-    int         track_number    = args[1].AsInt( -1 );
+    int         stream_index    = args[1].AsInt( -1 );
     int         no_create_index = args[2].AsInt( 0 );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
@@ -370,7 +370,7 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.no_create_index   = no_create_index;
     opt.force_video       = 0;
     opt.force_video_index = -1;
-    opt.force_audio       = (track_number >= 0);
-    opt.force_audio_index = track_number >= 0 ? track_number : -1;
+    opt.force_audio       = (stream_index >= 0);
+    opt.force_audio_index = stream_index >= 0 ? stream_index : -1;
     return new LWLibavAudioSource( &opt, env );
 }
