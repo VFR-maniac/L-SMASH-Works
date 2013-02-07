@@ -21,42 +21,11 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
-class LSMASHVideoSource : public IClip
-{
-private:
-    VideoInfo              vi;
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
-    AVFormatContext       *format_ctx;
-    uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_video_track( const char *source, uint32_t track_number, int threads, IScriptEnvironment *env );
-    void prepare_video_decoding( IScriptEnvironment *env );
-public:
-    LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env );
-    ~LSMASHVideoSource();
-    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env );
-    bool __stdcall GetParity( int n ) { return false; }
-    void __stdcall GetAudio( void *buf, __int64 start, __int64 count, IScriptEnvironment *env ) {}
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
-};
+#include <windows.h>
 
-class LSMASHAudioSource : public IClip
-{
-private:
-    VideoInfo              vi;
-    audio_decode_handler_t adh;
-    audio_output_handler_t aoh;
-    AVFormatContext       *format_ctx;
-    uint32_t open_file( const char *source, IScriptEnvironment *env );
-    void get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
-    void prepare_audio_decoding( IScriptEnvironment *env );
-public:
-    LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env );
-    ~LSMASHAudioSource();
-    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
-    bool __stdcall GetParity( int n ) { return false; }
-    void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
-};
+#include "../common/cpp_compat.h"
+#include "../common/utils.h"
+
+#include "avisynth.h"
+
+void throw_error( void *message_priv, const char *message, ... );

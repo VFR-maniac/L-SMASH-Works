@@ -20,14 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#ifdef __cplusplus
-#   ifndef __STDC_CONSTANT_MACROS
-#       define __STDC_CONSTANT_MACROS
-#   endif
-#   ifdef _MSC_VER
-#       define _CRT_SECURE_NO_WARNINGS
-#   endif
-#endif  /* __cplusplus */
+#include "cpp_compat.h"
 
 #include <stdlib.h>
 #include <string.h>

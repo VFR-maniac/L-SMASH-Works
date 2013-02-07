@@ -1,5 +1,5 @@
 /*****************************************************************************
- * progress.h
+ * cpp_compat.h
  *****************************************************************************
  * Copyright (C) 2013 L-SMASH Works project
  *
@@ -18,15 +18,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
-typedef struct progress_handler_tag progress_handler_t;
-
-typedef struct
-{
-    void (*open)  ( progress_handler_t *hp );
-    int  (*update)( progress_handler_t *hp, const char *message, int percent );
-    void (*close )( progress_handler_t *hp );
-} progress_indicator_t;
+#ifdef __cplusplus
+#   ifndef __STDC_CONSTANT_MACROS
+#       define __STDC_CONSTANT_MACROS
+#   endif
+#   ifndef __STDC_LIMIT_MACROS
+#       define __STDC_LIMIT_MACROS
+#   endif
+#   ifndef __STDC_FORMAT_MACROS
+#       define __STDC_FORMAT_MACROS
+#   endif
+#   ifdef _MSC_VER
+#       define _CRT_SECURE_NO_WARNINGS
+#       pragma warning( disable:4996 )
+#   endif
+#endif  /* __cplusplus */

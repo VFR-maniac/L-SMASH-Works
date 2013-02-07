@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libav_audio.c
+ * lwlibav_audio.c / lwlibav_audio.cpp
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,23 +18,30 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
+#include "cpp_compat.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif  /* __cplusplus */
 #include <libavformat/avformat.h>       /* Demuxer */
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libavresample/avresample.h>   /* Resampler/Buffer */
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
-#include "libav_dec.h"
-#include "libav_audio.h"
+#include "lwlibav_dec.h"
+#include "lwlibav_audio.h"
 
-#include "../common/utils.h"
-#include "../common/resample.h"
+#include "utils.h"
+#include "resample.h"
 
-int get_desired_audio_track
+int lwlibav_get_desired_audio_track
 (
     const char             *file_path,
     audio_decode_handler_t *adhp,
@@ -62,7 +69,7 @@ int get_desired_audio_track
     return 0;
 }
 
-uint64_t count_overall_pcm_samples
+uint64_t lwlibav_count_overall_pcm_samples
 (
     audio_decode_handler_t *adhp,
     int                     output_sample_rate
@@ -198,7 +205,7 @@ static int consume_decoded_audio_samples
     audio_samples_t in;
     in.channel_layout = frame->channel_layout;
     in.sample_count   = input_sample_count;
-    in.sample_format  = frame->format;
+    in.sample_format  = (enum AVSampleFormat)frame->format;
     in.data           = in_data;
     /* Output */
     uint8_t *resampled_buffer = NULL;
@@ -208,7 +215,7 @@ static int consume_decoded_audio_samples
         int out_linesize = get_linesize( out_channels, wanted_sample_count, aohp->output_sample_format );
         if( !aohp->resampled_buffer || out_linesize > aohp->resampled_buffer_size )
         {
-            uint8_t *temp = av_realloc( aohp->resampled_buffer, out_linesize );
+            uint8_t *temp = (uint8_t *)av_realloc( aohp->resampled_buffer, out_linesize );
             if( !temp )
                 return 0;
             aohp->resampled_buffer_size = out_linesize;
@@ -228,7 +235,7 @@ static int consume_decoded_audio_samples
     return resampled_size > 0 ? resampled_size / aohp->output_block_align : 0;
 }
 
-uint64_t get_pcm_audio_samples
+uint64_t lwlibav_get_pcm_audio_samples
 (
     audio_decode_handler_t *adhp,
     audio_output_handler_t *aohp,
@@ -251,7 +258,7 @@ uint64_t get_pcm_audio_samples
          && adhp->frame_buffer->extended_data[0] )
         {
             /* Flush remaing audio samples. */
-            int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, 0, wanted_length, (uint8_t **)&buf, 0 );
+            int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
             output_length += resampled_length;
             wanted_length -= resampled_length;
             if( wanted_length <= 0 )
@@ -286,7 +293,7 @@ uint64_t get_pcm_audio_samples
         else
         {
             uint64_t silence_length = -start;
-            put_silence_audio_samples( silence_length * aohp->output_block_align, aohp->output_bits_per_sample == 8, (uint8_t **)&buf );
+            put_silence_audio_samples( (int)(silence_length * aohp->output_block_align), aohp->output_bits_per_sample == 8, (uint8_t **)&buf );
             output_length += silence_length;
             wanted_length -= silence_length;
             start_frame_pos = 0;
@@ -358,7 +365,7 @@ uint64_t get_pcm_audio_samples
                                                         aohp->output_sample_format,
                                                         adhp->frame_buffer->channel_layout,
                                                         adhp->frame_buffer->sample_rate,
-                                                        adhp->frame_buffer->format,
+                                                        (enum AVSampleFormat)adhp->frame_buffer->format,
                                                         &aohp->input_planes,
                                                         &aohp->input_block_align ) < 0 )
                     {
@@ -375,8 +382,8 @@ uint64_t get_pcm_audio_samples
                 if( decoded_length > seek_offset )
                 {
                     /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
-                    int useful_length = decoded_length - seek_offset;
-                    int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, useful_length, wanted_length, (uint8_t **)&buf, seek_offset );
+                    int useful_length = (int)(decoded_length - seek_offset);
+                    int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, useful_length, (int)wanted_length, (uint8_t **)&buf, (int)seek_offset );
                     output_length += resampled_length;
                     wanted_length -= resampled_length;
                     seek_offset = 0;
@@ -396,4 +403,29 @@ audio_out:
     adhp->next_pcm_sample_number = start + output_length;
     adhp->last_frame_number = frame_number;
     return output_length;
+}
+
+void lwlibav_cleanup_audio_decode_handler( audio_decode_handler_t *adhp )
+{
+    if( adhp->input_buffer )
+        av_freep( &adhp->input_buffer );
+    if( adhp->index_entries )
+        av_freep( &adhp->index_entries );
+    if( adhp->frame_buffer )
+        avcodec_free_frame( &adhp->frame_buffer );
+    if( adhp->ctx )
+    {
+        avcodec_close( adhp->ctx );
+        adhp->ctx = NULL;
+    }
+    if( adhp->format )
+        lavf_close_file( &adhp->format );
+}
+
+void lwlibav_cleanup_audio_output_handler( audio_output_handler_t *aohp )
+{
+    if( aohp->resampled_buffer )
+        av_freep( &aohp->resampled_buffer );
+    if( aohp->avr_ctx )
+        avresample_free( &aohp->avr_ctx );
 }

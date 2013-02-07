@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libav_dec.h
+ * lwlibav_dec.h
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,12 +18,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
-
-#define MIN( a, b ) ((a) > (b) ? (b) : (a))
-#define MAX( a, b ) ((a) < (b) ? (b) : (a))
+/* This file is available under an ISC license. */
 
 #define SEEK_DTS_BASED         0x00000001
 #define SEEK_PTS_BASED         0x00000002
@@ -60,7 +55,7 @@ static inline int lavf_open_file
 
 static inline void lavf_close_file( AVFormatContext **format_ctx )
 {
-    for( int index = 0; index < (*format_ctx)->nb_streams; index++ )
+    for( unsigned int index = 0; index < (*format_ctx)->nb_streams; index++ )
         if( avcodec_is_open( (*format_ctx)->streams[index]->codec ) )
             avcodec_close( (*format_ctx)->streams[index]->codec );
     avformat_close_input( format_ctx );

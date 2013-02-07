@@ -215,6 +215,10 @@
 				</FileConfiguration>
 			</File>
 			<File
+				RelativePath=".\libavsmash_source.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\common\libavsmash_video.c"
 				>
 				<FileConfiguration
@@ -241,6 +245,90 @@
 			<File
 				RelativePath=".\lsmashsource.cpp"
 				>
+			</File>
+			<File
+				RelativePath="..\common\lwindex.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_audio.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_dec.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath=".\lwlibav_source.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_video.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
 			</File>
 			<File
 				RelativePath="..\common\resample.c"
@@ -301,11 +389,19 @@
 				>
 			</File>
 			<File
+				RelativePath="..\common\cpp_compat.h"
+				>
+			</File>
+			<File
 				RelativePath="..\common\libavsmash.h"
 				>
 			</File>
 			<File
 				RelativePath="..\common\libavsmash_audio.h"
+				>
+			</File>
+			<File
+				RelativePath=".\libavsmash_source.h"
 				>
 			</File>
 			<File
@@ -317,7 +413,35 @@
 				>
 			</File>
 			<File
+				RelativePath="..\common\lwindex.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_audio.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_dec.h"
+				>
+			</File>
+			<File
+				RelativePath=".\lwlibav_source.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\lwlibav_video.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\progress.h"
+				>
+			</File>
+			<File
 				RelativePath="..\common\resample.h"
+				>
+			</File>
+			<File
+				RelativePath="..\common\utils.h"
 				>
 			</File>
 			<File

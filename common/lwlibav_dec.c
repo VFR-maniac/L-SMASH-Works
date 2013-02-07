@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libav_dec.c
+ * lwlibav_dec.c / lwindex.cpp
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,14 +18,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
+#include "cpp_compat.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif  /* __cplusplus */
 #include <libavformat/avformat.h>   /* Demuxer */
 #include <libavcodec/avcodec.h>     /* Decoder */
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
-#include "libav_dec.h"
+#include "lwlibav_dec.h"
 
 int get_av_frame
 (
@@ -46,9 +53,9 @@ int get_av_frame
             continue;
         }
         /* Don't trust the first survey of the maximum packet size. It seems various by seeking. */
-        if( temp.size + FF_INPUT_BUFFER_PADDING_SIZE > *buffer_size )
+        if( ((unsigned int)temp.size + FF_INPUT_BUFFER_PADDING_SIZE) > *buffer_size )
         {
-            uint8_t *new_buffer = av_realloc( *buffer, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
+            uint8_t *new_buffer = (uint8_t *)av_realloc( *buffer, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
             if( !new_buffer )
             {
                 av_free_packet( &temp );

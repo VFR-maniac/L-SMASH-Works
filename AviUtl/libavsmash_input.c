@@ -44,8 +44,6 @@
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
 
-#define MIN( a, b ) ((a) > (b) ? (b) : (a))
-
 typedef struct
 {
     uint8_t *keyframe_list;

@@ -24,16 +24,14 @@
 
 #include <stdint.h>
 
+#include "../common/utils.h"
+
 #ifdef __GNUC__
 #define AUI_ALIGN(x) __attribute__((aligned(x)))
 #define AUI_FUNC_ALIGN __attribute__((force_align_arg_pointer))
 #else
 #define AUI_ALIGN(x) __declspec(align(x))
 #define AUI_FUNC_ALIGN
-#endif
-
-#ifndef MIN
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #endif
 
 #ifdef __GNUC__

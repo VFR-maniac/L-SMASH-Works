@@ -30,19 +30,18 @@
 #include <libavresample/avresample.h>   /* Audio resampler */
 #include <libavutil/opt.h>
 
+#include "../common/resample.h"
+#include "../common/progress.h"
+#include "../common/lwlibav_dec.h"
+#include "../common/lwlibav_video.h"
+#include "../common/lwlibav_audio.h"
+#include "../common/lwindex.h"
+
 #include "lsmashinput.h"
 #include "colorspace.h"
 #include "audio_output.h"
 #include "resource.h"
-#include "progress.h"
 #include "progress_dlg.h"
-
-#include "libav_dec.h"
-#include "libav_video.h"
-#include "libav_audio.h"
-#include "lwindex.h"
-
-#include "../common/resample.h"
 
 typedef struct
 {
@@ -60,7 +59,7 @@ typedef struct
 typedef struct libav_handler_tag
 {
     UINT                   uType;
-    lwav_file_handler_t    lwh;
+    lwlibav_file_handler_t lwh;
     /* Video stuff */
     video_decode_handler_t vdh;
     video_output_handler_t voh;
@@ -107,85 +106,21 @@ static void *open_file( char *file_path, reader_option_t *opt )
     libav_handler_t *hp = lw_malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
-    hp->uType = MB_ICONERROR | MB_OK;
-    video_decode_handler_t *vdhp = &hp->vdh;
-    audio_decode_handler_t *adhp = &hp->adh;
-    vdhp->frame_buffer = avcodec_alloc_frame();
-    if( !vdhp->frame_buffer )
-    {
-        free( hp );
-        return NULL;
-    }
-    adhp->frame_buffer = avcodec_alloc_frame();
-    if( !adhp->frame_buffer )
-    {
-        avcodec_free_frame( &vdhp->frame_buffer );
-        free( hp );
-        return NULL;
-    }
-    /* Set options. */
-    lwav_option_t lwav_opt;
-    lwav_opt.threads           = opt->threads;
-    lwav_opt.av_sync           = opt->av_sync;
-    lwav_opt.no_create_index   = opt->no_create_index;
-    lwav_opt.force_video       = opt->force_video;
-    lwav_opt.force_video_index = opt->force_video_index;
-    lwav_opt.force_audio       = opt->force_audio;
-    lwav_opt.force_audio_index = opt->force_audio_index;
-    /* Try to open the index file. */
-    int file_path_length = strlen( file_path );
-    char index_file_path[file_path_length + 5];
-    memcpy( index_file_path, file_path, file_path_length );
-    char *ext = file_path_length >= 5 ? &file_path[file_path_length - 4] : NULL;
-    if( ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) ) )
-        index_file_path[file_path_length] = '\0';
-    else
-    {
-        memcpy( index_file_path + file_path_length, ".lwi", strlen( ".lwi" ) );
-        index_file_path[file_path_length + 4] = '\0';
-    }
-    lwav_file_handler_t *lwhp = &hp->lwh;
-    FILE *index = fopen( index_file_path, (opt->force_video || opt->force_video) ? "r+b" : "rb" );
-    if( index )
-    {
-        int version = 0;
-        int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
-        if( ret == 1
-         && version == INDEX_FILE_VERSION
-         && parse_index( lwhp, vdhp, adhp, &hp->aoh, &lwav_opt, index ) == 0 )
-        {
-            /* Opening and parsing the index file succeeded. */
-            fclose( index );
-            av_register_all();
-            avcodec_register_all();
-            lwhp->threads = lwav_opt.threads;
-            return hp;
-        }
-        fclose( index );
-    }
-    /* Open file. */
-    if( !lwhp->file_path )
-    {
-        lwhp->file_path = lw_malloc_zero( file_path_length + 1 );
-        if( !lwhp->file_path )
-            goto fail;
-        memcpy( lwhp->file_path, file_path, file_path_length );
-    }
-    av_register_all();
-    avcodec_register_all();
-    AVFormatContext *format_ctx = NULL;
+    /* Set up error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = &hp->uType;
     eh.error_message = message_box_desktop;
-    if( lavf_open_file( &format_ctx, file_path, &eh ) )
-    {
-        if( format_ctx )
-            lavf_close_file( &format_ctx );
-        goto fail;
-    }
-    lwhp->threads      = lwav_opt.threads;
-    vdhp->stream_index = -1;
-    adhp->stream_index = -1;
+    hp->uType = MB_ICONERROR | MB_OK;
+    /* Set options. */
+    lwlibav_option_t lwlibav_opt;
+    lwlibav_opt.file_path         = file_path;
+    lwlibav_opt.threads           = opt->threads;
+    lwlibav_opt.av_sync           = opt->av_sync;
+    lwlibav_opt.no_create_index   = opt->no_create_index;
+    lwlibav_opt.force_video       = opt->force_video;
+    lwlibav_opt.force_video_index = opt->force_video_index;
+    lwlibav_opt.force_audio       = opt->force_audio;
+    lwlibav_opt.force_audio_index = opt->force_audio_index;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = open_indicator;
@@ -194,29 +129,19 @@ static void *open_file( char *file_path, reader_option_t *opt )
     progress_handler_t ph = { { 0 } };
     ph.module_name = "lsmashinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
-    /* Create the index file. */
-    create_index( lwhp, vdhp, adhp, &hp->aoh, format_ctx, &lwav_opt, &indicator, &ph );
-    /* Close file.
-     * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
-    lavf_close_file( &format_ctx );
-    vdhp->ctx = NULL;
-    adhp->ctx = NULL;
+    /* Construct index. */
+    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->adh, &hp->aoh, &eh, &lwlibav_opt, &indicator, &ph ) < 0 )
+    {
+        free( hp );
+        return NULL;
+    }
     return hp;
-fail:
-    if( vdhp->frame_buffer )
-        avcodec_free_frame( &vdhp->frame_buffer );
-    if( adhp->frame_buffer )
-        avcodec_free_frame( &adhp->frame_buffer );
-    if( lwhp->file_path )
-        free( lwhp->file_path );
-    free( hp );
-    return NULL;
 }
 
 static int get_video_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( get_desired_video_track( hp->lwh.file_path, &hp->vdh, hp->lwh.threads ) < 0 )
+    if( lwlibav_get_desired_video_track( hp->lwh.file_path, &hp->vdh, hp->lwh.threads ) < 0 )
         return -1;
     error_handler_t *ehp = &hp->vdh.eh;
     ehp->message_priv  = &hp->uType;
@@ -227,120 +152,12 @@ static int get_video_track( lsmash_handler_t *h )
 static int get_audio_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( get_desired_audio_track( hp->lwh.file_path, &hp->adh, hp->lwh.threads ) < 0 )
+    if( lwlibav_get_desired_audio_track( hp->lwh.file_path, &hp->adh, hp->lwh.threads ) < 0 )
         return -1;
     error_handler_t *ehp = &hp->adh.eh;
     ehp->message_priv  = &hp->uType;
     ehp->error_message = message_box_desktop;
     return 0;
-}
-
-static inline double sigexp10( double value, double *exponent )
-{
-    /* This function separates significand and exp10 from double floating point. */
-    *exponent = 1;
-    while( value < 1 )
-    {
-        value *= 10;
-        *exponent /= 10;
-    }
-    while( value >= 10 )
-    {
-        value /= 10;
-        *exponent *= 10;
-    }
-    return value;
-}
-
-static int try_ntsc_framerate( lsmash_handler_t *h, double fps )
-{
-#define DOUBLE_EPSILON 5e-5
-    if( fps == 0 )
-        return 0;
-    double exponent;
-    double fps_sig = sigexp10( fps, &exponent );
-    uint64_t fps_den, fps_num;
-    int i = 1;
-    while( 1 )
-    {
-        fps_den = i * 1001;
-        fps_num = round( fps_den * fps_sig ) * exponent;
-        if( fps_num > UINT32_MAX )
-            return 0;
-        if( fabs( ((double)fps_num / fps_den) / exponent - fps_sig ) < DOUBLE_EPSILON )
-            break;
-        ++i;
-    }
-    h->framerate_num = fps_num;
-    h->framerate_den = fps_den;
-    return 1;
-#undef DOUBLE_EPSILON
-}
-
-static void setup_timestamp_info( lsmash_handler_t *h )
-{
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    AVStream *video_stream = hp->vdh.format->streams[ hp->vdh.stream_index ];
-    if( h->video_sample_count == 1 || !(hp->vdh.seek_base & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
-    {
-        h->framerate_num = video_stream->r_frame_rate.num;
-        h->framerate_den = video_stream->r_frame_rate.den;
-        return;
-    }
-    video_frame_info_t *info = hp->vdh.frame_list;
-    int64_t  first_ts;
-    int64_t  largest_ts;
-    int64_t  second_largest_ts;
-    uint64_t stream_timebase;
-    if( hp->vdh.seek_base & SEEK_PTS_BASED )
-    {
-        first_ts          = info[1].pts;
-        largest_ts        = info[2].pts;
-        second_largest_ts = info[1].pts;
-        stream_timebase   = info[2].pts - info[1].pts;
-        for( uint32_t i = 3; i <= h->video_sample_count; i++ )
-        {
-            if( info[i].pts == info[i - 1].pts )
-            {
-                MESSAGE_BOX_DESKTOP( MB_OK, "Detected PTS %"PRId64" duplication at frame %"PRIu32, info[i].pts, i );
-                h->framerate_num = video_stream->avg_frame_rate.num;
-                h->framerate_den = video_stream->avg_frame_rate.den;
-                return;
-            }
-            stream_timebase = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
-            second_largest_ts = largest_ts;
-            largest_ts = info[i].pts;
-        }
-    }
-    else
-    {
-        first_ts          = info[1].dts;
-        largest_ts        = info[2].dts;
-        second_largest_ts = info[1].dts;
-        stream_timebase   = info[2].dts - info[1].dts;
-        for( uint32_t i = 3; i <= h->video_sample_count; i++ )
-        {
-            if( info[i].dts == info[i - 1].dts )
-            {
-                MESSAGE_BOX_DESKTOP( MB_OK, "Detected DTS %"PRId64" duplication at frame %"PRIu32, info[i].dts, i );
-                h->framerate_num = video_stream->avg_frame_rate.num;
-                h->framerate_den = video_stream->avg_frame_rate.den;
-                return;
-            }
-            stream_timebase = get_gcd( stream_timebase, info[i].dts - info[i - 1].dts );
-            second_largest_ts = largest_ts;
-            largest_ts = info[i].dts;
-        }
-    }
-    stream_timebase *= video_stream->time_base.num;
-    uint64_t stream_timescale = video_stream->time_base.den;
-    uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
-    uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
-    double stream_framerate = h->video_sample_count * ((double)stream_timescale / stream_duration);
-    if( try_ntsc_framerate( h, stream_framerate ) )
-        return;
-    h->framerate_num = stream_framerate * stream_timebase + 0.5;
-    h->framerate_den = stream_timebase;
 }
 
 static int convert_colorspace( libav_handler_t *hp, AVFrame *picture, uint8_t *buf )
@@ -394,7 +211,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         }
         av_freep( &hp->vdh.index_entries );
     }
-    setup_timestamp_info( h );
+    /* Set up timestamp info. */
+    hp->uType = MB_OK;
+    lwlibav_setup_timestamp_info( &hp->vdh, &h->framerate_num, &h->framerate_den );
+    hp->uType = MB_ICONERROR | MB_OK;
     /* swscale */
     hp->vdh.ctx->width   = hp->vdh.initial_width;
     hp->vdh.ctx->height  = hp->vdh.initial_height;
@@ -456,8 +276,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     {
         hp->vdh.seek_flags |= AVSEEK_FLAG_BACKWARD;
         uint32_t rap_number;
-        find_random_accessible_point( &hp->vdh, 1, 0, &rap_number );
-        int64_t rap_pos = get_random_accessible_point_position( &hp->vdh, rap_number );
+        lwlibav_find_random_accessible_point( &hp->vdh, 1, 0, &rap_number );
+        int64_t rap_pos = lwlibav_get_random_accessible_point_position( &hp->vdh, rap_number );
         if( av_seek_frame( hp->vdh.format, hp->vdh.stream_index, rap_pos, hp->vdh.seek_flags ) < 0 )
             av_seek_frame( hp->vdh.format, hp->vdh.stream_index, rap_pos, hp->vdh.seek_flags | AVSEEK_FLAG_ANY );
     }
@@ -505,7 +325,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         return -1;
     }
     audio_output_handler_t *aohp = &hp->aoh;
-    h->audio_pcm_sample_count = count_overall_pcm_samples( adhp, aohp->output_sample_rate );
+    h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
@@ -612,7 +432,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
         vdhp->last_frame_number = h->video_sample_count + 1;    /* Force seeking at the next access for valid video frame. */
         return vohp->output_frame_size;
     }
-    if( get_video_frame( vdhp, frame_number, h->video_sample_count ) )
+    if( lwlibav_get_video_frame( vdhp, frame_number, h->video_sample_count ) )
         return 0;
     return convert_colorspace( hp, vdhp->frame_buffer, buf );
 }
@@ -620,7 +440,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    return get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
+    return lwlibav_get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
 }
 
 static int is_keyframe( lsmash_handler_t *h, int sample_number )
@@ -655,18 +475,7 @@ static void video_cleanup( lsmash_handler_t *h )
         free( hp->voh.first_valid_frame_data );
     if( hp->voh.sws_ctx )
         sws_freeContext( hp->voh.sws_ctx );
-    if( hp->vdh.input_buffer )
-        av_free( hp->vdh.input_buffer );
-    if( hp->vdh.frame_list )
-        free( hp->vdh.frame_list );
-    if( hp->vdh.order_converter )
-        free( hp->vdh.order_converter );
-    if( hp->vdh.keyframe_list )
-        free( hp->vdh.keyframe_list );
-    if( hp->vdh.index_entries )
-        av_free( hp->vdh.index_entries );
-    if( hp->vdh.format )
-        lavf_close_file( &hp->vdh.format );
+    lwlibav_cleanup_video_decode_handler( &hp->vdh );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )
@@ -674,18 +483,8 @@ static void audio_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp )
         return;
-    if( hp->aoh.resampled_buffer )
-        av_free( hp->aoh.resampled_buffer );
-    if( hp->aoh.avr_ctx )
-        avresample_free( &hp->aoh.avr_ctx );
-    if( hp->adh.input_buffer )
-        av_free( hp->adh.input_buffer );
-    if( hp->adh.index_entries )
-        av_free( hp->adh.index_entries );
-    if( hp->adh.ctx )
-        avcodec_close( hp->adh.ctx );
-    if( hp->adh.format )
-        lavf_close_file( &hp->adh.format );
+    lwlibav_cleanup_audio_decode_handler( &hp->adh );
+    lwlibav_cleanup_audio_output_handler( &hp->aoh );
 }
 
 static void close_file( void *private_stuff )

@@ -20,8 +20,11 @@
 
 /* This file is available under an ISC license. */
 
-#define MIN( a, b ) ((a) > (b) ? (b) : (a))
-#define MAX( a, b ) ((a) < (b) ? (b) : (a))
+#include <stdlib.h>
+#include <stdint.h>
+
+#define MIN( a, b ) ((a) < (b) ? (a) : (b))
+#define MAX( a, b ) ((a) > (b) ? (a) : (b))
 #define CLIP_VALUE( value, min, max ) ((value) > (max) ? (max) : (value) < (min) ? (min) : (value))
 
 void *lw_malloc_zero( size_t size );

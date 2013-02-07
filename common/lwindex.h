@@ -1,7 +1,7 @@
 /*****************************************************************************
- * utils.c / utils.cpp
+ * lwindex.h
  *****************************************************************************
- * Copyright (C) 2012-2013 L-SMASH Works project
+ * Copyright (C) 2013 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *
@@ -20,38 +20,37 @@
 
 /* This file is available under an ISC license. */
 
-#include <string.h>
-#include <inttypes.h>
+#define INDEX_FILE_VERSION 5
 
-#include "utils.h"
-
-void *lw_malloc_zero( size_t size )
+typedef struct
 {
-    void *p = malloc( size );
-    if( !p )
-        return NULL;
-    memset( p, 0, size );
-    return p;
-}
+    const char *file_path;
+    int         threads;
+    int         av_sync;
+    int         no_create_index;
+    int         force_video;
+    int         force_video_index;
+    int         force_audio;
+    int         force_audio_index;
+} lwlibav_option_t;
 
-void lw_freep( void *pointer )
+typedef struct
 {
-    void **p = (void **)pointer;
-    free( *p );
-    *p = NULL;
-}
+    char   *file_path;
+    char   *format_name;
+    int     format_flags;
+    int     threads;
+    int64_t av_gap;
+} lwlibav_file_handler_t;
 
-void *lw_memdup
+int lwlibav_construct_index
 (
-    void  *src,
-    size_t size
-)
-{
-    if( size == 0 )
-        return NULL;
-    void *dst = malloc( size );
-    if( !dst )
-        return NULL;
-    memcpy( dst, src, size );
-    return dst;
-}
+    lwlibav_file_handler_t *lwhp,
+    video_decode_handler_t *vdhp,
+    audio_decode_handler_t *adhp,
+    audio_output_handler_t *aohp,
+    error_handler_t        *ehp,
+    lwlibav_option_t       *opt,
+    progress_indicator_t   *indicator,
+    progress_handler_t     *php
+);

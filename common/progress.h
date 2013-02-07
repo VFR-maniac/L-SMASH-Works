@@ -1,5 +1,5 @@
 /*****************************************************************************
- * lwindex.h
+ * progress.h
  *****************************************************************************
  * Copyright (C) 2013 L-SMASH Works project
  *
@@ -18,50 +18,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
-#define INDEX_FILE_VERSION 5
+#ifdef NO_PROGRESS_HANDLER
+struct progress_handler_tag
+{
+    int dummy;
+};
+#endif
+
+typedef struct progress_handler_tag progress_handler_t;
 
 typedef struct
 {
-    int threads;
-    int av_sync;
-    int no_create_index;
-    int force_video;
-    int force_video_index;
-    int force_audio;
-    int force_audio_index;
-} lwav_option_t;
-
-typedef struct
-{
-    char   *file_path;
-    char   *format_name;
-    int     format_flags;
-    int     threads;
-    int64_t av_gap;
-} lwav_file_handler_t;
-
-void create_index
-(
-    lwav_file_handler_t    *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    AVFormatContext        *format_ctx,
-    lwav_option_t          *opt,
-    progress_indicator_t   *indicator,
-    progress_handler_t     *php
-);
-
-int parse_index
-(
-    lwav_file_handler_t    *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    lwav_option_t          *opt,
-    FILE                   *index
-);
+    void (*open)  ( progress_handler_t *hp );
+    int  (*update)( progress_handler_t *hp, const char *message, int percent );
+    void (*close )( progress_handler_t *hp );
+} progress_indicator_t;

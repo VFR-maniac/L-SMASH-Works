@@ -20,11 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#ifdef __cplusplus
-#   ifndef __STDC_CONSTANT_MACROS
-#       define __STDC_CONSTANT_MACROS
-#   endif
-#endif  /* __cplusplus */
+#include "cpp_compat.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -37,10 +33,9 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "libavsmash.h"
 #include "libavsmash_video.h"
-
-#define MIN( a, b ) ((a) > (b) ? (b) : (a))
 
 static int decode_video_sample
 (

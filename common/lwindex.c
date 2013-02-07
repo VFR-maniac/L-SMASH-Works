@@ -1,5 +1,5 @@
 /*****************************************************************************
- * lwindex.c
+ * lwindex.c / lwindex.cpp
  *****************************************************************************
  * Copyright (C) 2012-2013 L-SMASH Works project
  *
@@ -18,23 +18,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL.
- * Don't distribute it if its license is GPL. */
+/* This file is available under an ISC license. */
 
+#include "cpp_compat.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif  /* __cplusplus */
 #include <libavformat/avformat.h>       /* Demuxer */
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libavresample/avresample.h>   /* Resampler/Buffer */
 #include <libavutil/mathematics.h>      /* Timebase rescaler */
 #include <libavutil/pixdesc.h>
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
-#include "libav_dec.h"
-#include "libav_video.h"
-#include "libav_audio.h"
+#include "lwlibav_dec.h"
+#include "lwlibav_video.h"
+#include "lwlibav_audio.h"
 #include "progress.h"
 #include "lwindex.h"
-
-#include "../common/utils.h"
+#include "utils.h"
 
 typedef struct
 {
@@ -92,7 +98,7 @@ static inline void sort_decoding_order
     qsort( timestamp, sample_count, sizeof(video_timestamp_t), (int(*)( const void *, const void * ))compare_dts );
 }
 
-static inline int lineup_seek_base_candidates( lwav_file_handler_t *lwhp )
+static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
 {
     return !strcmp( lwhp->format_name, "mpeg" ) || !strcmp( lwhp->format_name, "mpegts" )
          ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
@@ -101,7 +107,7 @@ static inline int lineup_seek_base_candidates( lwav_file_handler_t *lwhp )
 
 static int decide_video_seek_method
 (
-    lwav_file_handler_t    *lwhp,
+    lwlibav_file_handler_t *lwhp,
     video_decode_handler_t *vdhp,
     uint32_t                sample_count
 )
@@ -137,7 +143,7 @@ static int decide_video_seek_method
     {
         /* Consider presentation order for keyframe detection.
          * Note: sample number is 1-origin. */
-        vdhp->order_converter = lw_malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
+        vdhp->order_converter = (order_converter_t *)lw_malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
         if( !vdhp->order_converter )
         {
 #ifdef DEBUG_VIDEO
@@ -147,7 +153,7 @@ static int decide_video_seek_method
             return -1;
         }
         sort_presentation_order( &info[1], sample_count );
-        video_timestamp_t *timestamp = lw_malloc_zero( (sample_count + 1) * sizeof(video_timestamp_t) );
+        video_timestamp_t *timestamp = (video_timestamp_t *)lw_malloc_zero( (sample_count + 1) * sizeof(video_timestamp_t) );
         if( !timestamp )
         {
 #ifdef DEBUG_VIDEO
@@ -158,12 +164,12 @@ static int decide_video_seek_method
         }
         for( uint32_t i = 1; i <= sample_count; i++ )
         {
-            timestamp[i].pts = i;
-            timestamp[i].dts = info[i].sample_number;
+            timestamp[i].pts = (int64_t)i;
+            timestamp[i].dts = (int64_t)info[i].sample_number;
         }
         sort_decoding_order( &timestamp[1], sample_count );
         for( uint32_t i = 1; i <= sample_count; i++ )
-            vdhp->order_converter[i].decoding_to_presentation = timestamp[i].pts;
+            vdhp->order_converter[i].decoding_to_presentation = (uint32_t)timestamp[i].pts;
         free( timestamp );
     }
     else if( vdhp->seek_base & SEEK_DTS_BASED )
@@ -217,7 +223,7 @@ static int decide_video_seek_method
 
 static void decide_audio_seek_method
 (
-    lwav_file_handler_t    *lwhp,
+    lwlibav_file_handler_t *lwhp,
     audio_decode_handler_t *adhp,
     uint32_t                sample_count
 )
@@ -330,7 +336,7 @@ static int64_t calculate_av_gap
     if( audio_ts_number == 0 )
         return 0;
     /* Estimate the first audio timestamp if invalid. */
-    AVRational audio_sample_base = (AVRational){ 1, sample_rate };
+    AVRational audio_sample_base = { 1, sample_rate };
     for( uint32_t i = 1, delay_count = 0; i < MIN( audio_ts_number + delay_count, adhp->frame_count ); i++ )
         if( adhp->frame_list[i].length != -1 )
             audio_ts -= av_rescale_q( adhp->frame_list[i].length, audio_sample_base, audio_time_base );
@@ -436,24 +442,24 @@ static void disable_video_stream( video_decode_handler_t *vdhp )
     vdhp->frame_count         = 0;
 }
 
-void create_index
+static void create_index
 (
-    lwav_file_handler_t    *lwhp,
+    lwlibav_file_handler_t *lwhp,
     video_decode_handler_t *vdhp,
     audio_decode_handler_t *adhp,
     audio_output_handler_t *aohp,
     AVFormatContext        *format_ctx,
-    lwav_option_t          *opt,
+    lwlibav_option_t       *opt,
     progress_indicator_t   *indicator,
     progress_handler_t     *php
 )
 {
     uint32_t video_info_count = 1 << 16;
     uint32_t audio_info_count = 1 << 16;
-    video_frame_info_t *video_info = lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
+    video_frame_info_t *video_info = (video_frame_info_t *)lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
     if( !video_info )
         return;
-    audio_frame_info_t *audio_info = lw_malloc_zero( audio_info_count * sizeof(audio_frame_info_t) );
+    audio_frame_info_t *audio_info = (audio_frame_info_t *)lw_malloc_zero( audio_info_count * sizeof(audio_frame_info_t) );
     if( !audio_info )
     {
         free( video_info );
@@ -589,7 +595,7 @@ void create_index
                 if( video_sample_count + 1 == video_info_count )
                 {
                     video_info_count <<= 1;
-                    video_frame_info_t *temp = realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
+                    video_frame_info_t *temp = (video_frame_info_t *)realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
                     if( !temp )
                     {
                         av_free_packet( &pkt );
@@ -597,7 +603,7 @@ void create_index
                     }
                     video_info = temp;
                 }
-                vdhp->input_buffer_size = MAX( vdhp->input_buffer_size, pkt.size );
+                vdhp->input_buffer_size = MAX( vdhp->input_buffer_size, (uint32_t)pkt.size );
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
@@ -627,7 +633,7 @@ void create_index
             }
             if( pkt.stream_index > max_audio_index )
             {
-                uint32_t *temp = realloc( audio_delay_count, (pkt.stream_index + 1) * sizeof(uint32_t) );
+                uint32_t *temp = (uint32_t *)realloc( audio_delay_count, (pkt.stream_index + 1) * sizeof(uint32_t) );
                 if( !temp )
                     goto fail_index;
                 audio_delay_count = temp;
@@ -695,7 +701,7 @@ void create_index
                     if( audio_sample_count + 1 == audio_info_count )
                     {
                         audio_info_count <<= 1;
-                        audio_frame_info_t *temp = realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
+                        audio_frame_info_t *temp = (audio_frame_info_t *)realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
                         if( !temp )
                         {
                             av_free_packet( &pkt );
@@ -711,7 +717,7 @@ void create_index
                     aohp->output_sample_format   = select_better_sample_format( aohp->output_sample_format, pkt_ctx->sample_fmt );
                     aohp->output_sample_rate     = MAX( aohp->output_sample_rate, audio_sample_rate );
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
-                    adhp->input_buffer_size      = MAX( adhp->input_buffer_size, pkt.size );
+                    adhp->input_buffer_size      = MAX( adhp->input_buffer_size, (uint32_t)pkt.size );
                 }
             }
             /* Write an audio packet info to the index file. */
@@ -733,9 +739,9 @@ void create_index
             const char *message = index ? "Creating Index file" : "Parsing input file";
             int percent = first_dts == AV_NOPTS_VALUE || pkt.dts == AV_NOPTS_VALUE
                         ? 0
-                        : 100.0 * (pkt.dts - first_dts)
-                        * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
-                        / (format_ctx->duration / AV_TIME_BASE) + 0.5;
+                        : (int)(100.0 * (pkt.dts - first_dts)
+                             * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
+                             / (format_ctx->duration / AV_TIME_BASE) + 0.5);
             int abort = indicator->update( php, message, percent );
             av_free_packet( &pkt );
             if( abort )
@@ -746,7 +752,7 @@ void create_index
     }
     if( vdhp->stream_index >= 0 )
     {
-        vdhp->keyframe_list = lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
+        vdhp->keyframe_list = (uint8_t *)lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
         if( !vdhp->keyframe_list )
             goto fail_index;
         for( uint32_t i = 0; i <= video_sample_count; i++ )
@@ -838,7 +844,7 @@ void create_index
     else
         lw_freep( &audio_info );
     print_index( index, "</LibavReaderIndex>\n" );
-    for( int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+    for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
@@ -849,7 +855,7 @@ void create_index
                     write_av_index_entry( index, &stream->index_entries[i] );
             else if( stream->nb_index_entries > 0 )
             {
-                vdhp->index_entries = av_malloc( stream->index_entries_allocated_size );
+                vdhp->index_entries = (AVIndexEntry *)av_malloc( stream->index_entries_allocated_size );
                 if( !vdhp->index_entries )
                     goto fail_index;
                 for( int i = 0; i < stream->nb_index_entries; i++ )
@@ -872,7 +878,7 @@ void create_index
             {
                 /* Audio stream in matroska container requires index_entries for seeking.
                  * This avoids for re-reading the file to create index_entries since the file will be closed once. */
-                adhp->index_entries = av_malloc( stream->index_entries_allocated_size );
+                adhp->index_entries = (AVIndexEntry *)av_malloc( stream->index_entries_allocated_size );
                 if( !adhp->index_entries )
                     goto fail_index;
                 for( int i = 0; i < stream->nb_index_entries; i++ )
@@ -908,13 +914,13 @@ fail_index:
     return;
 }
 
-int parse_index
+static int parse_index
 (
-    lwav_file_handler_t    *lwhp,
+    lwlibav_file_handler_t *lwhp,
     video_decode_handler_t *vdhp,
     audio_decode_handler_t *adhp,
     audio_output_handler_t *aohp,
-    lwav_option_t          *opt,
+    lwlibav_option_t       *opt,
     FILE                   *index
 )
 {
@@ -927,7 +933,7 @@ int parse_index
         return -1;
     fclose( target );
     int file_path_length = strlen( file_path );
-    lwhp->file_path = lw_malloc_zero( file_path_length + 1 );
+    lwhp->file_path = (char *)lw_malloc_zero( file_path_length + 1 );
     if( !lwhp->file_path )
         return -1;
     memcpy( lwhp->file_path, file_path, file_path_length );
@@ -953,13 +959,13 @@ int parse_index
     audio_frame_info_t *audio_info = NULL;
     if( vdhp->stream_index >= 0 )
     {
-        video_info = lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
+        video_info = (video_frame_info_t *)lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
         if( !video_info )
             goto fail_parsing;
     }
     if( adhp->stream_index >= 0 )
     {
-        audio_info = lw_malloc_zero( audio_info_count * sizeof(audio_frame_info_t) );
+        audio_info = (audio_frame_info_t *)lw_malloc_zero( audio_info_count * sizeof(audio_frame_info_t) );
         if( !audio_info )
             goto fail_parsing;
     }
@@ -998,7 +1004,7 @@ int parse_index
                 if( vdhp->stream_index == -1 )
                 {
                     vdhp->stream_index = stream_index;
-                    video_info = lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
+                    video_info = (video_frame_info_t *)lw_malloc_zero( video_info_count * sizeof(video_frame_info_t) );
                     if( !video_info )
                         goto fail_parsing;
                 }
@@ -1013,7 +1019,7 @@ int parse_index
                     &key, &width, &height, pix_fmt ) != 4 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
-                    vdhp->codec_id = codec_id;
+                    vdhp->codec_id = (enum AVCodecID)codec_id;
                 if( vdhp->initial_width == 0 || vdhp->initial_height == 0 )
                 {
                     vdhp->initial_width  = width;
@@ -1050,7 +1056,7 @@ int parse_index
                 if( video_sample_count + 1 == video_info_count )
                 {
                     video_info_count <<= 1;
-                    video_frame_info_t *temp = realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
+                    video_frame_info_t *temp = (video_frame_info_t *)realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
                     if( !temp )
                         goto fail_parsing;
                     video_info = temp;
@@ -1073,7 +1079,7 @@ int parse_index
                             &channels, &layout, &sample_rate, sample_fmt, &bits_per_sample, &frame_length ) != 6 )
                     goto fail_parsing;
                 if( adhp->codec_id == AV_CODEC_ID_NONE )
-                    adhp->codec_id = codec_id;
+                    adhp->codec_id = (enum AVCodecID)codec_id;
                 if( (channels | layout | sample_rate | bits_per_sample) && audio_duration <= INT32_MAX )
                 {
                     if( audio_sample_rate == 0 )
@@ -1113,7 +1119,7 @@ int parse_index
                 if( audio_sample_count + 1 == audio_info_count )
                 {
                     audio_info_count <<= 1;
-                    audio_frame_info_t *temp = realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
+                    audio_frame_info_t *temp = (audio_frame_info_t *)realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
                     if( !temp )
                         goto fail_parsing;
                     audio_info = temp;
@@ -1161,7 +1167,7 @@ int parse_index
             else if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index )
             {
                 vdhp->index_entries_count = index_entries_count;
-                vdhp->index_entries = av_malloc( vdhp->index_entries_count * sizeof(AVIndexEntry) );
+                vdhp->index_entries = (AVIndexEntry *)av_malloc( vdhp->index_entries_count * sizeof(AVIndexEntry) );
                 if( !vdhp->index_entries )
                     goto fail_parsing;
                 for( int i = 0; i < vdhp->index_entries_count; i++ )
@@ -1182,7 +1188,7 @@ int parse_index
             else if( codec_type == AVMEDIA_TYPE_AUDIO && stream_index == adhp->stream_index )
             {
                 adhp->index_entries_count = index_entries_count;
-                adhp->index_entries = av_malloc( adhp->index_entries_count * sizeof(AVIndexEntry) );
+                adhp->index_entries = (AVIndexEntry *)av_malloc( adhp->index_entries_count * sizeof(AVIndexEntry) );
                 if( !adhp->index_entries )
                     goto fail_parsing;
                 for( int i = 0; i < adhp->index_entries_count; i++ )
@@ -1211,7 +1217,7 @@ int parse_index
     {
         if( vdhp->stream_index >= 0 )
         {
-            vdhp->keyframe_list = lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
+            vdhp->keyframe_list = (uint8_t *)lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
             if( !vdhp->keyframe_list )
                 goto fail_parsing;
             for( uint32_t i = 0; i <= video_sample_count; i++ )
@@ -1269,5 +1275,102 @@ fail_parsing:
         free( video_info );
     if( audio_info )
         free( audio_info );
+    return -1;
+}
+
+int lwlibav_construct_index
+(
+    lwlibav_file_handler_t *lwhp,
+    video_decode_handler_t *vdhp,
+    audio_decode_handler_t *adhp,
+    audio_output_handler_t *aohp,
+    error_handler_t        *ehp,
+    lwlibav_option_t       *opt,
+    progress_indicator_t   *indicator,
+    progress_handler_t     *php
+)
+{
+    /* Allocate frame buffer. */
+    vdhp->frame_buffer = avcodec_alloc_frame();
+    if( !vdhp->frame_buffer )
+        return -1;
+    adhp->frame_buffer = avcodec_alloc_frame();
+    if( !adhp->frame_buffer )
+    {
+        avcodec_free_frame( &vdhp->frame_buffer );
+        return -1;
+    }
+    /* Try to open the index file. */
+    int file_path_length = strlen( opt->file_path );
+    char *index_file_path = (char *)lw_malloc_zero(file_path_length + 5);
+    if( !index_file_path )
+    {
+        avcodec_free_frame( &vdhp->frame_buffer );
+        avcodec_free_frame( &adhp->frame_buffer );
+        return -1;
+    }
+    memcpy( index_file_path, opt->file_path, file_path_length );
+    const char *ext = file_path_length >= 5 ? &opt->file_path[file_path_length - 4] : NULL;
+    if( ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) ) )
+        index_file_path[file_path_length] = '\0';
+    else
+    {
+        memcpy( index_file_path + file_path_length, ".lwi", strlen( ".lwi" ) );
+        index_file_path[file_path_length + 4] = '\0';
+    }
+    FILE *index = fopen( index_file_path, (opt->force_video || opt->force_audio) ? "r+b" : "rb" );
+    free( index_file_path );
+    if( index )
+    {
+        int version = 0;
+        int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
+        if( ret == 1
+         && version == INDEX_FILE_VERSION
+         && parse_index( lwhp, vdhp, adhp, aohp, opt, index ) == 0 )
+        {
+            /* Opening and parsing the index file succeeded. */
+            fclose( index );
+            av_register_all();
+            avcodec_register_all();
+            lwhp->threads = opt->threads;
+            return 0;
+        }
+        fclose( index );
+    }
+    /* Open file. */
+    if( !lwhp->file_path )
+    {
+        lwhp->file_path = (char *)lw_malloc_zero( file_path_length + 1 );
+        if( !lwhp->file_path )
+            goto fail;
+        memcpy( lwhp->file_path, opt->file_path, file_path_length );
+    }
+    av_register_all();
+    avcodec_register_all();
+    AVFormatContext *format_ctx = NULL;
+    if( lavf_open_file( &format_ctx, opt->file_path, ehp ) )
+    {
+        if( format_ctx )
+            lavf_close_file( &format_ctx );
+        goto fail;
+    }
+    lwhp->threads      = opt->threads;
+    vdhp->stream_index = -1;
+    adhp->stream_index = -1;
+    /* Create the index file. */
+    create_index( lwhp, vdhp, adhp, aohp, format_ctx, opt, indicator, php );
+    /* Close file.
+     * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
+    lavf_close_file( &format_ctx );
+    vdhp->ctx = NULL;
+    adhp->ctx = NULL;
+    return 0;
+fail:
+    if( vdhp->frame_buffer )
+        avcodec_free_frame( &vdhp->frame_buffer );
+    if( adhp->frame_buffer )
+        avcodec_free_frame( &adhp->frame_buffer );
+    if( lwhp->file_path )
+        free( lwhp->file_path );
     return -1;
 }
