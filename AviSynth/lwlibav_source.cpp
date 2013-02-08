@@ -74,11 +74,11 @@ LWLibavVideoSource::LWLibavVideoSource
     /* Construct index. */
     audio_decode_handler_t adh = { 0 };
     audio_output_handler_t aoh = { 0 };
-    if( lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &eh, opt, &indicator, NULL ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: failed to construct index." );
-    /* Clean up audio decode/output handler. */
+    int ret = lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &eh, opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
+    if( ret < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to construct index." );
     /* Get the desired video track. */
     if( lwlibav_get_desired_video_track( lwh.file_path, &vdh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to get the video track." );
@@ -99,6 +99,8 @@ LWLibavVideoSource::~LWLibavVideoSource()
     if( voh.sws_ctx )
         sws_freeContext( voh.sws_ctx );
     lwlibav_cleanup_video_decode_handler( &vdh );
+    if( lwh.file_path )
+        free( lwh.file_path );
 }
 
 void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
@@ -230,6 +232,8 @@ LWLibavAudioSource::~LWLibavAudioSource()
 {
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
+    if( lwh.file_path )
+        free( lwh.file_path );
 }
 
 void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
