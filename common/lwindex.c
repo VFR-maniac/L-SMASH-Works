@@ -1371,6 +1371,6 @@ fail:
     if( adhp->frame_buffer )
         avcodec_free_frame( &adhp->frame_buffer );
     if( lwhp->file_path )
-        lw_freep( lwhp->file_path );
+        lw_freep( &lwhp->file_path );
     return -1;
 }
