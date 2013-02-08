@@ -75,7 +75,7 @@ LWLibavVideoSource::LWLibavVideoSource
     audio_decode_handler_t adh = { 0 };
     audio_output_handler_t aoh = { 0 };
     if( lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &eh, opt, &indicator, NULL ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: failed to get construct index." );
+        env->ThrowError( "LWLibavVideoSource: failed to construct index." );
     /* Clean up audio decode/output handler. */
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
