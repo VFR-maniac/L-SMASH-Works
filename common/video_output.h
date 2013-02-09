@@ -18,38 +18,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *****************************************************************************/
 
-/* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL. */
-
-#include "../common/video_output.h"
-
-typedef void func_make_black_background( PVideoFrame &frame );
-
-typedef int func_make_frame
-(
-    struct SwsContext  *sws_ctx,
-    AVFrame            *picture,
-    PVideoFrame        &frame,
-    IScriptEnvironment *env
-);
+/* This file is available under an ISC license. */
 
 typedef struct
 {
-    func_make_black_background *make_black_background;
-    func_make_frame            *make_frame;
-} as_video_output_handler_t;
+    int                enabled;
+    int                flags;
+    int                input_width;
+    int                input_height;
+    enum AVPixelFormat input_pixel_format;
+    enum AVPixelFormat output_pixel_format;
+    struct SwsContext *sws_ctx;
+} video_scaler_handler_t;
 
-int determine_colorspace_conversion
-(
-    video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format,
-    int                    *output_pixel_type
-);
-
-int make_frame
-(
-    video_output_handler_t *vohp,
-    AVFrame                *picture,
-    PVideoFrame            &frame,
-    IScriptEnvironment     *env
-);
+typedef struct
+{
+    video_scaler_handler_t   scaler;
+    uint32_t                 first_valid_frame_number;
+    void                    *first_valid_frame;
+    int                      output_linesize;
+    uint32_t                 output_frame_size;
+    void                    *private_handler;
+    void (*free_private_handler)( void *private_handler );
+} video_output_handler_t;

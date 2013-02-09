@@ -58,6 +58,11 @@ LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number,
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
     voh.first_valid_frame      = NULL;
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
+    if( !as_vohp )
+        env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
+    voh.private_handler      = as_vohp;
+    voh.free_private_handler = free;
     get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vdh.root );
     prepare_video_decoding( env );
@@ -71,8 +76,10 @@ LSMASHVideoSource::~LSMASHVideoSource()
         delete [] vdh.order_converter;
     if( vdh.frame_buffer )
         avcodec_free_frame( &vdh.frame_buffer );
-    if( voh.sws_ctx )
-        sws_freeContext( voh.sws_ctx );
+    if( voh.scaler.sws_ctx )
+        sws_freeContext( voh.scaler.sws_ctx );
+    if( voh.free_private_handler && voh.private_handler )
+        voh.free_private_handler( voh.private_handler );
     cleanup_configuration( &vdh.config );
     if( format_ctx )
         avformat_close_input( &format_ctx );
@@ -239,12 +246,14 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
-    voh.scaler_flags = SWS_FAST_BILINEAR;
-    voh.sws_ctx = sws_getCachedContext( NULL,
+    video_scaler_handler_t *vshp = &voh.scaler;
+    vshp->enabled = 1;
+    vshp->flags   = SWS_FAST_BILINEAR;
+    vshp->sws_ctx = sws_getCachedContext( NULL,
                                         config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                        config->ctx->width, config->ctx->height, voh.output_pixel_format,
-                                        voh.scaler_flags, NULL, NULL, NULL );
-    if( !voh.sws_ctx )
+                                        config->ctx->width, config->ctx->height, vshp->output_pixel_format,
+                                        vshp->flags, NULL, NULL, NULL );
+    if( !vshp->sws_ctx )
         env->ThrowError( "LSMASHVideoSource: failed to get swscale context." );
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
@@ -283,7 +292,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     {
         /* Copy the first valid video frame. */
         vdh.last_sample_number = vi.num_frames + 1;     /* Force seeking at the next access for valid video sample. */
-        return *voh.first_valid_frame;
+        return *(PVideoFrame *)voh.first_valid_frame;
     }
     codec_configuration_t *config = &vdh.config;
     config->message_priv = env;

@@ -445,6 +445,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\common\video_output.h"
+				>
+			</File>
+			<File
 				RelativePath=".\video_output.h"
 				>
 			</File>

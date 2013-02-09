@@ -104,7 +104,8 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         set_error( vsbhp, "lsmas: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
         return -1;
     }
-    if( vohp->variable_info )
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    if( vs_vohp->variable_info )
     {
         vi->format = NULL;
         vi->width  = 0;
@@ -112,16 +113,16 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     }
     else
     {
-        vi->format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
+        vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
         vi->width  = vdhp->max_width;
         vi->height = vdhp->max_height;
-        vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
-        if( !vohp->background_frame )
+        vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+        if( !vs_vohp->background_frame )
         {
             set_error( vsbhp, "lsmas: failed to allocate memory for the background black frame data." );
             return -1;
         }
-        vohp->make_black_background( vohp->background_frame, vsapi );
+        vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     /* Set up scaler. */
     video_scaler_handler_t *vshp = &vohp->scaler;
@@ -150,21 +151,20 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     {
         AVPacket pkt = { 0 };
         get_av_frame( vdhp->format, vdhp->stream_index, &vdhp->input_buffer, &vdhp->input_buffer_size, &pkt );
-        AVFrame *av_frame = vdhp->frame_buffer;
-        avcodec_get_frame_defaults( av_frame );
+        avcodec_get_frame_defaults( vdhp->frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( vdhp->ctx, av_frame, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = new_output_video_frame( vohp, av_frame, NULL, core, vsapi );
+                vohp->first_valid_frame = new_output_video_frame( vohp, vdhp->frame_buffer, NULL, core, vsapi );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( vsbhp, "lsmas: failed to allocate memory for the first valid video frame data." );
                     return -1;
                 }
-                if( make_frame( vohp, av_frame, vohp->first_valid_frame, NULL, vsapi ) )
+                if( make_frame( vohp, vdhp->frame_buffer, vohp->first_valid_frame, NULL, vsapi ) )
                 {
                     vsapi->freeFrame( vohp->first_valid_frame );
                     vohp->first_valid_frame = NULL;
@@ -276,6 +276,8 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
         vsapi->freeFrame( hp->voh.first_valid_frame );
     if( hp->voh.scaler.sws_ctx )
         sws_freeContext( hp->voh.scaler.sws_ctx );
+    if( hp->voh.free_private_handler && hp->voh.private_handler )
+        hp->voh.free_private_handler( hp->voh.private_handler );
     if( hp->lwh.file_path )
         free( hp->lwh.file_path );
     free( hp );
@@ -297,11 +299,24 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         vsapi->setError( out, "lsmas: failed to allocate the LW-Libav handler." );
         return;
     }
+    lwlibav_file_handler_t *lwhp = &hp->lwh;
+    video_decode_handler_t *vdhp = &hp->vdh;
+    video_output_handler_t *vohp = &hp->voh;
+    vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
+    if( !vs_vohp )
+    {
+        free( hp );
+        vsapi->setError( out, "lsmas: failed to allocate the VapourSynth video output handler." );
+        return;
+    }
+    vohp->private_handler      = vs_vohp;
+    vohp->free_private_handler = free;
+    /* Set up VapourSynth error handler. */
     vs_basic_handler_t vsbh = { 0 };
     vsbh.out       = out;
     vsbh.frame_ctx = NULL;
     vsbh.vsapi     = vsapi;
-    /* Set up error handler. */
+    /* Set up LW-Libav error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = &vsbh;
     eh.error_message = set_error;
@@ -330,10 +345,10 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_video_index = stream_index >= 0 ? stream_index : -1;
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
-    hp->vdh.seek_mode              = CLIP_VALUE( seek_mode,      0, 2 );
-    hp->vdh.forward_seek_threshold = CLIP_VALUE( seek_threshold, 1, 999 );
-    hp->voh.variable_info          = CLIP_VALUE( variable_info,  0, 1 );
-    hp->voh.vs_output_pixel_format = hp->voh.variable_info ? pfNone : get_vs_output_pixel_format( format );
+    vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
+    vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold, 1, 999 );
+    vs_vohp->variable_info          = CLIP_VALUE( variable_info,  0, 1 );
+    vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = NULL;
@@ -342,7 +357,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     /* Construct index. */
     audio_decode_handler_t adh = { 0 };
     audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( &hp->lwh, &hp->vdh, &adh, &aoh, &eh, &opt, &indicator, NULL );
+    int ret = lwlibav_construct_index( lwhp, vdhp, &adh, &aoh, &eh, &opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( ret < 0 )
@@ -352,17 +367,17 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         return;
     }
     /* Get the desired video track. */
-    hp->vdh.eh = eh;
-    if( lwlibav_get_desired_video_track( hp->lwh.file_path, &hp->vdh, hp->lwh.threads ) < 0 )
+    vdhp->eh = eh;
+    if( lwlibav_get_desired_video_track( lwhp->file_path, vdhp, lwhp->threads ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;
     }
     /* Set up timestamp info. */
-    hp->vi.numFrames = hp->vdh.frame_count;
+    hp->vi.numFrames = vdhp->frame_count;
     int fps_num;
     int fps_den;
-    lwlibav_setup_timestamp_info( &hp->vdh, &fps_num, &fps_den );
+    lwlibav_setup_timestamp_info( vdhp, &fps_num, &fps_den );
     hp->vi.fpsNum = (unsigned int)fps_num;
     hp->vi.fpsDen = (unsigned int)fps_den;
     /* Set up decoders for this stream. */

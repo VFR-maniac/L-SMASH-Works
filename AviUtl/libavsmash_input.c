@@ -37,6 +37,7 @@
 
 #include "lsmashinput.h"
 #include "colorspace.h"
+#include "video_output.h"
 #include "audio_output.h"
 
 #include "../common/resample.h"
@@ -51,19 +52,6 @@ typedef struct
     uint64_t skip_duration;
     int64_t  start_pts;
 } video_info_handler_t;
-
-typedef struct
-{
-    struct SwsContext       *sws_ctx;
-    int                      scaler_flags;
-    enum PixelFormat         output_pixel_format;
-    uint32_t                 first_valid_sample_number;
-    uint8_t                 *first_valid_sample_data;
-    int                      output_linesize;
-    uint32_t                 output_sample_size;
-    uint8_t                 *back_ground;
-    func_convert_colorspace *convert_colorspace;
-} video_output_handler_t;
 
 typedef struct
 {
@@ -428,32 +416,6 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
-static int convert_colorspace( libavsmash_handler_t *hp, AVFrame *picture, uint8_t *buf )
-{
-    video_output_handler_t *vohp = &hp->voh;
-    /* Convert color space. We don't change the presentation resolution. */
-    int64_t width;
-    int64_t height;
-    int64_t format;
-    av_opt_get_int( vohp->sws_ctx, "srcw",       0, &width );
-    av_opt_get_int( vohp->sws_ctx, "srch",       0, &height );
-    av_opt_get_int( vohp->sws_ctx, "src_format", 0, &format );
-    avoid_yuv_scale_conversion( &picture->format );
-    if( !vohp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
-    {
-        vohp->sws_ctx = sws_getCachedContext( vohp->sws_ctx,
-                                              picture->width, picture->height, picture->format,
-                                              picture->width, picture->height, vohp->output_pixel_format,
-                                              vohp->scaler_flags, NULL, NULL, NULL );
-        if( !vohp->sws_ctx )
-            return 0;
-        memcpy( buf, vohp->back_ground, vohp->output_sample_size );
-    }
-    if( vohp->convert_colorspace( hp->vdh.config.ctx, vohp->sws_ctx, picture, buf, vohp->output_linesize ) < 0 )
-        return 0;
-    return vohp->output_sample_size;
-}
-
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
@@ -482,7 +444,16 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     /* swscale */
     video_output_handler_t *vohp = &hp->voh;
-    output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &vohp->output_pixel_format );
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)lw_malloc_zero( sizeof(au_video_output_handler_t) );
+    if( !au_vohp )
+    {
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the AviUtl video output handler." );
+        return -1;
+    }
+    vohp->private_handler      = au_vohp;
+    vohp->free_private_handler = free_au_video_output_handler;
+    video_scaler_handler_t *vshp = &vohp->scaler;
+    output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &vshp->output_pixel_format );
     static const struct
     {
         func_convert_colorspace *convert_colorspace;
@@ -495,19 +466,20 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    vohp->scaler_flags = 1 << opt->scaler;
-    if( vohp->scaler_flags != SWS_FAST_BILINEAR )
-        vohp->scaler_flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
-    vohp->sws_ctx = sws_getCachedContext( NULL,
+    vshp->enabled = 1;
+    vshp->flags   = 1 << opt->scaler;
+    if( vshp->flags != SWS_FAST_BILINEAR )
+        vshp->flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
+    vshp->sws_ctx = sws_getCachedContext( NULL,
                                           config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                          config->ctx->width, config->ctx->height, vohp->output_pixel_format,
-                                          vohp->scaler_flags, NULL, NULL, NULL );
-    if( !vohp->sws_ctx )
+                                          config->ctx->width, config->ctx->height, vshp->output_pixel_format,
+                                          vshp->flags, NULL, NULL, NULL );
+    if( !vshp->sws_ctx )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
         return -1;
     }
-    vohp->convert_colorspace = colorspace_table[index].convert_colorspace;
+    au_vohp->convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */
     int output_width  = config->prefer.width;
     int output_height = config->prefer.height;
@@ -517,44 +489,44 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
-    vohp->output_linesize = MAKE_AVIUTL_PITCH( output_width * h->video_format.biBitCount );
-    vohp->output_sample_size = vohp->output_linesize * output_height;
-    vohp->back_ground = vohp->output_sample_size ? lw_malloc_zero( vohp->output_sample_size ) : NULL;
-    if( !vohp->back_ground )
+    au_vohp->output_linesize   = MAKE_AVIUTL_PITCH( output_width * h->video_format.biBitCount );
+    au_vohp->output_frame_size = au_vohp->output_linesize * output_height;
+    au_vohp->back_ground       = au_vohp->output_frame_size ? lw_malloc_zero( au_vohp->output_frame_size ) : NULL;
+    if( !au_vohp->back_ground )
         return -1;
     if( h->video_format.biCompression == OUTPUT_TAG_YUY2 )
     {
-        uint8_t *pic = vohp->back_ground;
+        uint8_t *pic = au_vohp->back_ground;
         for( int i = 0; i < output_height; i++ )
         {
-            for( int j = 0; j < vohp->output_linesize; j += 2 )
+            for( int j = 0; j < au_vohp->output_linesize; j += 2 )
             {
                 pic[j    ] = 0;
                 pic[j + 1] = 128;
             }
-            pic += vohp->output_linesize;
+            pic += au_vohp->output_linesize;
         }
     }
-    /* Find the first valid video sample. */
+    /* Find the first valid video frame. */
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
         get_sample( hp->root, vdhp->track_ID, i, config, &pkt );
-        AVFrame *picture = vdhp->frame_buffer;
-        avcodec_get_frame_defaults( picture );
+        avcodec_get_frame_defaults( vdhp->frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
+        if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            vohp->first_valid_sample_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( vohp->first_valid_sample_number > 1 || h->video_sample_count == 1 )
+            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
+            if( vohp->first_valid_frame_number > 1 || h->video_sample_count == 1 )
             {
-                if( !vohp->first_valid_sample_data )
+                if( !vohp->first_valid_frame )
                 {
-                    vohp->first_valid_sample_data = lw_memdup( vohp->back_ground, vohp->output_sample_size );
-                    if( !vohp->first_valid_sample_data )
+                    vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, au_vohp->output_frame_size );
+                    if( !vohp->first_valid_frame )
                         return -1;
                 }
-                if( vohp->output_sample_size != convert_colorspace( hp, picture, vohp->first_valid_sample_data ) )
+                if( au_vohp->output_frame_size
+                 != convert_colorspace( vohp, config->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
                     continue;
             }
             break;
@@ -686,17 +658,21 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     video_output_handler_t *vohp = &hp->voh;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     if( sample_number == 1 )
-        memcpy( buf, vohp->back_ground, vohp->output_sample_size );
-    if( sample_number < vohp->first_valid_sample_number || h->video_sample_count == 1 )
+    {
+        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
+    }
+    if( sample_number < vohp->first_valid_frame_number || h->video_sample_count == 1 )
     {
         /* Copy the first valid video sample data. */
-        memcpy( buf, vohp->first_valid_sample_data, vohp->output_sample_size );
+        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+        memcpy( buf, vohp->first_valid_frame, au_vohp->output_frame_size );
         vdhp->last_sample_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video sample. */
-        return vohp->output_sample_size;
+        return au_vohp->output_frame_size;
     }
     if( libavsmash_get_video_frame( vdhp, sample_number, h->video_sample_count ) )
         return 0;
-    return convert_colorspace( hp, vdhp->frame_buffer, buf );
+    return convert_colorspace( vohp, vdhp->config.ctx, vdhp->frame_buffer, buf );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -733,12 +709,10 @@ static void video_cleanup( lsmash_handler_t *h )
         return;
     if( hp->vih.keyframe_list )
         free( hp->vih.keyframe_list );
-    if( hp->voh.back_ground )
-        free( hp->voh.back_ground );
-    if( hp->voh.first_valid_sample_data )
-        free( hp->voh.first_valid_sample_data );
-    if( hp->voh.sws_ctx )
-        sws_freeContext( hp->voh.sws_ctx );
+    if( hp->voh.scaler.sws_ctx )
+        sws_freeContext( hp->voh.scaler.sws_ctx );
+    if( hp->voh.free_private_handler && hp->voh.private_handler )
+        hp->voh.free_private_handler( hp->voh.private_handler );
     if( hp->vdh.order_converter )
         free( hp->vdh.order_converter );
     if( hp->vdh.frame_buffer )

@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+#include "../common/video_output.h"
+
 typedef int component_reorder_t;
 
 typedef void func_make_black_background
@@ -41,27 +43,13 @@ typedef void func_make_frame
 
 typedef struct
 {
-    int                enabled;
-    int                flags;
-    int                input_width;
-    int                input_height;
-    enum AVPixelFormat input_pixel_format;
-    enum AVPixelFormat output_pixel_format;
-    struct SwsContext *sws_ctx;
-} video_scaler_handler_t;
-
-typedef struct
-{
     int                         variable_info;
     const component_reorder_t  *component_reorder;
-    video_scaler_handler_t      scaler;
     VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *background_frame;
-    VSFrameRef                 *first_valid_frame;
-    uint32_t                    first_valid_frame_number;
     func_make_black_background *make_black_background;
     func_make_frame            *make_frame;
-} video_output_handler_t;
+} vs_video_output_handler_t;
 
 VSPresetFormat get_vs_output_pixel_format( const char *format_name );
 

@@ -19,37 +19,25 @@
  *****************************************************************************/
 
 /* This file is available under an ISC license.
- * However, when distributing its binary file, it will be under LGPL or GPL. */
+ * However, when distributing its binary file, it will be under LGPL or GPL.
+ * Don't distribute it if its license is GPL. */
 
 #include "../common/video_output.h"
 
-typedef void func_make_black_background( PVideoFrame &frame );
-
-typedef int func_make_frame
-(
-    struct SwsContext  *sws_ctx,
-    AVFrame            *picture,
-    PVideoFrame        &frame,
-    IScriptEnvironment *env
-);
-
 typedef struct
 {
-    func_make_black_background *make_black_background;
-    func_make_frame            *make_frame;
-} as_video_output_handler_t;
+    int                      output_linesize;
+    uint32_t                 output_frame_size;
+    uint8_t                 *back_ground;
+    func_convert_colorspace *convert_colorspace;
+} au_video_output_handler_t;
 
-int determine_colorspace_conversion
+int convert_colorspace
 (
     video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format,
-    int                    *output_pixel_type
-);
-
-int make_frame
-(
-    video_output_handler_t *vohp,
+    AVCodecContext         *ctx,
     AVFrame                *picture,
-    PVideoFrame            &frame,
-    IScriptEnvironment     *env
+    uint8_t                *buf
 );
+
+void free_au_video_output_handler( void *private_handler );

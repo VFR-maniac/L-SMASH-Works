@@ -29,7 +29,6 @@ extern "C"
 #include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
-#include <libavutil/opt.h>
 }
 
 #include "video_output.h"
@@ -155,34 +154,35 @@ int determine_colorspace_conversion
             { AV_PIX_FMT_BGR24,   AV_PIX_FMT_BGRA    },
             { AV_PIX_FMT_NONE,    AV_PIX_FMT_NONE    }
         };
-    vohp->output_pixel_format = AV_PIX_FMT_NONE;
+    vohp->scaler.output_pixel_format = AV_PIX_FMT_NONE;
     for( int i = 0; conversion_table[i].output_pixel_format != AV_PIX_FMT_NONE; i++ )
         if( conversion_table[i].input_pixel_format == *input_pixel_format )
         {
-            vohp->output_pixel_format = conversion_table[i].output_pixel_format;
+            vohp->scaler.output_pixel_format = conversion_table[i].output_pixel_format;
             break;
         }
-    switch( vohp->output_pixel_format )
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    switch( vohp->scaler.output_pixel_format )
     {
         case AV_PIX_FMT_YUV420P :   /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
-            vohp->make_black_background = make_black_background_yuv420p;
-            vohp->make_frame            = make_frame_yuv420p;
-            *output_pixel_type          = VideoInfo::CS_I420;
+            as_vohp->make_black_background = make_black_background_yuv420p;
+            as_vohp->make_frame            = make_frame_yuv420p;
+            *output_pixel_type             = VideoInfo::CS_I420;
             return 0;
         case AV_PIX_FMT_YUYV422 :   /* packed YUV 4:2:2, 16bpp */
-            vohp->make_black_background = make_black_background_yuv422;
-            vohp->make_frame            = make_frame_yuv422;
-            *output_pixel_type          = VideoInfo::CS_YUY2;
+            as_vohp->make_black_background = make_black_background_yuv422;
+            as_vohp->make_frame            = make_frame_yuv422;
+            *output_pixel_type             = VideoInfo::CS_YUY2;
             return 0;
         case AV_PIX_FMT_BGRA :      /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
-            vohp->make_black_background = make_black_background_rgba32;
-            vohp->make_frame            = make_frame_rgba32;
-            *output_pixel_type          = VideoInfo::CS_BGR32;
+            as_vohp->make_black_background = make_black_background_rgba32;
+            as_vohp->make_frame            = make_frame_rgba32;
+            *output_pixel_type             = VideoInfo::CS_BGR32;
             return 0;
         default :
-            vohp->make_black_background = NULL;
-            vohp->make_frame            = NULL;
-            *output_pixel_type          = VideoInfo::CS_UNKNOWN;
+            as_vohp->make_black_background = NULL;
+            as_vohp->make_frame            = NULL;
+            *output_pixel_type             = VideoInfo::CS_UNKNOWN;
             return -1;
     }
 }
@@ -196,23 +196,26 @@ int make_frame
 )
 {
     /* Convert color space. We don't change the presentation resolution. */
-    int64_t width;
-    int64_t height;
-    int64_t format;
-    av_opt_get_int( vohp->sws_ctx, "srcw",       0, &width );
-    av_opt_get_int( vohp->sws_ctx, "srch",       0, &height );
-    av_opt_get_int( vohp->sws_ctx, "src_format", 0, &format );
-    avoid_yuv_scale_conversion( (enum AVPixelFormat *)&picture->format );
-    if( !vohp->sws_ctx || picture->width != width || picture->height != height || picture->format != format )
+    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&picture->format;
+    avoid_yuv_scale_conversion( input_pixel_format );
+    video_scaler_handler_t *vshp = &vohp->scaler;
+    if( !vshp->sws_ctx
+     || vshp->input_width        != picture->width
+     || vshp->input_height       != picture->height
+     || vshp->input_pixel_format != *input_pixel_format )
     {
         /* Update scaler. */
-        vohp->sws_ctx = sws_getCachedContext( vohp->sws_ctx,
-                                              picture->width, picture->height, (enum AVPixelFormat)picture->format,
-                                              picture->width, picture->height, vohp->output_pixel_format,
-                                              vohp->scaler_flags, NULL, NULL, NULL );
-        if( !vohp->sws_ctx )
+        vshp->sws_ctx = sws_getCachedContext( vshp->sws_ctx,
+                                              picture->width, picture->height, *input_pixel_format,
+                                              picture->width, picture->height, vshp->output_pixel_format,
+                                              vshp->flags, NULL, NULL, NULL );
+        if( !vshp->sws_ctx )
             return -1;
+        vshp->input_width        = picture->width;
+        vshp->input_height       = picture->height;
+        vshp->input_pixel_format = *input_pixel_format;
     }
-    vohp->make_black_background( frame );
-    return vohp->make_frame( vohp->sws_ctx, picture, frame, env );
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    as_vohp->make_black_background( frame );
+    return as_vohp->make_frame( vshp->sws_ctx, picture, frame, env );
 }

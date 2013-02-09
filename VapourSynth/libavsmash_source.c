@@ -84,8 +84,9 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         set_error( &eh, "lsmas: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
         return -1;
     }
-    const VSAPI *vsapi = eh.vsapi;
-    if( vohp->variable_info )
+    const VSAPI               *vsapi   = eh.vsapi;
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    if( vs_vohp->variable_info )
     {
         vi->format = NULL;
         vi->width  = 0;
@@ -93,16 +94,16 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     }
     else
     {
-        vi->format = vsapi->getFormatPreset( vohp->vs_output_pixel_format, core );
+        vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
         vi->width  = config->prefer.width;
         vi->height = config->prefer.height;
-        vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
-        if( !vohp->background_frame )
+        vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+        if( !vs_vohp->background_frame )
         {
             set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
             return -1;
         }
-        vohp->make_black_background( vohp->background_frame, vsapi );
+        vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     /* Set up scaler. */
     video_scaler_handler_t *vshp = &vohp->scaler;
@@ -276,6 +277,8 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
         avcodec_free_frame( &hp->vdh.frame_buffer );
     if( hp->voh.scaler.sws_ctx )
         sws_freeContext( hp->voh.scaler.sws_ctx );
+    if( hp->voh.free_private_handler && hp->voh.private_handler )
+        hp->voh.free_private_handler( hp->voh.private_handler );
     cleanup_configuration( &hp->vdh.config );
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );
@@ -499,6 +502,18 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         vsapi->setError( out, "lsmas: failed to allocate the handler." );
         return;
     }
+    video_decode_handler_t *vdhp = &hp->vdh;
+    video_output_handler_t *vohp = &hp->voh;
+    vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
+    if( !vs_vohp )
+    {
+        free( hp );
+        vsapi->setError( out, "lsmas: failed to allocate the VapourSynth video output handler." );
+        return;
+    }
+    vohp->private_handler      = vs_vohp;
+    vohp->free_private_handler = free;
+    /* */
     hp->eh.out       = out;
     hp->eh.frame_ctx = NULL;
     hp->eh.vsapi     = vsapi;
@@ -523,11 +538,11 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     set_option_int64 ( &seek_threshold, 10,   "seek_threshold", in, vsapi );
     set_option_int64 ( &variable_info,  0,    "variable",       in, vsapi );
     set_option_string( &format,         NULL, "format",         in, vsapi );
-    threads                        = threads >= 0 ? threads : 0;
-    hp->vdh.seek_mode              = CLIP_VALUE( seek_mode,      0, 2 );
-    hp->vdh.forward_seek_threshold = CLIP_VALUE( seek_threshold, 1, 999 );
-    hp->voh.variable_info          = CLIP_VALUE( variable_info,  0, 1 );
-    hp->voh.vs_output_pixel_format = hp->voh.variable_info ? pfNone : get_vs_output_pixel_format( format );
+    threads                         = threads >= 0 ? threads : 0;
+    vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
+    vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold, 1, 999 );
+    vs_vohp->variable_info          = CLIP_VALUE( variable_info,  0, 1 );
+    vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
     if( track_number && track_number > number_of_tracks )
     {
         vs_filter_free( hp, core, vsapi );
@@ -541,7 +556,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         return;
     }
     /* Set up decoders for this track. */
-    lsmash_discard_boxes( hp->vdh.root );
+    lsmash_discard_boxes( vdhp->root );
     if( prepare_video_decoding( hp, core ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );

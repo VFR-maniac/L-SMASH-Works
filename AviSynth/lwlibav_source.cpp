@@ -62,6 +62,11 @@ LWLibavVideoSource::LWLibavVideoSource
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
     voh.first_valid_frame      = NULL;
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
+    if( !as_vohp )
+        env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
+    voh.private_handler      = as_vohp;
+    voh.free_private_handler = free;
     /* Set up error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = env;
@@ -96,8 +101,10 @@ LWLibavVideoSource::~LWLibavVideoSource()
 {
     if( voh.first_valid_frame )
         delete voh.first_valid_frame;
-    if( voh.sws_ctx )
-        sws_freeContext( voh.sws_ctx );
+    if( voh.scaler.sws_ctx )
+        sws_freeContext( voh.scaler.sws_ctx );
+    if( voh.free_private_handler && voh.private_handler )
+        voh.free_private_handler( voh.private_handler );
     lwlibav_cleanup_video_decode_handler( &vdh );
     if( lwh.file_path )
         free( lwh.file_path );
@@ -130,12 +137,14 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
     if( determine_colorspace_conversion( &voh, &vdh.ctx->pix_fmt, &vi.pixel_type ) < 0 )
         env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
-    voh.scaler_flags = SWS_FAST_BILINEAR;
-    voh.sws_ctx = sws_getCachedContext( NULL,
-                                        vdh.ctx->width, vdh.ctx->height, vdh.ctx->pix_fmt,
-                                        vdh.ctx->width, vdh.ctx->height, voh.output_pixel_format,
-                                        voh.scaler_flags, NULL, NULL, NULL );
-    if( !voh.sws_ctx )
+    video_scaler_handler_t *vshp = &voh.scaler;
+    vshp->enabled = 1;
+    vshp->flags   = SWS_FAST_BILINEAR;
+    vshp->sws_ctx = sws_getCachedContext( NULL,
+                                          vdh.ctx->width, vdh.ctx->height, vdh.ctx->pix_fmt,
+                                          vdh.ctx->width, vdh.ctx->height, vshp->output_pixel_format,
+                                          vshp->flags, NULL, NULL, NULL );
+    if( !vshp->sws_ctx )
         env->ThrowError( "LWLibavVideoSource: failed to get swscale context." );
     /* Find the first valid video sample. */
     vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
@@ -184,7 +193,7 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
     {
         /* Copy the first valid video frame. */
         vdh.last_frame_number = vi.num_frames + 1;  /* Force seeking at the next access for valid video sample. */
-        return *voh.first_valid_frame;
+        return *(PVideoFrame *)voh.first_valid_frame;
     }
     vdh.eh.message_priv = env;
     PVideoFrame frame = env->NewVideoFrame( vi );
