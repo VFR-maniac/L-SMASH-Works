@@ -247,10 +247,13 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
     video_scaler_handler_t *vshp = &voh.scaler;
-    vshp->enabled = 1;
-    vshp->flags   = SWS_FAST_BILINEAR;
+    vshp->enabled            = (config->ctx->pix_fmt != vshp->output_pixel_format);
+    vshp->flags              = SWS_FAST_BILINEAR;
+    vshp->input_width        = config->ctx->width;
+    vshp->input_height       = config->ctx->height;
+    vshp->input_pixel_format = config->ctx->pix_fmt;
     vshp->sws_ctx = sws_getCachedContext( NULL,
-                                        config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
+                                        config->ctx->width, config->ctx->height, vshp->input_pixel_format,
                                         config->ctx->width, config->ctx->height, vshp->output_pixel_format,
                                         vshp->flags, NULL, NULL, NULL );
     if( !vshp->sws_ctx )

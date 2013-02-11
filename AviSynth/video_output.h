@@ -25,11 +25,12 @@
 
 typedef void func_make_black_background( PVideoFrame &frame );
 
-typedef int func_make_frame
+typedef void func_make_frame
 (
-    struct SwsContext  *sws_ctx,
-    AVFrame            *picture,
+    AVPicture          *picture,
     PVideoFrame        &frame,
+    int                 width,
+    int                 height,
     IScriptEnvironment *env
 );
 
@@ -49,7 +50,7 @@ int determine_colorspace_conversion
 int make_frame
 (
     video_output_handler_t *vohp,
-    AVFrame                *picture,
-    PVideoFrame            &frame,
+    AVFrame                *av_frame,
+    PVideoFrame            &as_frame,
     IScriptEnvironment     *env
 );
