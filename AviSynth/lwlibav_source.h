@@ -58,6 +58,7 @@ private:
     audio_decode_handler_t adh;
     audio_output_handler_t aoh;
     void prepare_audio_decoding( IScriptEnvironment *env );
+    int delay_audio( int64_t *start, int64_t wanted_length );
 public:
     LWLibavAudioSource
     (

@@ -164,6 +164,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     }
     h->video_sample_count = vdhp->frame_count;
+    /* Import AVIndexEntrys. */
     if( vdhp->index_entries )
     {
         AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
@@ -310,6 +311,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         hp->lwh.av_gap = ((int64_t)hp->lwh.av_gap * aohp->output_sample_rate - 1) / adhp->ctx->sample_rate + 1;
     h->audio_pcm_sample_count += hp->lwh.av_gap;
     adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;     /* Force seeking at the first reading. */
+    /* Import AVIndexEntrys. */
     if( adhp->index_entries )
     {
         AVStream *audio_stream = adhp->format->streams[ adhp->stream_index ];

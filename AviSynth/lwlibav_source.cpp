@@ -117,6 +117,7 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     vdh.input_buffer       = (uint8_t *)av_mallocz( vdh.input_buffer_size );
     if( !vdh.input_buffer )
         env->ThrowError( "LWLibavVideoSource: failed to allocate memory to the input buffer for video." );
+    /* Import AVIndexEntrys. */
     if( vdh.index_entries )
     {
         AVStream *video_stream = vdh.format->streams[ vdh.stream_index ];
@@ -256,7 +257,11 @@ void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
+    if( lwh.av_gap && aoh.output_sample_rate != adh.ctx->sample_rate )
+        lwh.av_gap = ((int64_t)lwh.av_gap * aoh.output_sample_rate - 1) / adh.ctx->sample_rate + 1;
+    vi.num_audio_samples += lwh.av_gap;
     adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
+    /* Import AVIndexEntrys. */
     if( adh.index_entries )
     {
         AVStream *audio_stream = adh.format->streams[ adh.stream_index ];
@@ -335,9 +340,27 @@ void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
     aoh.output_block_align = (output_channels * aoh.output_bits_per_sample) / 8;
 }
 
+int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )
+{
+    /* Even if start become negative, its absolute value shall be equal to wanted_length or smaller. */
+    int64_t end         = *start + wanted_length;
+    int64_t audio_delay = lwh.av_gap;
+    if( *start < audio_delay && end <= audio_delay )
+    {
+        adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the next access for valid audio frame. */
+        return 0;
+    }
+    *start -= audio_delay;
+    return 1;
+}
+
 void __stdcall LWLibavAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    return (void)lwlibav_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
+    adh.eh.message_priv = env;
+    if( delay_audio( &start, wanted_length ) )
+        return (void)lwlibav_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
+    uint8_t silence = vi.sample_type == SAMPLE_INT8 ? 128 : 0;
+    memset( buf, silence, (size_t)(wanted_length * aoh.output_block_align) );
 }
 
 AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
@@ -368,11 +391,12 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     const char *source          = args[0].AsString();
     int         stream_index    = args[1].AsInt( -1 );
     int         no_create_index = args[2].AsBool( false ) ? 0 : 1;
+    int         av_sync         = args[3].AsBool( false ) ? 1 : 0;
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
     opt.threads           = 0;
-    opt.av_sync           = 0;
+    opt.av_sync           = av_sync;
     opt.no_create_index   = no_create_index;
     opt.force_video       = 0;
     opt.force_video_index = -1;

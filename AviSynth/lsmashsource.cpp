@@ -71,7 +71,7 @@ extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( ISc
     env->AddFunction
     (
         "LWLibavAudioSource",
-        "[source]s[stream_index]i[cache]b",
+        "[source]s[stream_index]i[cache]b[av_sync]b",
         CreateLWLibavAudioSource,
         0
     );
