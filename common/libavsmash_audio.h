@@ -33,22 +33,6 @@ typedef struct
     int                   implicit_preroll;
 } audio_decode_handler_t;
 
-typedef struct
-{
-    AVAudioResampleContext *avr_ctx;
-    uint8_t                *resampled_buffer;
-    int                     resampled_buffer_size;
-    int                     input_planes;
-    int                     input_block_align;
-    uint64_t                skip_decoded_samples;   /* Upsampling is considered. */
-    uint64_t                output_channel_layout;
-    enum AVSampleFormat     output_sample_format;
-    int                     output_block_align;
-    int                     output_sample_rate;
-    int                     output_bits_per_sample;
-    int                     s24_output;
-} audio_output_handler_t;
-
 uint64_t libavsmash_count_overall_pcm_samples
 (
     audio_decode_handler_t *adhp,

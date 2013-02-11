@@ -22,6 +22,8 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
+#include "../common/audio_output.h"
+
 static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format,
                                                                      int input_bits_per_sample )
 {

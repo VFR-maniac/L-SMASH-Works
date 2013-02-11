@@ -43,6 +43,30 @@ int update_resampler_configuration( AVAudioResampleContext *avr,
                                     int *input_planes, int *input_block_align ){ return 0; }
 int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in ){ return 0; }
 void avresample_free( AVAudioResampleContext **avr ){ }
+#include "../common/audio_output.h"
+uint64_t output_pcm_samples_from_buffer
+(
+    audio_output_handler_t *aohp,
+    AVFrame                *frame_buffer,
+    uint8_t               **output_buffer,
+    enum audio_output_flag *output_flags
+)
+{
+    return 0;
+}
+
+uint64_t output_pcm_samples_from_packet
+(
+    audio_output_handler_t *aohp,
+    AVCodecContext         *ctx,
+    AVPacket               *pkt,
+    AVFrame                *frame_buffer,
+    uint8_t               **output_buffer,
+    enum audio_output_flag *output_flags
+)
+{
+    return 0;
+}
 
 #include "../common/utils.h"
 #include "../common/progress.h"

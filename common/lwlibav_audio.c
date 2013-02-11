@@ -35,11 +35,12 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
+#include "audio_output.h"
+#include "resample.h"
+
 #include "lwlibav_dec.h"
 #include "lwlibav_audio.h"
-
-#include "utils.h"
-#include "resample.h"
 
 int lwlibav_get_desired_audio_track
 (
@@ -187,54 +188,6 @@ static void seek_audio
     }
 }
 
-static int consume_decoded_audio_samples
-(
-    audio_output_handler_t *aohp,
-    AVFrame                *frame,
-    int                     input_sample_count,
-    int                     wanted_sample_count,
-    uint8_t               **out_data,
-    int                     sample_offset
-)
-{
-    /* Input */
-    uint8_t *in_data[AVRESAMPLE_MAX_CHANNELS];
-    int decoded_data_offset = sample_offset * aohp->input_block_align;
-    for( int i = 0; i < aohp->input_planes; i++ )
-        in_data[i] = frame->extended_data[i] + decoded_data_offset;
-    audio_samples_t in;
-    in.channel_layout = frame->channel_layout;
-    in.sample_count   = input_sample_count;
-    in.sample_format  = (enum AVSampleFormat)frame->format;
-    in.data           = in_data;
-    /* Output */
-    uint8_t *resampled_buffer = NULL;
-    if( aohp->s24_output )
-    {
-        int out_channels = get_channel_layout_nb_channels( aohp->output_channel_layout );
-        int out_linesize = get_linesize( out_channels, wanted_sample_count, aohp->output_sample_format );
-        if( !aohp->resampled_buffer || out_linesize > aohp->resampled_buffer_size )
-        {
-            uint8_t *temp = (uint8_t *)av_realloc( aohp->resampled_buffer, out_linesize );
-            if( !temp )
-                return 0;
-            aohp->resampled_buffer_size = out_linesize;
-            aohp->resampled_buffer      = temp;
-        }
-        resampled_buffer = aohp->resampled_buffer;
-    }
-    audio_samples_t out;
-    out.channel_layout = aohp->output_channel_layout;
-    out.sample_count   = wanted_sample_count;
-    out.sample_format  = aohp->output_sample_format;
-    out.data           = resampled_buffer ? &resampled_buffer : out_data;
-    /* Resample */
-    int resampled_size = resample_audio( aohp->avr_ctx, &out, &in );
-    if( resampled_buffer && resampled_size > 0 )
-        resampled_size = resample_s32_to_s24( out_data, aohp->resampled_buffer, resampled_size );
-    return resampled_size > 0 ? resampled_size / aohp->output_block_align : 0;
-}
-
 uint64_t lwlibav_get_pcm_audio_samples
 (
     audio_decode_handler_t *adhp,
@@ -246,28 +199,23 @@ uint64_t lwlibav_get_pcm_audio_samples
 {
     if( adhp->eh.error )
         return 0;
-    uint32_t frame_number;
-    uint64_t seek_offset;
-    uint64_t output_length = 0;
-    int      already_gotten;
-    AVPacket *pkt = &adhp->packet;
+    uint32_t               frame_number;
+    uint64_t               output_length = 0;
+    enum audio_output_flag output_flags;
+    AVPacket              *pkt = &adhp->packet;
+    int                    already_gotten;
+    aohp->request_length = wanted_length;
     if( start > 0 && start == adhp->next_pcm_sample_number )
     {
-        frame_number = adhp->last_frame_number;
-        if( adhp->frame_buffer->extended_data
-         && adhp->frame_buffer->extended_data[0] )
-        {
-            /* Flush remaing audio samples. */
-            int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, 0, (int)wanted_length, (uint8_t **)&buf, 0 );
-            output_length += resampled_length;
-            wanted_length -= resampled_length;
-            if( wanted_length <= 0 )
-                goto audio_out;
-        }
+        frame_number   = adhp->last_frame_number;
+        output_flags   = AUDIO_OUTPUT_NO_FLAGS;
+        output_length += output_pcm_samples_from_buffer( aohp, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
+        if( output_flags & AUDIO_OUTPUT_ENOUGH )
+            goto audio_out;
         if( pkt->size <= 0 )
             ++frame_number;
-        seek_offset = 0;
-        already_gotten = 0;
+        aohp->output_sample_offset = 0;
+        already_gotten             = 0;
     }
     else
     {
@@ -294,11 +242,11 @@ uint64_t lwlibav_get_pcm_audio_samples
         {
             uint64_t silence_length = -start;
             put_silence_audio_samples( (int)(silence_length * aohp->output_block_align), aohp->output_bits_per_sample == 8, (uint8_t **)&buf );
-            output_length += silence_length;
-            wanted_length -= silence_length;
+            output_length        += silence_length;
+            aohp->request_length -= silence_length;
             start_frame_pos = 0;
         }
-        frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &seek_offset );
+        frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
         seek_audio( adhp, frame_number, pkt );
         already_gotten = 1;
     }
@@ -320,88 +268,29 @@ uint64_t lwlibav_get_pcm_audio_samples
                 goto audio_out;
         }
         else if( pkt->size <= 0 )
-            /* Getting a sample must be after flushing all remaining samples in resampler's FIFO buffer. */
+            /* Getting an audio packet must be after flushing all remaining samples in resampler's FIFO buffer. */
             get_av_frame( adhp->format, adhp->stream_index, &adhp->input_buffer, &adhp->input_buffer_size, pkt );
-        int output_audio = 0;
-        do
-        {
-            avcodec_get_frame_defaults( adhp->frame_buffer );
-            int decode_complete;
-            int wasted_data_length = avcodec_decode_audio4( adhp->ctx, adhp->frame_buffer, &decode_complete, pkt );
-            if( wasted_data_length < 0 )
-            {
-                pkt->size = 0;  /* Force to get the next sample. */
-                break;
-            }
-            if( pkt->data )
-            {
-                pkt->size -= wasted_data_length;
-                pkt->data += wasted_data_length;
-            }
-            else if( !decode_complete )
-                goto audio_out;
-            if( decode_complete
-             && adhp->frame_buffer->extended_data
-             && adhp->frame_buffer->extended_data[0] )
-            {
-                /* Check channel layout, sample rate and sample format of decoded audio samples. */
-                int64_t channel_layout;
-                int64_t sample_rate;
-                int64_t sample_format;
-                av_opt_get_int( aohp->avr_ctx, "in_channel_layout", 0, &channel_layout );
-                av_opt_get_int( aohp->avr_ctx, "in_sample_rate",    0, &sample_rate );
-                av_opt_get_int( aohp->avr_ctx, "in_sample_fmt",     0, &sample_format );
-                if( adhp->frame_buffer->channel_layout == 0 )
-                    adhp->frame_buffer->channel_layout = av_get_default_channel_layout( adhp->ctx->channels );
-                if( adhp->frame_buffer->channel_layout != channel_layout
-                 || adhp->frame_buffer->sample_rate    != sample_rate
-                 || adhp->frame_buffer->format         != sample_format )
-                {
-                    /* Detected a change of channel layout, sample rate or sample format.
-                     * Reconfigure audio resampler. */
-                    if( update_resampler_configuration( aohp->avr_ctx,
-                                                        aohp->output_channel_layout,
-                                                        aohp->output_sample_rate,
-                                                        aohp->output_sample_format,
-                                                        adhp->frame_buffer->channel_layout,
-                                                        adhp->frame_buffer->sample_rate,
-                                                        (enum AVSampleFormat)adhp->frame_buffer->format,
-                                                        &aohp->input_planes,
-                                                        &aohp->input_block_align ) < 0 )
-                    {
-                        adhp->eh.error = 1;
-                        if( adhp->eh.error_message )
-                            adhp->eh.error_message( adhp->eh.message_priv,
-                                                    "Failed to reconfigure resampler.\n"
-                                                    "It is recommended you reopen the file." );
-                        goto audio_out;
-                    }
-                }
-                /* Process decoded audio samples. */
-                int decoded_length = adhp->frame_buffer->nb_samples;
-                if( decoded_length > seek_offset )
-                {
-                    /* Send decoded audio data to resampler and get desired resampled audio as you want as much as possible. */
-                    int useful_length = (int)(decoded_length - seek_offset);
-                    int resampled_length = consume_decoded_audio_samples( aohp, adhp->frame_buffer, useful_length, (int)wanted_length, (uint8_t **)&buf, (int)seek_offset );
-                    output_length += resampled_length;
-                    wanted_length -= resampled_length;
-                    seek_offset = 0;
-                    if( wanted_length <= 0 )
-                        goto audio_out;
-                }
-                else
-                    seek_offset -= decoded_length;
-                output_audio = 1;
-            }
-        } while( pkt->size > 0 );
-        if( !output_audio && pkt->data )    /* Count audio frame delay only if feeding non-NULL packet. */
+        /* Decode and output from an audio packet. */
+        output_flags   = AUDIO_OUTPUT_NO_FLAGS;
+        output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
+        if( output_flags & AUDIO_DECODER_DELAY )
             ++ adhp->delay_count;
+        if( output_flags & AUDIO_RECONFIG_FAILURE )
+        {
+            adhp->eh.error = 1;
+            if( adhp->eh.error_message )
+                adhp->eh.error_message( adhp->eh.message_priv,
+                                        "Failed to reconfigure resampler.\n"
+                                        "It is recommended you reopen the file." );
+            goto audio_out;
+        }
+        if( output_flags & AUDIO_OUTPUT_ENOUGH )
+            goto audio_out;
         ++frame_number;
     } while( 1 );
 audio_out:
     adhp->next_pcm_sample_number = start + output_length;
-    adhp->last_frame_number = frame_number;
+    adhp->last_frame_number      = frame_number;
     return output_length;
 }
 

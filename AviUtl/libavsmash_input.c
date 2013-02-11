@@ -40,7 +40,6 @@
 #include "video_output.h"
 #include "audio_output.h"
 
-#include "../common/resample.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
@@ -609,16 +608,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
      && (aohp->output_bits_per_sample == 0 || aohp->output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
-        if( config->ctx->frame_size )
-        {
-            aohp->resampled_buffer_size = get_linesize( output_channels, config->ctx->frame_size, aohp->output_sample_format );
-            aohp->resampled_buffer      = av_malloc( aohp->resampled_buffer_size );
-            if( !aohp->resampled_buffer )
-            {
-                DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory for resampling." );
-                return -1;
-            }
-        }
         aohp->s24_output             = 1;
         aohp->output_bits_per_sample = 24;
     }

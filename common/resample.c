@@ -20,11 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#ifdef __cplusplus
-#   ifndef __STDC_CONSTANT_MACROS
-#       define __STDC_CONSTANT_MACROS
-#   endif
-#endif  /* __cplusplus */
+#include "cpp_compat.h"
 
 #ifdef __cplusplus
 extern "C"

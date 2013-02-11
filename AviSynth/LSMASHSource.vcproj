@@ -171,6 +171,26 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath="..\common\audio_output.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
 				RelativePath=".\exlibs.cpp"
 				>
 			</File>
@@ -385,6 +405,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\common\audio_output.h"
+				>
+			</File>
+			<File
 				RelativePath=".\avisynth.h"
 				>
 			</File>
@@ -445,11 +469,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\common\video_output.h"
+				RelativePath=".\video_output.h"
 				>
 			</File>
 			<File
-				RelativePath=".\video_output.h"
+				RelativePath="..\common\video_output.h"
 				>
 			</File>
 		</Filter>

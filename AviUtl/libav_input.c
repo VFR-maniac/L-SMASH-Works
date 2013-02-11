@@ -30,7 +30,10 @@
 #include <libavresample/avresample.h>   /* Audio resampler */
 #include <libavutil/opt.h>
 
-#include "../common/resample.h"
+#include "colorspace.h"
+#include "video_output.h"
+#include "audio_output.h"
+
 #include "../common/progress.h"
 #include "../common/lwlibav_dec.h"
 #include "../common/lwlibav_video.h"
@@ -38,9 +41,6 @@
 #include "../common/lwindex.h"
 
 #include "lsmashinput.h"
-#include "colorspace.h"
-#include "video_output.h"
-#include "audio_output.h"
 #include "resource.h"
 #include "progress_dlg.h"
 
@@ -350,16 +350,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
      && (aohp->output_bits_per_sample == 0 || aohp->output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
-        if( adhp->frame_length )
-        {
-            aohp->resampled_buffer_size = get_linesize( output_channels, adhp->frame_length, aohp->output_sample_format );
-            aohp->resampled_buffer      = av_malloc( aohp->resampled_buffer_size );
-            if( !aohp->resampled_buffer )
-            {
-                DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory for resampling." );
-                return -1;
-            }
-        }
         aohp->s24_output             = 1;
         aohp->output_bits_per_sample = 24;
     }

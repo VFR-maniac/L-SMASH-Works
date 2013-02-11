@@ -35,6 +35,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "audio_output.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
 #include "lwlibav_audio.h"

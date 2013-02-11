@@ -20,6 +20,9 @@
 
 /* This file is available under an ISC license. */
 
+#ifndef LW_CPP_COMPAT_H
+#define LW_CPP_COMPAT_H
+
 #ifdef __cplusplus
 #   ifndef __STDC_CONSTANT_MACROS
 #       define __STDC_CONSTANT_MACROS
@@ -35,3 +38,16 @@
 #       pragma warning( disable:4996 )
 #   endif
 #endif  /* __cplusplus */
+
+#ifdef __cplusplus
+#define CPP_DEFINE_OR_SUBSTITUTE_OPERATOR( ENUM )           \
+    inline ENUM operator |= ( ENUM &x, const ENUM y )       \
+    {                                                       \
+        x = (ENUM)(((unsigned int)x)|((unsigned int)y));    \
+        return x;                                           \
+    }
+#else
+#define CPP_DEFINE_OR_SUBSTITUTE_OPERATOR( ENUM )
+#endif  /* __cplusplus */
+
+#endif  /* LW_CPP_COMPAT_H */

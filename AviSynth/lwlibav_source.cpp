@@ -38,7 +38,7 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "../common/resample.h"
+#include "../common/audio_output.h"
 #include "../common/progress.h"
 
 #include "video_output.h"
@@ -291,13 +291,6 @@ void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
      && (aoh.output_bits_per_sample == 0 || aoh.output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
-        if( adh.ctx->frame_size )
-        {
-            aoh.resampled_buffer_size = get_linesize( output_channels, adh.ctx->frame_size, aoh.output_sample_format );
-            aoh.resampled_buffer      = (uint8_t *)av_malloc( aoh.resampled_buffer_size );
-            if( !aoh.resampled_buffer )
-                env->ThrowError( "LWLibavAudioSource: failed to allocate memory for resampling." );
-        }
         aoh.s24_output             = 1;
         aoh.output_bits_per_sample = 24;
     }

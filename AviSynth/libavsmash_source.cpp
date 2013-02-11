@@ -40,7 +40,7 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "../common/resample.h"
+#include "../common/audio_output.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
@@ -536,13 +536,6 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
      && (aoh.output_bits_per_sample == 0 || aoh.output_bits_per_sample == 24) )
     {
         /* 24bit signed integer output */
-        if( config->ctx->frame_size )
-        {
-            aoh.resampled_buffer_size = get_linesize( output_channels, config->ctx->frame_size, aoh.output_sample_format );
-            aoh.resampled_buffer      = (uint8_t *)av_malloc( aoh.resampled_buffer_size );
-            if( !aoh.resampled_buffer )
-                env->ThrowError( "LSMASHAudioSource: failed to allocate memory for resampling." );
-        }
         aoh.s24_output             = 1;
         aoh.output_bits_per_sample = 24;
     }
