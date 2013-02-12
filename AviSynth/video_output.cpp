@@ -21,7 +21,7 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
-#include "avisynth.h"
+#include "lsmashsource.h"
 
 extern "C"
 {
