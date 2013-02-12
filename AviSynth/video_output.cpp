@@ -53,42 +53,81 @@ static void make_black_background_rgba32( PVideoFrame &frame )
     memset( frame->GetWritePtr(), 0x00, frame->GetPitch() * frame->GetHeight() );
 }
 
-static void make_frame_yuv420p
+static inline int convert_av_pixel_format
 (
-    AVPicture          *picture,
-    PVideoFrame        &frame,
-    int                 width,
-    int                 height,
-    IScriptEnvironment *env
+    struct SwsContext *sws_ctx,
+    AVFrame           *av_frame,
+    AVPicture         *av_picture
 )
 {
-    env->BitBlt( frame->GetWritePtr( PLANAR_Y ), frame->GetPitch( PLANAR_Y ), picture->data[0], picture->linesize[0], width,     height ); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_U ), frame->GetPitch( PLANAR_U ), picture->data[1], picture->linesize[1], width / 2, height / 2 ); 
-    env->BitBlt( frame->GetWritePtr( PLANAR_V ), frame->GetPitch( PLANAR_V ), picture->data[2], picture->linesize[2], width / 2, height / 2 ); 
+    int ret = sws_scale( sws_ctx,
+                         (const uint8_t * const *)av_frame->data, av_frame->linesize,
+                         0, av_frame->height,
+                         av_picture->data, av_picture->linesize );
+    return ret > 0 ? ret : -1;
 }
 
-static void make_frame_yuv422
+static int make_frame_yuv420p
 (
-    AVPicture          *picture,
-    PVideoFrame        &frame,
-    int                 width,
-    int                 height,
-    IScriptEnvironment *env
+    video_scaler_handler_t *vshp,
+    AVFrame                *av_frame,
+    PVideoFrame            &as_frame,
+    IScriptEnvironment     *env
 )
 {
-    env->BitBlt( frame->GetWritePtr(), frame->GetPitch(), picture->data[0], picture->linesize[0], width * 2, height );
+    if( vshp->enabled )
+    {
+        AVPicture av_picture = { { { NULL } } };
+        av_picture.data    [0] = as_frame->GetWritePtr( PLANAR_Y );
+        av_picture.data    [1] = as_frame->GetWritePtr( PLANAR_U );
+        av_picture.data    [2] = as_frame->GetWritePtr( PLANAR_V );
+        av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
+        av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
+        av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
+        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
+    }
+    env->BitBlt( as_frame->GetWritePtr( PLANAR_Y ), as_frame->GetPitch( PLANAR_Y ), av_frame->data[0], av_frame->linesize[0], av_frame->width,     av_frame->height ); 
+    env->BitBlt( as_frame->GetWritePtr( PLANAR_U ), as_frame->GetPitch( PLANAR_U ), av_frame->data[1], av_frame->linesize[1], av_frame->width / 2, av_frame->height / 2 ); 
+    env->BitBlt( as_frame->GetWritePtr( PLANAR_V ), as_frame->GetPitch( PLANAR_V ), av_frame->data[2], av_frame->linesize[2], av_frame->width / 2, av_frame->height / 2 ); 
+    return 0;
 }
 
-static void make_frame_rgba32
+static int make_frame_yuv422
 (
-    AVPicture          *picture,
-    PVideoFrame        &frame,
-    int                 width,
-    int                 height,
-    IScriptEnvironment *env
+    video_scaler_handler_t *vshp,
+    AVFrame                *av_frame,
+    PVideoFrame            &as_frame,
+    IScriptEnvironment     *env
 )
 {
-    env->BitBlt( frame->GetWritePtr() + frame->GetPitch() * (frame->GetHeight() - 1), -frame->GetPitch(), picture->data[0], picture->linesize[0], width * 4, height ); 
+    if( vshp->enabled )
+    {
+        AVPicture av_picture = { { { NULL } } };
+        av_picture.data    [0] = as_frame->GetWritePtr();
+        av_picture.linesize[0] = as_frame->GetPitch   ();
+        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
+    }
+    env->BitBlt( as_frame->GetWritePtr(), as_frame->GetPitch(), av_frame->data[0], av_frame->linesize[0], av_frame->width * 2, av_frame->height );
+    return 0;
+}
+
+static int make_frame_rgba32
+(
+    video_scaler_handler_t *vshp,
+    AVFrame                *av_frame,
+    PVideoFrame            &as_frame,
+    IScriptEnvironment     *env
+)
+{
+    if( vshp->enabled )
+    {
+        AVPicture av_picture = { { { NULL } } };
+        av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
+        av_picture.linesize[0] = -as_frame->GetPitch();
+        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
+    }
+    env->BitBlt( as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1), -as_frame->GetPitch(), av_frame->data[0], av_frame->linesize[0], av_frame->width * 4, av_frame->height ); 
+    return 0;
 }
 
 static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
@@ -169,34 +208,6 @@ int determine_colorspace_conversion
     }
 }
 
-static inline int convert_av_pixel_format
-(
-    video_scaler_handler_t *vshp,
-    AVFrame                *av_frame,
-    AVPicture              *av_picture
-)
-{
-    if( !vshp->enabled )
-    {
-        for( int i = 0; i < 4; i++ )
-        {
-            av_picture->data    [i] = av_frame->data    [i];
-            av_picture->linesize[i] = av_frame->linesize[i];
-        }
-        return 0;
-    }
-    if( av_image_alloc( av_picture->data, av_picture->linesize, av_frame->width, av_frame->height, vshp->output_pixel_format, 16 ) < 0 )
-        return -1;
-    int ret = sws_scale( vshp->sws_ctx,
-                         (const uint8_t * const *)av_frame->data, av_frame->linesize,
-                         0, av_frame->height,
-                         av_picture->data, av_picture->linesize );
-    if( ret > 0 )
-        return ret;
-    av_freep( &av_picture->data[0] );
-    return -1;
-}
-
 int make_frame
 (
     video_output_handler_t *vohp,
@@ -227,13 +238,6 @@ int make_frame
         vshp->enabled            = (*input_pixel_format != vshp->output_pixel_format);
     }
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
-    AVPicture av_picture;
-    int ret = convert_av_pixel_format( vshp, av_frame, &av_picture );
-    if( ret < 0 )
-        return -1;
     as_vohp->make_black_background( as_frame );
-    as_vohp->make_frame( &av_picture, as_frame, av_frame->width, av_frame->height, env );
-    if( ret > 0 )
-        av_free( av_picture.data[0] );
-    return 0;
+    return as_vohp->make_frame( vshp, av_frame, as_frame, env );
 }

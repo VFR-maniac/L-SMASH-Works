@@ -25,13 +25,12 @@
 
 typedef void func_make_black_background( PVideoFrame &frame );
 
-typedef void func_make_frame
+typedef int func_make_frame
 (
-    AVPicture          *picture,
-    PVideoFrame        &frame,
-    int                 width,
-    int                 height,
-    IScriptEnvironment *env
+    video_scaler_handler_t *vshp,
+    AVFrame                *av_frame,
+    PVideoFrame            &as_frame,
+    IScriptEnvironment     *env
 );
 
 typedef struct
