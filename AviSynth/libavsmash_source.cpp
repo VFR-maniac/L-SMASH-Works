@@ -274,7 +274,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, picture, temp, env ) )
+                if( make_frame( &voh, picture, temp, env ) < 0 )
                     continue;
                 voh.first_valid_frame = new PVideoFrame( temp );
                 if( !voh.first_valid_frame )
