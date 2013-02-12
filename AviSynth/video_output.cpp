@@ -224,6 +224,7 @@ int make_frame
         vshp->enabled            = (*input_pixel_format != vshp->output_pixel_format);
     }
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
-    as_vohp->make_black_background( as_frame );
+    if( vohp->output_width != av_frame->width || vohp->output_height != av_frame->height )
+        as_vohp->make_black_background( as_frame );
     return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
 }

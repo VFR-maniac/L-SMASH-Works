@@ -246,6 +246,8 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
+    voh.output_width  = vi.width;
+    voh.output_height = vi.height;
     video_scaler_handler_t *vshp = &voh.scaler;
     vshp->enabled            = (config->ctx->pix_fmt != vshp->output_pixel_format);
     vshp->flags              = SWS_FAST_BILINEAR;

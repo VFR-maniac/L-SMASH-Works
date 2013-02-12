@@ -133,11 +133,13 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     vdh.ctx->width   = vdh.initial_width;
     vdh.ctx->height  = vdh.initial_height;
     vdh.ctx->pix_fmt = vdh.initial_pix_fmt;
-    vi.width  = vdh.max_width;
-    vi.height = vdh.max_height;
     enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
     if( determine_colorspace_conversion( &voh, &vdh.ctx->pix_fmt, &vi.pixel_type ) < 0 )
         env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
+    vi.width  = vdh.max_width;
+    vi.height = vdh.max_height;
+    voh.output_width  = vi.width;
+    voh.output_height = vi.height;
     video_scaler_handler_t *vshp = &voh.scaler;
     vshp->enabled            = (vdh.ctx->pix_fmt != vshp->output_pixel_format);
     vshp->flags              = SWS_FAST_BILINEAR;
