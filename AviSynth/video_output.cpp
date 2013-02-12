@@ -53,6 +53,9 @@ static void make_black_background_rgba32( PVideoFrame &frame )
     memset( frame->GetWritePtr(), 0x00, frame->GetPitch() * frame->GetHeight() );
 }
 
+/* In AviSynth each line is also most of the time aligned to an address dividable by 16 (or 8 for planar chroma).
+ * Furthermore it seems Avisynth bulit-in BitBlt is slow.
+ * So, I think it's OK that we always use swscale instead. */
 static inline int convert_av_pixel_format
 (
     struct SwsContext *sws_ctx,
@@ -69,65 +72,48 @@ static inline int convert_av_pixel_format
 
 static int make_frame_yuv420p
 (
-    video_scaler_handler_t *vshp,
-    AVFrame                *av_frame,
-    PVideoFrame            &as_frame,
-    IScriptEnvironment     *env
+    struct SwsContext  *sws_ctx,
+    AVFrame            *av_frame,
+    PVideoFrame        &as_frame,
+    IScriptEnvironment *env
 )
 {
-    if( vshp->enabled )
-    {
-        AVPicture av_picture = { { { NULL } } };
-        av_picture.data    [0] = as_frame->GetWritePtr( PLANAR_Y );
-        av_picture.data    [1] = as_frame->GetWritePtr( PLANAR_U );
-        av_picture.data    [2] = as_frame->GetWritePtr( PLANAR_V );
-        av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
-        av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
-        av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
-        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
-    }
-    env->BitBlt( as_frame->GetWritePtr( PLANAR_Y ), as_frame->GetPitch( PLANAR_Y ), av_frame->data[0], av_frame->linesize[0], av_frame->width,     av_frame->height ); 
-    env->BitBlt( as_frame->GetWritePtr( PLANAR_U ), as_frame->GetPitch( PLANAR_U ), av_frame->data[1], av_frame->linesize[1], av_frame->width / 2, av_frame->height / 2 ); 
-    env->BitBlt( as_frame->GetWritePtr( PLANAR_V ), as_frame->GetPitch( PLANAR_V ), av_frame->data[2], av_frame->linesize[2], av_frame->width / 2, av_frame->height / 2 ); 
-    return 0;
+    AVPicture av_picture = { { { NULL } } };
+    av_picture.data    [0] = as_frame->GetWritePtr( PLANAR_Y );
+    av_picture.data    [1] = as_frame->GetWritePtr( PLANAR_U );
+    av_picture.data    [2] = as_frame->GetWritePtr( PLANAR_V );
+    av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
+    av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
+    av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
+    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
 }
 
 static int make_frame_yuv422
 (
-    video_scaler_handler_t *vshp,
-    AVFrame                *av_frame,
-    PVideoFrame            &as_frame,
-    IScriptEnvironment     *env
+    struct SwsContext  *sws_ctx,
+    AVFrame            *av_frame,
+    PVideoFrame        &as_frame,
+    IScriptEnvironment *env
 )
 {
-    if( vshp->enabled )
-    {
-        AVPicture av_picture = { { { NULL } } };
-        av_picture.data    [0] = as_frame->GetWritePtr();
-        av_picture.linesize[0] = as_frame->GetPitch   ();
-        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
-    }
-    env->BitBlt( as_frame->GetWritePtr(), as_frame->GetPitch(), av_frame->data[0], av_frame->linesize[0], av_frame->width * 2, av_frame->height );
-    return 0;
+    AVPicture av_picture = { { { NULL } } };
+    av_picture.data    [0] = as_frame->GetWritePtr();
+    av_picture.linesize[0] = as_frame->GetPitch   ();
+    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
 }
 
 static int make_frame_rgba32
 (
-    video_scaler_handler_t *vshp,
-    AVFrame                *av_frame,
-    PVideoFrame            &as_frame,
-    IScriptEnvironment     *env
+    struct SwsContext  *sws_ctx,
+    AVFrame            *av_frame,
+    PVideoFrame        &as_frame,
+    IScriptEnvironment *env
 )
 {
-    if( vshp->enabled )
-    {
-        AVPicture av_picture = { { { NULL } } };
-        av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
-        av_picture.linesize[0] = -as_frame->GetPitch();
-        return convert_av_pixel_format( vshp->sws_ctx, av_frame, &av_picture );
-    }
-    env->BitBlt( as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1), -as_frame->GetPitch(), av_frame->data[0], av_frame->linesize[0], av_frame->width * 4, av_frame->height ); 
-    return 0;
+    AVPicture av_picture = { { { NULL } } };
+    av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
+    av_picture.linesize[0] = -as_frame->GetPitch();
+    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
 }
 
 static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
@@ -239,5 +225,5 @@ int make_frame
     }
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     as_vohp->make_black_background( as_frame );
-    return as_vohp->make_frame( vshp, av_frame, as_frame, env );
+    return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
 }
