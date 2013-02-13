@@ -34,43 +34,24 @@ extern "C"
 
 #include "lwlibav_dec.h"
 
-int get_av_frame
+int lw_get_av_frame
 (
     AVFormatContext *format_ctx,
     int              stream_index,
-    uint8_t        **buffer,
-    uint32_t        *buffer_size,
     AVPacket        *pkt
 )
 {
-    AVPacket temp = { 0 };
-    av_init_packet( &temp );
-    while( read_av_frame( format_ctx, &temp ) >= 0 )
+    av_init_packet( pkt );
+    while( read_av_frame( format_ctx, pkt ) >= 0 )
     {
-        if( temp.stream_index != stream_index )
+        if( pkt->stream_index != stream_index )
         {
-            av_free_packet( &temp );
+            av_free_packet( pkt );
             continue;
         }
-        /* Don't trust the first survey of the maximum packet size. It seems various by seeking. */
-        if( ((unsigned int)temp.size + FF_INPUT_BUFFER_PADDING_SIZE) > *buffer_size )
-        {
-            uint8_t *new_buffer = (uint8_t *)av_realloc( *buffer, temp.size + FF_INPUT_BUFFER_PADDING_SIZE );
-            if( !new_buffer )
-            {
-                av_free_packet( &temp );
-                continue;
-            }
-            *buffer      = new_buffer;
-            *buffer_size = temp.size + FF_INPUT_BUFFER_PADDING_SIZE;
-        }
-        *pkt = temp;
-        pkt->data = *buffer;
-        memcpy( pkt->data, temp.data, temp.size );
-        av_free_packet( &temp );
         return 0;
     }
-    *pkt = temp;
+    /* Return a null packet. */
     pkt->data = NULL;
     pkt->size = 0;
     return 1;

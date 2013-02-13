@@ -159,13 +159,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return 0;
     vdhp->seek_mode              = opt->seek_mode;
     vdhp->forward_seek_threshold = opt->forward_seek_threshold;
-    vdhp->input_buffer_size     += FF_INPUT_BUFFER_PADDING_SIZE;
-    vdhp->input_buffer           = av_mallocz( vdhp->input_buffer_size );
-    if( !vdhp->input_buffer )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for video." );
-        return -1;
-    }
     h->video_sample_count = vdhp->frame_count;
     /* Import AVIndexEntrys. */
     if( vdhp->index_entries )
@@ -263,10 +256,12 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( vdhp->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        get_av_frame( vdhp->format, vdhp->stream_index, &vdhp->input_buffer, &vdhp->input_buffer_size, &pkt );
+        lw_get_av_frame( vdhp->format, vdhp->stream_index, &pkt );
         avcodec_get_frame_defaults( vdhp->frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
+        int consumed_bytes = avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, &pkt );
+        av_free_packet( &pkt );
+        if( consumed_bytes >= 0 && got_picture )
         {
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
             if( vohp->first_valid_frame_number > 1 || h->video_sample_count == 1 )
@@ -296,13 +291,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     lwlibav_audio_decode_handler_t *adhp = &hp->adh;
     if( !adhp->ctx )
         return 0;
-    adhp->input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    adhp->input_buffer       = av_mallocz( adhp->input_buffer_size );
-    if( !adhp->input_buffer )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for audio." );
-        return -1;
-    }
     lwlibav_audio_output_handler_t *aohp = &hp->aoh;
     h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
     if( h->audio_pcm_sample_count == 0 )

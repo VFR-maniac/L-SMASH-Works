@@ -566,7 +566,6 @@ static void create_index
                 vdhp->ctx               = pkt_ctx;
                 vdhp->codec_id          = pkt_ctx->codec_id;
                 vdhp->stream_index      = pkt.stream_index;
-                vdhp->input_buffer_size = 0;
                 video_resolution        = pkt_ctx->width * pkt_ctx->height;
                 video_sample_count      = 0;
                 last_keyframe_pts       = AV_NOPTS_VALUE;
@@ -604,7 +603,6 @@ static void create_index
                     }
                     video_info = temp;
                 }
-                vdhp->input_buffer_size = MAX( vdhp->input_buffer_size, (uint32_t)pkt.size );
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
@@ -718,7 +716,6 @@ static void create_index
                     aohp->output_sample_format   = select_better_sample_format( aohp->output_sample_format, pkt_ctx->sample_fmt );
                     aohp->output_sample_rate     = MAX( aohp->output_sample_rate, audio_sample_rate );
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
-                    adhp->input_buffer_size      = MAX( adhp->input_buffer_size, (uint32_t)pkt.size );
                 }
             }
             /* Write an audio packet info to the index file. */

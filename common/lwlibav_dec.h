@@ -115,11 +115,9 @@ static inline void flush_buffers
     }
 }
 
-int get_av_frame
+int lw_get_av_frame
 (
     AVFormatContext *format_ctx,
     int              stream_index,
-    uint8_t        **buffer,
-    uint32_t        *buffer_size,
     AVPacket        *pkt
 );

@@ -56,8 +56,6 @@ typedef struct
     enum AVCodecID      codec_id;
     uint32_t            frame_count;
     uint32_t            delay_count;
-    uint32_t            input_buffer_size;
-    uint8_t            *input_buffer;
     AVFrame            *frame_buffer;
     order_converter_t  *order_converter;    /* stored in decoding order */
     uint8_t            *keyframe_list;      /* stored in decoding order */

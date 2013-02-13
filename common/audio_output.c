@@ -120,26 +120,28 @@ uint64_t output_pcm_samples_from_packet
 {
     uint64_t output_length = 0;
     int      output_audio  = 0;
+    AVPacket alter_pkt     = *pkt;
     do
     {
         avcodec_get_frame_defaults( frame_buffer );
         int decode_complete;
-        int wasted_data_length = avcodec_decode_audio4( ctx, frame_buffer, &decode_complete, pkt );
-        if( wasted_data_length < 0 )
+        int consumed_data_length = avcodec_decode_audio4( ctx, frame_buffer, &decode_complete, &alter_pkt );
+        if( consumed_data_length < 0 )
         {
-            pkt->size = 0;  /* Force to request the next sample. */
+            /* Force to request the next sample. */
+            alter_pkt.size = 0;
             break;
         }
-        if( pkt->data )
+        if( alter_pkt.data )
         {
-            pkt->size -= wasted_data_length;
-            pkt->data += wasted_data_length;
+            alter_pkt.size -= consumed_data_length;
+            alter_pkt.data += consumed_data_length;
         }
         else if( !decode_complete )
         {
             /* No more PCM audio samples in this stream. */
             *output_flags |= AUDIO_OUTPUT_ENOUGH;
-            return output_length;
+            break;
         }
         output_audio |= decode_complete ? 1 : 0;
         if( decode_complete
@@ -194,9 +196,17 @@ uint64_t output_pcm_samples_from_packet
             else
                 aohp->output_sample_offset -= decoded_length;
         }
-    } while( pkt->size > 0 );
+    } while( alter_pkt.size > 0 );
     if( !output_audio && pkt->data )
         /* Count audio frame delay only if feeding non-NULL packet. */
         *output_flags |= AUDIO_DECODER_DELAY;
+    if( alter_pkt.size > 0 )
+    {
+        uint8_t *temp = pkt->data;
+        *pkt = alter_pkt;
+        pkt->data = temp;
+    }
+    else
+        av_free_packet( pkt );
     return output_length;
 }

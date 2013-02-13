@@ -112,11 +112,7 @@ LWLibavVideoSource::~LWLibavVideoSource()
 
 void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
 {
-    vdh.eh.message_priv    = env;
-    vdh.input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    vdh.input_buffer       = (uint8_t *)av_mallocz( vdh.input_buffer_size );
-    if( !vdh.input_buffer )
-        env->ThrowError( "LWLibavVideoSource: failed to allocate memory to the input buffer for video." );
+    vdh.eh.message_priv = env;
     /* Import AVIndexEntrys. */
     if( vdh.index_entries )
     {
@@ -166,11 +162,12 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vdh.ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        get_av_frame( vdh.format, vdh.stream_index, &vdh.input_buffer, &vdh.input_buffer_size, &pkt );
-        AVFrame *picture = vdh.frame_buffer;
-        avcodec_get_frame_defaults( picture );
+        lw_get_av_frame( vdh.format, vdh.stream_index, &pkt );
+        avcodec_get_frame_defaults( vdh.frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( vdh.ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
+        int consumed_bytes = avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, &pkt );
+        av_free_packet( &pkt );
+        if( consumed_bytes >= 0 && got_picture )
         {
             voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.delay_count );
             if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
@@ -178,7 +175,7 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LWLibavVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, picture, temp, env ) < 0 )
+                if( make_frame( &voh, vdh.frame_buffer, temp, env ) < 0 )
                     continue;
                 voh.first_valid_frame = new PVideoFrame( temp );
                 if( !voh.first_valid_frame )
@@ -253,12 +250,8 @@ LWLibavAudioSource::~LWLibavAudioSource()
 
 void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
 {
-    adh.eh.message_priv    = env;
-    adh.input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
-    adh.input_buffer       = (uint8_t *)av_mallocz( adh.input_buffer_size );
-    if( !adh.input_buffer )
-        env->ThrowError( "LWLibavAudioSource: failed to allocate memory to the input buffer for audio." );
-    /* */
+    adh.eh.message_priv = env;
+    /* Count the number of PCM audio samples. */
     vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
