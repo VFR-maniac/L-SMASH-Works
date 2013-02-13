@@ -349,7 +349,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     int64_t seek_threshold;
     int64_t variable_info;
     const char *format;
-    set_option_int64 ( &stream_index,   0,    "stream_index",   in, vsapi );
+    set_option_int64 ( &stream_index,  -1,    "stream_index",   in, vsapi );
     set_option_int64 ( &threads,        0,    "threads",        in, vsapi );
     set_option_int64 ( &cache_index,    1,    "cache_index",    in, vsapi );
     set_option_int64 ( &seek_mode,      0,    "seek_mode",      in, vsapi );
