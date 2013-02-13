@@ -246,7 +246,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     {
         /* Copy the first valid video frame. */
         vdhp->last_sample_number = vi->numFrames + 1;   /* Force seeking at the next access for valid video sample. */
-        return vsapi->copyFrame( vohp->first_valid_frame, core );
+        return vsapi->cloneFrameRef( vohp->first_valid_frame );
     }
     codec_configuration_t *config = &vdhp->config;
     if( config->error )
