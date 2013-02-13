@@ -57,8 +57,8 @@ LWLibavVideoSource::LWLibavVideoSource
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
-    memset( &vdh, 0, sizeof(video_decode_handler_t) );
-    memset( &voh, 0, sizeof(video_output_handler_t) );
+    memset( &vdh, 0, sizeof(lwlibav_video_decode_handler_t) );
+    memset( &voh, 0, sizeof(lwlibav_video_output_handler_t) );
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
     voh.first_valid_frame      = NULL;
@@ -77,8 +77,8 @@ LWLibavVideoSource::LWLibavVideoSource
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    audio_decode_handler_t adh = { 0 };
-    audio_output_handler_t aoh = { 0 };
+    lwlibav_audio_decode_handler_t adh = { 0 };
+    lwlibav_audio_output_handler_t aoh = { 0 };
     int ret = lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &eh, opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
@@ -140,7 +140,7 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     vi.height = vdh.max_height;
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
-    video_scaler_handler_t *vshp = &voh.scaler;
+    lwlibav_video_scaler_handler_t *vshp = &voh.scaler;
     vshp->enabled            = (vdh.ctx->pix_fmt != vshp->output_pixel_format);
     vshp->flags              = SWS_FAST_BILINEAR;
     vshp->input_width        = vdh.ctx->width;
@@ -220,8 +220,8 @@ LWLibavAudioSource::LWLibavAudioSource
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
-    memset( &adh, 0, sizeof(audio_decode_handler_t) );
-    memset( &aoh, 0, sizeof(audio_output_handler_t) );
+    memset( &adh, 0, sizeof(lwlibav_audio_decode_handler_t) );
+    memset( &aoh, 0, sizeof(lwlibav_audio_output_handler_t) );
     /* Set up error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = env;
@@ -232,7 +232,7 @@ LWLibavAudioSource::LWLibavAudioSource
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    video_decode_handler_t vdh = { 0 };
+    lwlibav_video_decode_handler_t vdh = { 0 };
     if( lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &eh, opt, &indicator, NULL ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get construct index." );
     lwlibav_cleanup_video_decode_handler( &vdh );

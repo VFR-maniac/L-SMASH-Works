@@ -39,10 +39,10 @@ extern "C"
 
 static int decode_video_sample
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    int                    *got_picture,
-    uint32_t                sample_number
+    libavsmash_video_decode_handler_t *vdhp,
+    AVFrame                           *picture,
+    int                               *got_picture,
+    uint32_t                           sample_number
 )
 {
     AVPacket pkt = { 0 };
@@ -73,10 +73,10 @@ static int decode_video_sample
 
 static int find_random_accessible_point
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                composition_sample_number,
-    uint32_t                decoding_sample_number,
-    uint32_t               *rap_number
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           composition_sample_number,
+    uint32_t                           decoding_sample_number,
+    uint32_t                          *rap_number
 )
 {
     if( decoding_sample_number == 0 )
@@ -135,11 +135,11 @@ static int find_random_accessible_point
 /* This function returns the number of the next sample. */
 static uint32_t seek_video
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    uint32_t                composition_sample_number,
-    uint32_t                rap_number,
-    int                     error_ignorance
+    libavsmash_video_decode_handler_t *vdhp,
+    AVFrame                           *picture,
+    uint32_t                           composition_sample_number,
+    uint32_t                           rap_number,
+    int                                error_ignorance
 )
 {
     /* Prepare to decode from random accessible sample. */
@@ -183,11 +183,11 @@ static uint32_t seek_video
 
 static int get_picture
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    uint32_t                current,
-    uint32_t                goal,
-    uint32_t                sample_count
+    libavsmash_video_decode_handler_t *vdhp,
+    AVFrame                           *picture,
+    uint32_t                           current,
+    uint32_t                           goal,
+    uint32_t                           sample_count
 )
 {
     codec_configuration_t *config = &vdhp->config;
@@ -231,9 +231,9 @@ static int get_picture
 
 int libavsmash_get_video_frame
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                sample_number,
-    uint32_t                sample_count
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           sample_number,
+    uint32_t                           sample_count
 )
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */

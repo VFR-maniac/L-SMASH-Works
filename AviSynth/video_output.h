@@ -41,15 +41,15 @@ typedef struct
 
 int determine_colorspace_conversion
 (
-    video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format,
-    int                    *output_pixel_type
+    lw_video_output_handler_t *vohp,
+    enum AVPixelFormat        *input_pixel_format,
+    int                       *output_pixel_type
 );
 
 int make_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    PVideoFrame            &as_frame,
-    IScriptEnvironment     *env
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame,
+    IScriptEnvironment        *env
 );

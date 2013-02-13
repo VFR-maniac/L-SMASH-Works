@@ -44,39 +44,42 @@
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
 
+typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
+typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
+
 typedef struct
 {
     uint8_t *keyframe_list;
     uint32_t media_timescale;
     uint64_t skip_duration;
     int64_t  start_pts;
-} video_info_handler_t;
+} libavsmash_video_info_handler_t;
 
 typedef struct
 {
     uint32_t media_timescale;
     int64_t  start_pts;
-} audio_info_handler_t;
+} libavsmash_audio_info_handler_t;
 
 typedef struct libavsmash_handler_tag
 {
     /* Global stuff */
-    UINT                      uType;
-    lsmash_root_t            *root;
-    lsmash_movie_parameters_t movie_param;
-    uint32_t                  number_of_tracks;
-    AVFormatContext          *format_ctx;
-    int                       threads;
+    UINT                              uType;
+    lsmash_root_t                    *root;
+    lsmash_movie_parameters_t         movie_param;
+    uint32_t                          number_of_tracks;
+    AVFormatContext                  *format_ctx;
+    int                               threads;
     /* Video stuff */
-    video_info_handler_t      vih;
-    video_decode_handler_t    vdh;
-    video_output_handler_t    voh;
+    libavsmash_video_info_handler_t   vih;
+    libavsmash_video_decode_handler_t vdh;
+    libavsmash_video_output_handler_t voh;
     /* Audio stuff */
-    audio_info_handler_t      aih;
-    audio_decode_handler_t    adh;
-    audio_output_handler_t    aoh;
-    int64_t                   av_gap;
-    int                       av_sync;
+    libavsmash_audio_info_handler_t   aih;
+    libavsmash_audio_decode_handler_t adh;
+    libavsmash_audio_output_handler_t aoh;
+    int64_t                           av_gap;
+    int                               av_sync;
 } libavsmash_handler_t;
 
 static void message_box_desktop( void *message_priv, const char *message, ... )
@@ -398,11 +401,11 @@ static void destroy_disposable( void *private_stuff )
 
 static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample_count )
 {
-    video_info_handler_t *vihp = &hp->vih;
+    libavsmash_video_info_handler_t *vihp = &hp->vih;
     vihp->keyframe_list = lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
     if( !vihp->keyframe_list )
         return -1;
-    video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     for( uint32_t composition_sample_number = 1; composition_sample_number <= video_sample_count; composition_sample_number++ )
     {
         uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number );
@@ -418,7 +421,7 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
-    video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     if( !vdhp->config.ctx )
         return 0;
     vdhp->frame_buffer = avcodec_alloc_frame();
@@ -442,7 +445,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     }
     /* swscale */
-    video_output_handler_t *vohp = &hp->voh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)lw_malloc_zero( sizeof(au_video_output_handler_t) );
     if( !au_vohp )
     {
@@ -451,7 +454,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = free_au_video_output_handler;
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    libavsmash_video_scaler_handler_t *vshp = &vohp->scaler;
     output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &vshp->output_pixel_format );
     static const struct
     {
@@ -541,7 +544,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
-    audio_decode_handler_t *adhp = &hp->adh;
+    libavsmash_audio_decode_handler_t *adhp = &hp->adh;
     if( !adhp->config.ctx )
         return 0;
     adhp->frame_buffer = avcodec_alloc_frame();
@@ -557,7 +560,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
-    audio_output_handler_t *aohp = &hp->aoh;
+    libavsmash_audio_output_handler_t *aohp = &hp->aoh;
     aohp->output_channel_layout  = config->prefer.channel_layout;
     aohp->output_sample_format   = config->prefer.sample_format;
     aohp->output_sample_rate     = config->prefer.sample_rate;
@@ -640,11 +643,11 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
-    libavsmash_handler_t   *hp   = (libavsmash_handler_t *)h->video_private;
-    video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     if( vdhp->config.error )
         return 0;
-    video_output_handler_t *vohp = &hp->voh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     if( sample_number == 1 )
     {

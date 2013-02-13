@@ -40,7 +40,7 @@ typedef struct
     order_converter_t    *order_converter;
     uint32_t              last_sample_number;
     uint32_t              last_rap_number;
-} video_decode_handler_t;
+} libavsmash_video_decode_handler_t;
 
 static inline uint32_t get_decoding_sample_number
 (
@@ -55,7 +55,7 @@ static inline uint32_t get_decoding_sample_number
 
 int libavsmash_get_video_frame
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                sample_number,
-    uint32_t                sample_count
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           sample_number,
+    uint32_t                           sample_count
 );

@@ -45,12 +45,12 @@ typedef struct
 
 int lwlibav_construct_index
 (
-    lwlibav_file_handler_t *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    error_handler_t        *ehp,
-    lwlibav_option_t       *opt,
-    progress_indicator_t   *indicator,
-    progress_handler_t     *php
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    error_handler_t                *ehp,
+    lwlibav_option_t               *opt,
+    progress_indicator_t           *indicator,
+    progress_handler_t             *php
 );

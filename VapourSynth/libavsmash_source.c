@@ -38,14 +38,17 @@
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
 
+typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
+typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
+
 typedef struct
 {
-    VSVideoInfo            vi;
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
-    vs_basic_handler_t     eh;
-    AVFormatContext       *format_ctx;
-    uint32_t               media_timescale;
+    VSVideoInfo                       vi;
+    libavsmash_video_decode_handler_t vdh;
+    libavsmash_video_output_handler_t voh;
+    vs_basic_handler_t                eh;
+    AVFormatContext                  *format_ctx;
+    uint32_t                          media_timescale;
 } lsmas_handler_t;
 
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
@@ -58,10 +61,10 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
 
 static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
 {
-    video_decode_handler_t *vdhp = &hp->vdh;
-    video_output_handler_t *vohp = &hp->voh;
-    VSVideoInfo            *vi   = &hp->vi;
-    vs_basic_handler_t      eh   = hp->eh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
+    VSVideoInfo                       *vi   = &hp->vi;
+    vs_basic_handler_t eh = hp->eh;
     vdhp->frame_buffer = avcodec_alloc_frame();
     if( !vdhp->frame_buffer )
     {
@@ -106,7 +109,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     /* Set up scaler. */
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    libavsmash_video_scaler_handler_t *vshp = &vohp->scaler;
     vshp->flags   = SWS_FAST_BILINEAR;
     vshp->sws_ctx = sws_getCachedContext( NULL,
                                           config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
@@ -152,7 +155,12 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     return 0;
 }
 
-static int get_composition_duration( video_decode_handler_t *hp, uint32_t composition_sample_number, uint32_t last_sample_number )
+static int get_composition_duration
+(
+    libavsmash_video_decode_handler_t *hp,
+    uint32_t                           composition_sample_number,
+    uint32_t                           last_sample_number
+)
 {
     uint32_t decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
     if( composition_sample_number == last_sample_number )
@@ -175,10 +183,10 @@ no_composition_duration:;
 
 static void set_frame_properties( lsmas_handler_t *hp, AVFrame *picture, VSFrameRef *frame, uint32_t sample_number, const VSAPI *vsapi )
 {
-    video_decode_handler_t *vdhp  = &hp->vdh;
-    VSVideoInfo            *vi    = &hp->vi;
-    AVCodecContext         *ctx   = vdhp->config.ctx;
-    VSMap                  *props = vsapi->getFramePropsRW( frame );
+    libavsmash_video_decode_handler_t *vdhp  = &hp->vdh;
+    VSVideoInfo                       *vi    = &hp->vi;
+    AVCodecContext                    *ctx   = vdhp->config.ctx;
+    VSMap                             *props = vsapi->getFramePropsRW( frame );
     /* Sample aspect ratio */
     vsapi->propSetInt( props, "_SARNum", picture->sample_aspect_ratio.num, paReplace );
     vsapi->propSetInt( props, "_SARDen", picture->sample_aspect_ratio.den, paReplace );
@@ -232,8 +240,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vsapi->setFilterError( "lsmas: exceeded the number of frames.", frame_ctx );
         return NULL;
     }
-    video_decode_handler_t *vdhp = &hp->vdh;
-    video_output_handler_t *vohp = &hp->voh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
     if( sample_number < vohp->first_valid_frame_number || vi->numFrames == 1 )
     {
         /* Copy the first valid video frame. */
@@ -323,9 +331,9 @@ static uint32_t open_file( lsmas_handler_t *hp, const char *source )
 
 static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
 {
-    video_decode_handler_t *vdhp = &hp->vdh;
-    VSVideoInfo            *vi   = &hp->vi;
-    vs_basic_handler_t      eh   = hp->eh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    VSVideoInfo                       *vi   = &hp->vi;
+    vs_basic_handler_t                 eh   = hp->eh;
     if( vi->numFrames == 1 )
     {
         /* Calculate average framerate. */
@@ -397,8 +405,8 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
 
 static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int threads, uint32_t number_of_tracks )
 {
-    video_decode_handler_t *vdhp = &hp->vdh;
-    vs_basic_handler_t      eh   = hp->eh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    vs_basic_handler_t                 eh   = hp->eh;
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
@@ -502,8 +510,8 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         vsapi->setError( out, "lsmas: failed to allocate the handler." );
         return;
     }
-    video_decode_handler_t *vdhp = &hp->vdh;
-    video_output_handler_t *vohp = &hp->voh;
+    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
     vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
     if( !vs_vohp )
     {

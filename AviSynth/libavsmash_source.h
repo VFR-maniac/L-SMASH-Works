@@ -21,13 +21,16 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
+typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
+typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
+
 class LSMASHVideoSource : public IClip
 {
 private:
-    VideoInfo              vi;
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
-    AVFormatContext       *format_ctx;
+    VideoInfo                         vi;
+    libavsmash_video_decode_handler_t vdh;
+    libavsmash_video_output_handler_t voh;
+    AVFormatContext                  *format_ctx;
     uint32_t open_file
     (
         const char         *source,
@@ -62,10 +65,10 @@ public:
 class LSMASHAudioSource : public IClip
 {
 private:
-    VideoInfo              vi;
-    audio_decode_handler_t adh;
-    audio_output_handler_t aoh;
-    AVFormatContext       *format_ctx;
+    VideoInfo                         vi;
+    libavsmash_audio_decode_handler_t adh;
+    libavsmash_audio_output_handler_t aoh;
+    AVFormatContext                  *format_ctx;
     uint32_t open_file
     (
         const char         *source,

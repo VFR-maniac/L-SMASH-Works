@@ -52,8 +52,8 @@ extern "C"
 LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env )
 {
     memset( &vi,  0, sizeof(VideoInfo) );
-    memset( &vdh, 0, sizeof(video_decode_handler_t) );
-    memset( &voh, 0, sizeof(video_output_handler_t) );
+    memset( &vdh, 0, sizeof(libavsmash_video_decode_handler_t) );
+    memset( &voh, 0, sizeof(libavsmash_video_output_handler_t) );
     format_ctx                 = NULL;
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
@@ -109,7 +109,7 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
     return movie_param.number_of_tracks;
 }
 
-static void setup_timestamp_info( video_decode_handler_t *hp, VideoInfo *vi, uint64_t media_timescale, IScriptEnvironment *env )
+static void setup_timestamp_info( libavsmash_video_decode_handler_t *hp, VideoInfo *vi, uint64_t media_timescale, IScriptEnvironment *env )
 {
     if( vi->num_frames == 1 )
     {
@@ -248,7 +248,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     vi.height = config->prefer.height;
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
-    video_scaler_handler_t *vshp = &voh.scaler;
+    libavsmash_video_scaler_handler_t *vshp = &voh.scaler;
     vshp->enabled            = (config->ctx->pix_fmt != vshp->output_pixel_format);
     vshp->flags              = SWS_FAST_BILINEAR;
     vshp->input_width        = config->ctx->width;
@@ -314,8 +314,8 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
 LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
     memset( &vi,  0, sizeof(VideoInfo) );
-    memset( &adh, 0, sizeof(audio_decode_handler_t) );
-    memset( &aoh, 0, sizeof(audio_output_handler_t) );
+    memset( &adh, 0, sizeof(libavsmash_audio_decode_handler_t) );
+    memset( &aoh, 0, sizeof(libavsmash_audio_output_handler_t) );
     format_ctx = NULL;
     get_audio_track( source, track_number, skip_priming, env );
     lsmash_discard_boxes( adh.root );

@@ -64,41 +64,41 @@ typedef struct
     video_frame_info_t *frame_list;         /* stored in presentation order */
     uint32_t            last_frame_number;
     uint32_t            last_rap_number;
-} video_decode_handler_t;
+} lwlibav_video_decode_handler_t;
 
 int lwlibav_get_desired_video_track
 (
-    const char             *file_path,
-    video_decode_handler_t *vdhp,
-    int                     threads
+    const char                     *file_path,
+    lwlibav_video_decode_handler_t *vdhp,
+    int                             threads
 );
 
 void lwlibav_setup_timestamp_info
 (
-    video_decode_handler_t *vdhp,
-    int                    *framerate_num,
-    int                    *framerate_den
+    lwlibav_video_decode_handler_t *vdhp,
+    int                            *framerate_num,
+    int                            *framerate_den
 );
 
 void lwlibav_find_random_accessible_point
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                presentation_sample_number,
-    uint32_t                decoding_sample_number,
-    uint32_t               *rap_number
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        presentation_sample_number,
+    uint32_t                        decoding_sample_number,
+    uint32_t                       *rap_number
 );
 
 int64_t lwlibav_get_random_accessible_point_position
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                rap_number
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        rap_number
 );
 
 int lwlibav_get_video_frame
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                frame_number,
-    uint32_t                frame_count
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        frame_number,
+    uint32_t                        frame_count
 );
 
-void lwlibav_cleanup_video_decode_handler( video_decode_handler_t *vdhp );
+void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp );

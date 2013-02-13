@@ -135,9 +135,9 @@ static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_f
 
 int determine_colorspace_conversion
 (
-    video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format,
-    int                    *output_pixel_type
+    lw_video_output_handler_t *vohp,
+    enum AVPixelFormat        *input_pixel_format,
+    int                       *output_pixel_type
 )
 {
     avoid_yuv_scale_conversion( input_pixel_format );
@@ -196,16 +196,16 @@ int determine_colorspace_conversion
 
 int make_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    PVideoFrame            &as_frame,
-    IScriptEnvironment     *env
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame,
+    IScriptEnvironment        *env
 )
 {
     /* Convert color space. We don't change the presentation resolution. */
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     avoid_yuv_scale_conversion( input_pixel_format );
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != av_frame->width
      || vshp->input_height       != av_frame->height

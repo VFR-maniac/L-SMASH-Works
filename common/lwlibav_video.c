@@ -43,9 +43,9 @@ extern "C"
 
 int lwlibav_get_desired_video_track
 (
-    const char             *file_path,
-    video_decode_handler_t *vdhp,
-    int                     threads
+    const char                     *file_path,
+    lwlibav_video_decode_handler_t *vdhp,
+    int                             threads
 )
 {
     int error = vdhp->stream_index < 0
@@ -128,9 +128,9 @@ static int try_ntsc_framerate
 
 void lwlibav_setup_timestamp_info
 (
-    video_decode_handler_t *vdhp,
-    int                    *framerate_num,
-    int                    *framerate_den
+    lwlibav_video_decode_handler_t *vdhp,
+    int                            *framerate_num,
+    int                            *framerate_den
 )
 {
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
@@ -207,10 +207,10 @@ fail:
 
 static int decode_video_sample
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    int                    *got_picture,
-    uint32_t                sample_number
+    lwlibav_video_decode_handler_t *vdhp,
+    AVFrame                        *picture,
+    int                            *got_picture,
+    uint32_t                        sample_number
 )
 {
     AVPacket pkt = { 0 };
@@ -235,10 +235,10 @@ static int decode_video_sample
 
 void lwlibav_find_random_accessible_point
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                presentation_sample_number,
-    uint32_t                decoding_sample_number,
-    uint32_t               *rap_number
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        presentation_sample_number,
+    uint32_t                        decoding_sample_number,
+    uint32_t                       *rap_number
 )
 {
     uint8_t is_leading = vdhp->frame_list[presentation_sample_number].is_leading;
@@ -262,8 +262,8 @@ void lwlibav_find_random_accessible_point
 
 int64_t lwlibav_get_random_accessible_point_position
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                rap_number
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        rap_number
 )
 {
     uint32_t presentation_rap_number = vdhp->order_converter
@@ -277,12 +277,12 @@ int64_t lwlibav_get_random_accessible_point_position
 
 static uint32_t seek_video
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    uint32_t                presentation_sample_number,
-    uint32_t                rap_number,
-    int64_t                 rap_pos,
-    int                     error_ignorance
+    lwlibav_video_decode_handler_t *vdhp,
+    AVFrame                        *picture,
+    uint32_t                        presentation_sample_number,
+    uint32_t                        rap_number,
+    int64_t                         rap_pos,
+    int                             error_ignorance
 )
 {
     /* Prepare to decode from random accessible sample. */
@@ -319,11 +319,11 @@ static uint32_t seek_video
 
 static int get_picture
 (
-    video_decode_handler_t *vdhp,
-    AVFrame                *picture,
-    uint32_t                current,
-    uint32_t                goal,
-    uint32_t                video_sample_count
+    lwlibav_video_decode_handler_t *vdhp,
+    AVFrame                        *picture,
+    uint32_t                        current,
+    uint32_t                        goal,
+    uint32_t                        video_sample_count
 )
 {
     int got_picture = 0;
@@ -362,9 +362,9 @@ static int get_picture
 
 int lwlibav_get_video_frame
 (
-    video_decode_handler_t *vdhp,
-    uint32_t                frame_number,
-    uint32_t                frame_count
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        frame_number,
+    uint32_t                        frame_count
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
@@ -427,7 +427,7 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
-void lwlibav_cleanup_video_decode_handler( video_decode_handler_t *vdhp )
+void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp )
 {
     if( vdhp->input_buffer )
         av_freep( &vdhp->input_buffer );

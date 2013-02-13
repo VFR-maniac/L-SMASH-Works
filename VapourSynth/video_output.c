@@ -384,8 +384,8 @@ static inline int set_frame_maker( vs_video_output_handler_t *vs_vohp )
 
 int determine_colorspace_conversion
 (
-    video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format
+    lw_video_output_handler_t *vohp,
+    enum AVPixelFormat        *input_pixel_format
 )
 {
     avoid_yuv_scale_conversion( input_pixel_format );
@@ -473,11 +473,11 @@ int determine_colorspace_conversion
 
 VSFrameRef *new_output_video_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    VSFrameContext         *frame_ctx,
-    VSCore                 *core,
-    const VSAPI            *vsapi
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    VSFrameContext            *frame_ctx,
+    VSCore                    *core,
+    const VSAPI               *vsapi
 )
 {
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -509,9 +509,9 @@ VSFrameRef *new_output_video_frame
 
 static inline int convert_av_pixel_format
 (
-    video_scaler_handler_t *vshp,
-    AVFrame                *av_frame,
-    AVPicture              *av_picture
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_frame,
+    AVPicture                 *av_picture
 )
 {
     if( !vshp->enabled )
@@ -537,17 +537,17 @@ static inline int convert_av_pixel_format
 
 int make_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    VSFrameRef             *vs_frame,
-    VSFrameContext         *frame_ctx,
-    const VSAPI            *vsapi
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    VSFrameRef                *vs_frame,
+    VSFrameContext            *frame_ctx,
+    const VSAPI               *vsapi
 )
 {
     /* Convert color space if needed. We don't change the presentation resolution. */
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     avoid_yuv_scale_conversion( input_pixel_format );
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != av_frame->width
      || vshp->input_height       != av_frame->height

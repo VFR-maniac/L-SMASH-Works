@@ -33,17 +33,17 @@
 
 int convert_colorspace
 (
-    video_output_handler_t *vohp,
-    AVCodecContext         *ctx,
-    AVFrame                *picture,
-    uint8_t                *buf
+    lw_video_output_handler_t *vohp,
+    AVCodecContext            *ctx,
+    AVFrame                   *picture,
+    uint8_t                   *buf
 )
 {
     /* Convert color space. We don't change the presentation resolution. */
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&picture->format;
     avoid_yuv_scale_conversion( input_pixel_format );
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != picture->width
      || vshp->input_height       != picture->height

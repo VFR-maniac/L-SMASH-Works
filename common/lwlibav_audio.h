@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+typedef lw_audio_output_handler_t lwlibav_audio_output_handler_t;
+
 typedef struct
 {
     int      length;
@@ -53,29 +55,29 @@ typedef struct
     uint32_t            frame_length;
     uint32_t            last_frame_number;
     uint64_t            next_pcm_sample_number;
-} audio_decode_handler_t;
+} lwlibav_audio_decode_handler_t;
 
 int lwlibav_get_desired_audio_track
 (
-    const char             *file_path,
-    audio_decode_handler_t *adhp,
-    int                     threads
+    const char                     *file_path,
+    lwlibav_audio_decode_handler_t *adhp,
+    int                             threads
 );
 
 uint64_t lwlibav_count_overall_pcm_samples
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate
+    lwlibav_audio_decode_handler_t *adhp,
+    int                             output_sample_rate
 );
 
 uint64_t lwlibav_get_pcm_audio_samples
 (
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    void                   *buf,
-    int64_t                 start,
-    int64_t                 wanted_length
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    void                           *buf,
+    int64_t                         start,
+    int64_t                         wanted_length
 );
 
-void lwlibav_cleanup_audio_decode_handler( audio_decode_handler_t *adhp );
-void lwlibav_cleanup_audio_output_handler( audio_output_handler_t *aohp );
+void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp );
+void lwlibav_cleanup_audio_output_handler( lwlibav_audio_output_handler_t *aohp );

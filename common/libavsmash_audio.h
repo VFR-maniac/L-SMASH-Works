@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+typedef lw_audio_output_handler_t libavsmash_audio_output_handler_t;
+
 typedef struct
 {
     lsmash_root_t        *root;
@@ -31,20 +33,20 @@ typedef struct
     uint32_t              last_frame_number;
     uint32_t              frame_count;
     int                   implicit_preroll;
-} audio_decode_handler_t;
+} libavsmash_audio_decode_handler_t;
 
 uint64_t libavsmash_count_overall_pcm_samples
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate,
-    uint64_t               *skip_decoded_samples
+    libavsmash_audio_decode_handler_t *adhp,
+    int                                output_sample_rate,
+    uint64_t                          *skip_decoded_samples
 );
 
 uint64_t libavsmash_get_pcm_audio_samples
 (
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    void                   *buf,
-    int64_t                 start,
-    int64_t                 wanted_length
+    libavsmash_audio_decode_handler_t *adhp,
+    libavsmash_audio_output_handler_t *aohp,
+    void                              *buf,
+    int64_t                            start,
+    int64_t                            wanted_length
 );

@@ -46,10 +46,10 @@ void avresample_free( AVAudioResampleContext **avr ){ }
 #include "../common/audio_output.h"
 uint64_t output_pcm_samples_from_buffer
 (
-    audio_output_handler_t *aohp,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 )
 {
     return 0;
@@ -57,12 +57,12 @@ uint64_t output_pcm_samples_from_buffer
 
 uint64_t output_pcm_samples_from_packet
 (
-    audio_output_handler_t *aohp,
-    AVCodecContext         *ctx,
-    AVPacket               *pkt,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVCodecContext            *ctx,
+    AVPacket                  *pkt,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 )
 {
     return 0;
@@ -75,12 +75,15 @@ uint64_t output_pcm_samples_from_packet
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
 
+typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
+typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
+
 typedef struct
 {
-    VSVideoInfo            vi;
-    lwlibav_file_handler_t lwh;
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
+    VSVideoInfo                    vi;
+    lwlibav_file_handler_t         lwh;
+    lwlibav_video_decode_handler_t vdh;
+    lwlibav_video_output_handler_t voh;
 } lwlibav_handler_t;
 
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
@@ -91,10 +94,10 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
 
 static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
 {
-    video_decode_handler_t *vdhp  = &hp->vdh;
-    video_output_handler_t *vohp  = &hp->voh;
-    VSVideoInfo            *vi    = &hp->vi;
-    vs_basic_handler_t     *vsbhp = (vs_basic_handler_t *)vdhp->eh.message_priv;
+    lwlibav_video_decode_handler_t *vdhp  = &hp->vdh;
+    lwlibav_video_output_handler_t *vohp  = &hp->voh;
+    VSVideoInfo                    *vi    = &hp->vi;
+    vs_basic_handler_t             *vsbhp = (vs_basic_handler_t *)vdhp->eh.message_priv;
     /* Allocate video frame buffer. */
     vdhp->input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
     vdhp->input_buffer       = (uint8_t *)av_mallocz( vdhp->input_buffer_size );
@@ -149,7 +152,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     /* Set up scaler. */
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    lwlibav_video_scaler_handler_t *vshp = &vohp->scaler;
     vshp->flags   = SWS_FAST_BILINEAR;
     vshp->sws_ctx = sws_getCachedContext( NULL,
                                           vdhp->ctx->width, vdhp->ctx->height, vdhp->ctx->pix_fmt,
@@ -206,10 +209,10 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
 
 static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *picture, VSFrameRef *frame, const VSAPI *vsapi )
 {
-    video_decode_handler_t *vdhp  = &hp->vdh;
-    VSVideoInfo            *vi    = &hp->vi;
-    AVCodecContext         *ctx   = vdhp->ctx;
-    VSMap                  *props = vsapi->getFramePropsRW( frame );
+    lwlibav_video_decode_handler_t *vdhp  = &hp->vdh;
+    VSVideoInfo                    *vi    = &hp->vi;
+    AVCodecContext                 *ctx   = vdhp->ctx;
+    VSMap                          *props = vsapi->getFramePropsRW( frame );
     /* Sample aspect ratio */
     vsapi->propSetInt( props, "_SARNum", picture->sample_aspect_ratio.num, paReplace );
     vsapi->propSetInt( props, "_SARDen", picture->sample_aspect_ratio.den, paReplace );
@@ -255,8 +258,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vsapi->setFilterError( "lsmas: exceeded the number of frames.", frame_ctx );
         return NULL;
     }
-    video_decode_handler_t *vdhp = &hp->vdh;
-    video_output_handler_t *vohp = &hp->voh;
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
     if( frame_number < vohp->first_valid_frame_number || vi->numFrames == 1 )
     {
         /* Copy the first valid video frame. */
@@ -323,9 +326,9 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         vsapi->setError( out, "lsmas: failed to allocate the LW-Libav handler." );
         return;
     }
-    lwlibav_file_handler_t *lwhp = &hp->lwh;
-    video_decode_handler_t *vdhp = &hp->vdh;
-    video_output_handler_t *vohp = &hp->voh;
+    lwlibav_file_handler_t         *lwhp = &hp->lwh;
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
     vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
     if( !vs_vohp )
     {
@@ -379,8 +382,8 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    audio_decode_handler_t adh = { 0 };
-    audio_output_handler_t aoh = { 0 };
+    lwlibav_audio_decode_handler_t adh = { 0 };
+    lwlibav_audio_output_handler_t aoh = { 0 };
     int ret = lwlibav_construct_index( lwhp, vdhp, &adh, &aoh, &eh, &opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );

@@ -43,9 +43,9 @@ extern "C"
 
 uint64_t libavsmash_count_overall_pcm_samples
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate,
-    uint64_t               *skip_decoded_samples
+    libavsmash_audio_decode_handler_t *adhp,
+    int                                output_sample_rate,
+    uint64_t                          *skip_decoded_samples
 )
 {
     codec_configuration_t *config = &adhp->config;
@@ -126,10 +126,10 @@ uint64_t libavsmash_count_overall_pcm_samples
 
 static inline int get_frame_length
 (
-    audio_decode_handler_t *adhp,
-    uint32_t                frame_number,
-    uint32_t               *frame_length,
-    libavsmash_summary_t  **sp
+    libavsmash_audio_decode_handler_t *adhp,
+    uint32_t                           frame_number,
+    uint32_t                          *frame_length,
+    libavsmash_summary_t             **sp
 )
 {
     lsmash_sample_t sample;
@@ -153,9 +153,9 @@ static inline int get_frame_length
 
 static uint32_t get_preroll_samples
 (
-    audio_decode_handler_t *adhp,
-    uint64_t                skip_decoded_samples,
-    uint32_t               *frame_number
+    libavsmash_audio_decode_handler_t *adhp,
+    uint64_t                           skip_decoded_samples,
+    uint32_t                          *frame_number
 )
 {
     /* Some audio CODEC requires pre-roll for correct composition. */
@@ -198,11 +198,11 @@ static uint32_t get_preroll_samples
 
 static int find_start_audio_frame
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate,
-    uint64_t                skip_decoded_samples,
-    uint64_t                start_frame_pos,
-    uint64_t               *start_offset
+    libavsmash_audio_decode_handler_t *adhp,
+    int                                output_sample_rate,
+    uint64_t                           skip_decoded_samples,
+    uint64_t                           start_frame_pos,
+    uint64_t                          *start_offset
 )
 {
     uint32_t frame_number                    = 1;
@@ -250,11 +250,11 @@ static int find_start_audio_frame
 
 uint64_t libavsmash_get_pcm_audio_samples
 (
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    void                   *buf,
-    int64_t                 start,
-    int64_t                 wanted_length
+    libavsmash_audio_decode_handler_t *adhp,
+    libavsmash_audio_output_handler_t *aohp,
+    void                              *buf,
+    int64_t                            start,
+    int64_t                            wanted_length
 )
 {
     codec_configuration_t *config = &adhp->config;

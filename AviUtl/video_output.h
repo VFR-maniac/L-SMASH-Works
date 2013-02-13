@@ -34,10 +34,10 @@ typedef struct
 
 int convert_colorspace
 (
-    video_output_handler_t *vohp,
-    AVCodecContext         *ctx,
-    AVFrame                *picture,
-    uint8_t                *buf
+    lw_video_output_handler_t *vohp,
+    AVCodecContext            *ctx,
+    AVFrame                   *picture,
+    uint8_t                   *buf
 );
 
 void free_au_video_output_handler( void *private_handler );

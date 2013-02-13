@@ -38,12 +38,12 @@ extern "C"
 
 static int consume_decoded_audio_samples
 (
-    audio_output_handler_t *aohp,
-    AVFrame                *frame,
-    int                     input_sample_count,
-    int                     wanted_sample_count,
-    uint8_t               **out_data,
-    int                     sample_offset
+    lw_audio_output_handler_t *aohp,
+    AVFrame                   *frame,
+    int                        input_sample_count,
+    int                        wanted_sample_count,
+    uint8_t                  **out_data,
+    int                        sample_offset
 )
 {
     /* Input */
@@ -86,10 +86,10 @@ static int consume_decoded_audio_samples
 
 uint64_t output_pcm_samples_from_buffer
 (
-    audio_output_handler_t *aohp,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 )
 {
     uint64_t output_length = 0;
@@ -110,12 +110,12 @@ uint64_t output_pcm_samples_from_buffer
 
 uint64_t output_pcm_samples_from_packet
 (
-    audio_output_handler_t *aohp,
-    AVCodecContext         *ctx,
-    AVPacket               *pkt,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVCodecContext            *ctx,
+    AVPacket                  *pkt,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 )
 {
     uint64_t output_length = 0;

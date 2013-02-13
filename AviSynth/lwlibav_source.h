@@ -26,13 +26,16 @@
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
 
+typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
+typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
+
 class LWLibavVideoSource : public IClip
 {
 private:
-    VideoInfo              vi;
-    lwlibav_file_handler_t lwh;
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
+    VideoInfo                      vi;
+    lwlibav_file_handler_t         lwh;
+    lwlibav_video_decode_handler_t vdh;
+    lwlibav_video_output_handler_t voh;
     void prepare_video_decoding( IScriptEnvironment *env );
 public:
     LWLibavVideoSource
@@ -53,10 +56,10 @@ public:
 class LWLibavAudioSource : public IClip
 {
 private:
-    VideoInfo              vi;
-    lwlibav_file_handler_t lwh;
-    audio_decode_handler_t adh;
-    audio_output_handler_t aoh;
+    VideoInfo                      vi;
+    lwlibav_file_handler_t         lwh;
+    lwlibav_audio_decode_handler_t adh;
+    lwlibav_audio_output_handler_t aoh;
     void prepare_audio_decoding( IScriptEnvironment *env );
     int delay_audio( int64_t *start, int64_t wanted_length );
 public:

@@ -44,16 +44,19 @@
 #include "resource.h"
 #include "progress_dlg.h"
 
+typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
+typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
+
 typedef struct libav_handler_tag
 {
-    UINT                   uType;
-    lwlibav_file_handler_t lwh;
+    UINT                           uType;
+    lwlibav_file_handler_t         lwh;
     /* Video stuff */
-    video_decode_handler_t vdh;
-    video_output_handler_t voh;
+    lwlibav_video_decode_handler_t vdh;
+    lwlibav_video_output_handler_t voh;
     /* Audio stuff */
-    audio_decode_handler_t adh;
-    audio_output_handler_t aoh;
+    lwlibav_audio_decode_handler_t adh;
+    lwlibav_audio_output_handler_t aoh;
 } libav_handler_t;
 
 struct progress_handler_tag
@@ -151,7 +154,7 @@ static int get_audio_track( lsmash_handler_t *h )
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    video_decode_handler_t *vdhp = &hp->vdh;
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
     if( !vdhp->ctx )
         return 0;
     vdhp->seek_mode              = opt->seek_mode;
@@ -184,7 +187,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->ctx->width   = vdhp->initial_width;
     vdhp->ctx->height  = vdhp->initial_height;
     vdhp->ctx->pix_fmt = vdhp->initial_pix_fmt;
-    video_output_handler_t *vohp = &hp->voh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)lw_malloc_zero( sizeof(au_video_output_handler_t) );
     if( !au_vohp )
     {
@@ -193,7 +196,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = free_au_video_output_handler;
-    video_scaler_handler_t *vshp = &vohp->scaler;
+    lwlibav_video_scaler_handler_t *vshp = &vohp->scaler;
     output_colorspace_index index = determine_colorspace_conversion( &vdhp->ctx->pix_fmt, &vshp->output_pixel_format );
     static const struct
     {
@@ -290,7 +293,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 static int prepare_audio_decoding( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    audio_decode_handler_t *adhp = &hp->adh;
+    lwlibav_audio_decode_handler_t *adhp = &hp->adh;
     if( !adhp->ctx )
         return 0;
     adhp->input_buffer_size += FF_INPUT_BUFFER_PADDING_SIZE;
@@ -300,7 +303,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate memory to the input buffer for audio." );
         return -1;
     }
-    audio_output_handler_t *aohp = &hp->aoh;
+    lwlibav_audio_output_handler_t *aohp = &hp->aoh;
     h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
     if( h->audio_pcm_sample_count == 0 )
     {
@@ -384,11 +387,11 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
 
 static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
 {
-    libav_handler_t        *hp   = (libav_handler_t *)h->video_private;
-    video_decode_handler_t *vdhp = &hp->vdh;
+    libav_handler_t *hp = (libav_handler_t *)h->video_private;
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
     if( vdhp->eh.error )
         return 0;
-    video_output_handler_t *vohp = &hp->voh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
     ++frame_number;            /* frame_number is 1-origin. */
     if( frame_number == 1 )
     {

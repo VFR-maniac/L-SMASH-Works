@@ -108,9 +108,9 @@ static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
 
 static int decide_video_seek_method
 (
-    lwlibav_file_handler_t *lwhp,
-    video_decode_handler_t *vdhp,
-    uint32_t                sample_count
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        sample_count
 )
 {
     vdhp->seek_base = lineup_seek_base_candidates( lwhp );
@@ -224,9 +224,9 @@ static int decide_video_seek_method
 
 static void decide_audio_seek_method
 (
-    lwlibav_file_handler_t *lwhp,
-    audio_decode_handler_t *adhp,
-    uint32_t                sample_count
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    uint32_t                        sample_count
 )
 {
     adhp->seek_base = lineup_seek_base_candidates( lwhp );
@@ -300,11 +300,11 @@ static void decide_audio_seek_method
 
 static int64_t calculate_av_gap
 (
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    AVRational              video_time_base,
-    AVRational              audio_time_base,
-    int                     sample_rate
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    AVRational                      video_time_base,
+    AVRational                      audio_time_base,
+    int                             sample_rate
 )
 {
     /* Pick the first video timestamp.
@@ -428,7 +428,7 @@ static inline void write_av_index_entry
                  ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
-static void disable_video_stream( video_decode_handler_t *vdhp )
+static void disable_video_stream( lwlibav_video_decode_handler_t *vdhp )
 {
     if( vdhp->frame_list )
         lw_freep( &vdhp->frame_list );
@@ -445,14 +445,14 @@ static void disable_video_stream( video_decode_handler_t *vdhp )
 
 static void create_index
 (
-    lwlibav_file_handler_t *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    AVFormatContext        *format_ctx,
-    lwlibav_option_t       *opt,
-    progress_indicator_t   *indicator,
-    progress_handler_t     *php
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    AVFormatContext                *format_ctx,
+    lwlibav_option_t               *opt,
+    progress_indicator_t           *indicator,
+    progress_handler_t             *php
 )
 {
     uint32_t video_info_count = 1 << 16;
@@ -917,12 +917,12 @@ fail_index:
 
 static int parse_index
 (
-    lwlibav_file_handler_t *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    lwlibav_option_t       *opt,
-    FILE                   *index
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    lwlibav_option_t               *opt,
+    FILE                           *index
 )
 {
     /* Test to open the target file. */
@@ -1281,14 +1281,14 @@ fail_parsing:
 
 int lwlibav_construct_index
 (
-    lwlibav_file_handler_t *lwhp,
-    video_decode_handler_t *vdhp,
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    error_handler_t        *ehp,
-    lwlibav_option_t       *opt,
-    progress_indicator_t   *indicator,
-    progress_handler_t     *php
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    error_handler_t                *ehp,
+    lwlibav_option_t               *opt,
+    progress_indicator_t           *indicator,
+    progress_handler_t             *php
 )
 {
     /* Allocate frame buffer. */

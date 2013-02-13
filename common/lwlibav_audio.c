@@ -44,9 +44,9 @@ extern "C"
 
 int lwlibav_get_desired_audio_track
 (
-    const char             *file_path,
-    audio_decode_handler_t *adhp,
-    int                     threads
+    const char                     *file_path,
+    lwlibav_audio_decode_handler_t *adhp,
+    int                             threads
 )
 {
     int error = adhp->stream_index < 0
@@ -72,8 +72,8 @@ int lwlibav_get_desired_audio_track
 
 uint64_t lwlibav_count_overall_pcm_samples
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate
+    lwlibav_audio_decode_handler_t *adhp,
+    int                             output_sample_rate
 )
 {
     audio_frame_info_t *frame_list    = adhp->frame_list;
@@ -109,10 +109,10 @@ uint64_t lwlibav_count_overall_pcm_samples
 
 static int find_start_audio_frame
 (
-    audio_decode_handler_t *adhp,
-    int                     output_sample_rate,
-    uint64_t                start_frame_pos,
-    uint64_t               *start_offset
+    lwlibav_audio_decode_handler_t *adhp,
+    int                             output_sample_rate,
+    uint64_t                        start_frame_pos,
+    uint64_t                       *start_offset
 )
 {
     audio_frame_info_t *frame_list = adhp->frame_list;
@@ -153,9 +153,9 @@ static int find_start_audio_frame
 
 static void seek_audio
 (
-    audio_decode_handler_t *adhp,
-    uint32_t                frame_number,
-    AVPacket               *pkt
+    lwlibav_audio_decode_handler_t *adhp,
+    uint32_t                        frame_number,
+    AVPacket                       *pkt
 )
 {
     /* Get an unique value of the closest past audio keyframe. */
@@ -190,11 +190,11 @@ static void seek_audio
 
 uint64_t lwlibav_get_pcm_audio_samples
 (
-    audio_decode_handler_t *adhp,
-    audio_output_handler_t *aohp,
-    void                   *buf,
-    int64_t                 start,
-    int64_t                 wanted_length
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    void                           *buf,
+    int64_t                         start,
+    int64_t                         wanted_length
 )
 {
     if( adhp->eh.error )
@@ -294,7 +294,7 @@ audio_out:
     return output_length;
 }
 
-void lwlibav_cleanup_audio_decode_handler( audio_decode_handler_t *adhp )
+void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp )
 {
     if( adhp->input_buffer )
         av_freep( &adhp->input_buffer );
@@ -311,7 +311,7 @@ void lwlibav_cleanup_audio_decode_handler( audio_decode_handler_t *adhp )
         lavf_close_file( &adhp->format );
 }
 
-void lwlibav_cleanup_audio_output_handler( audio_output_handler_t *aohp )
+void lwlibav_cleanup_audio_output_handler( lwlibav_audio_output_handler_t *aohp )
 {
     if( aohp->resampled_buffer )
         av_freep( &aohp->resampled_buffer );

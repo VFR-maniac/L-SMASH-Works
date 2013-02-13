@@ -29,17 +29,17 @@ typedef struct
     enum AVPixelFormat input_pixel_format;
     enum AVPixelFormat output_pixel_format;
     struct SwsContext *sws_ctx;
-} video_scaler_handler_t;
+} lw_video_scaler_handler_t;
 
 typedef struct
 {
-    video_scaler_handler_t   scaler;
-    uint32_t                 first_valid_frame_number;
-    void                    *first_valid_frame;
-    int                      output_width;
-    int                      output_height;
-    int                      output_linesize;
-    uint32_t                 output_frame_size;
-    void                    *private_handler;
+    lw_video_scaler_handler_t scaler;
+    uint32_t                  first_valid_frame_number;
+    void                     *first_valid_frame;
+    int                       output_width;
+    int                       output_height;
+    int                       output_linesize;
+    uint32_t                  output_frame_size;
+    void                     *private_handler;
     void (*free_private_handler)( void *private_handler );
-} video_output_handler_t;
+} lw_video_output_handler_t;

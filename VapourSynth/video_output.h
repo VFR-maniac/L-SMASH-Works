@@ -55,24 +55,24 @@ VSPresetFormat get_vs_output_pixel_format( const char *format_name );
 
 int determine_colorspace_conversion
 (
-    video_output_handler_t *vohp,
-    enum AVPixelFormat     *input_pixel_format
+    lw_video_output_handler_t *vohp,
+    enum AVPixelFormat        *input_pixel_format
 );
 
 VSFrameRef *new_output_video_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    VSFrameContext         *frame_ctx,
-    VSCore                 *core,
-    const VSAPI            *vsapi
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    VSFrameContext            *frame_ctx,
+    VSCore                    *core,
+    const VSAPI               *vsapi
 );
 
 int make_frame
 (
-    video_output_handler_t *vohp,
-    AVFrame                *av_frame,
-    VSFrameRef             *vs_frame,
-    VSFrameContext         *frame_ctx,
-    const VSAPI            *vsapi
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *av_frame,
+    VSFrameRef                *vs_frame,
+    VSFrameContext            *frame_ctx,
+    const VSAPI               *vsapi
 );

@@ -41,7 +41,7 @@ typedef struct
     uint64_t                request_length;
     uint64_t                skip_decoded_samples;   /* Upsampling is considered. */
     uint64_t                output_sample_offset;
-} audio_output_handler_t;
+} lw_audio_output_handler_t;
 
 enum audio_output_flag
 {
@@ -54,18 +54,18 @@ CPP_DEFINE_OR_SUBSTITUTE_OPERATOR( enum audio_output_flag )
 
 uint64_t output_pcm_samples_from_buffer
 (
-    audio_output_handler_t *aohp,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 );
 
 uint64_t output_pcm_samples_from_packet
 (
-    audio_output_handler_t *aohp,
-    AVCodecContext         *ctx,
-    AVPacket               *pkt,
-    AVFrame                *frame_buffer,
-    uint8_t               **output_buffer,
-    enum audio_output_flag *output_flags
+    lw_audio_output_handler_t *aohp,
+    AVCodecContext            *ctx,
+    AVPacket                  *pkt,
+    AVFrame                   *frame_buffer,
+    uint8_t                  **output_buffer,
+    enum audio_output_flag    *output_flags
 );
