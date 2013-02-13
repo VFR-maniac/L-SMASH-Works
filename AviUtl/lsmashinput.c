@@ -29,7 +29,7 @@
 
 #include <commctrl.h>
 
-#define MAX_AUTO_NUM_THREADS 4
+#define MAX_AUTO_NUM_THREADS 16
 
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v;*.ismv;*.isma"
 #define INDEX_FILE_EXT      "*.index"
