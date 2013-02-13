@@ -366,7 +366,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     const char *source                 = args[0].AsString();
     int         stream_index           = args[1].AsInt( -1 );
     int         threads                = args[2].AsInt( 0 );
-    int         no_create_index        = args[3].AsBool( false ) ? 0 : 1;
+    int         no_create_index        = args[3].AsBool( true ) ? 0 : 1;
     int         seek_mode              = args[4].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
     /* Set LW-Libav options. */
@@ -388,7 +388,7 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
 {
     const char *source          = args[0].AsString();
     int         stream_index    = args[1].AsInt( -1 );
-    int         no_create_index = args[2].AsBool( false ) ? 0 : 1;
+    int         no_create_index = args[2].AsBool( true  ) ? 0 : 1;
     int         av_sync         = args[3].AsBool( false ) ? 1 : 0;
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
