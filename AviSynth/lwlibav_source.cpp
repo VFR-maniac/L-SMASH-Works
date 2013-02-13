@@ -166,6 +166,7 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         avcodec_get_frame_defaults( vdh.frame_buffer );
         int got_picture;
         int consumed_bytes = avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, &pkt );
+        int is_real_packet = pkt.data ? 1 : 0;
         av_free_packet( &pkt );
         if( consumed_bytes >= 0 && got_picture )
         {
@@ -183,7 +184,7 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
             }
             break;
         }
-        else if( pkt.data )
+        else if( is_real_packet )
             ++ vdh.delay_count;
     }
     vdh.last_frame_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
