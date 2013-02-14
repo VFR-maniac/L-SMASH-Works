@@ -86,13 +86,13 @@ static inline int read_av_frame
     AVPacket        *pkt
 )
 {
-    int ret = av_read_frame( format_ctx, pkt );
-    if( ret == AVERROR( EAGAIN ) )
+    do
     {
-        av_usleep( 10000 );
-        return read_av_frame( format_ctx, pkt );
-    }
-    return ret;
+        int ret = av_read_frame( format_ctx, pkt );
+        /* Don't confuse with EAGAIN with EOF. */
+        if( ret != AVERROR( EAGAIN ) )
+            return ret;
+    } while( 1 );
 }
 
 static inline void flush_buffers
@@ -115,7 +115,7 @@ static inline void flush_buffers
     }
 }
 
-int lw_get_av_frame
+int lwlibav_get_av_frame
 (
     AVFormatContext *format_ctx,
     int              stream_index,

@@ -178,7 +178,7 @@ static void seek_audio
     for( uint32_t i = rap_number; i <= frame_number; )
     {
         av_free_packet( pkt );
-        if( lw_get_av_frame( adhp->format, adhp->stream_index, pkt ) )
+        if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt ) )
             break;
         if( i == rap_number
          && (((adhp->seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || adhp->frame_list[i].file_offset > pkt->pos))
@@ -271,7 +271,7 @@ uint64_t lwlibav_get_pcm_audio_samples
         }
         else if( pkt->size <= 0 )
             /* Getting an audio packet must be after flushing all remaining samples in resampler's FIFO buffer. */
-            lw_get_av_frame( adhp->format, adhp->stream_index, pkt );
+            lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt );
         /* Decode and output from an audio packet. */
         output_flags   = AUDIO_OUTPUT_NO_FLAGS;
         output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );

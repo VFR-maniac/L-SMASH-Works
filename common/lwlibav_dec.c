@@ -34,7 +34,7 @@ extern "C"
 
 #include "lwlibav_dec.h"
 
-int lw_get_av_frame
+int lwlibav_get_av_frame
 (
     AVFormatContext *format_ctx,
     int              stream_index,

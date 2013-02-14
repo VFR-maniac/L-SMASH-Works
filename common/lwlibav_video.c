@@ -214,7 +214,7 @@ static int decode_video_sample
 )
 {
     AVPacket pkt = { 0 };
-    if( lw_get_av_frame( vdhp->format, vdhp->stream_index, &pkt ) )
+    if( lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, &pkt ) )
         return 1;
     if( pkt.flags & AV_PKT_FLAG_KEY )
         vdhp->last_rap_number = sample_number;

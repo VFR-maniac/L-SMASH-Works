@@ -256,7 +256,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( vdhp->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        lw_get_av_frame( vdhp->format, vdhp->stream_index, &pkt );
+        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, &pkt );
         avcodec_get_frame_defaults( vdhp->frame_buffer );
         int got_picture;
         int consumed_bytes = avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, &pkt );
