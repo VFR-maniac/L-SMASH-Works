@@ -552,7 +552,7 @@ VSFrameRef *make_frame
     {
         /* Render from the decoder directly. */
         VSFrameRef *vs_frame_buffer = (VSFrameRef *)av_frame->opaque;
-        return vsapi->copyFrame( vs_frame_buffer, core );
+        return vs_frame_buffer;
     }
     if( !vs_vohp->make_frame )
         return NULL;
