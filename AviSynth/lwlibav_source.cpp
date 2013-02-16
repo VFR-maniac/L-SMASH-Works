@@ -141,6 +141,8 @@ void LWLibavVideoSource::prepare_video_decoding
         env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = vdh.max_width;
     vi.height = vdh.max_height;
+    direct_rendering &= !!(vdh.ctx->codec->capabilities & CODEC_CAP_DR1);
+    direct_rendering &= as_check_dr_support_format( vdh.ctx->pix_fmt );
     if( direct_rendering )
     {
         /* Align output width and height for direct rendering. */
@@ -162,7 +164,7 @@ void LWLibavVideoSource::prepare_video_decoding
     if( !vshp->sws_ctx )
         env->ThrowError( "LWLibavVideoSource: failed to get swscale context." );
     /* Set up custom get_buffer() for direct rendering if available. */
-    if( direct_rendering && (vdh.ctx->codec->capabilities & CODEC_CAP_DR1) )
+    if( direct_rendering )
     {
         vdh.ctx->get_buffer     = as_video_get_buffer;
         vdh.ctx->release_buffer = as_video_release_buffer;

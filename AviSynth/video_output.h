@@ -61,6 +61,8 @@ int make_frame
     IScriptEnvironment        *env
 );
 
+int as_check_dr_support_format( enum AVPixelFormat decoded_pixel_format );
+
 int as_video_get_buffer
 (
     AVCodecContext *ctx,

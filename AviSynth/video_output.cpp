@@ -239,6 +239,21 @@ int make_frame
     return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
 }
 
+int as_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
+{
+    static enum AVPixelFormat dr_support_pix_fmt[] =
+        {
+            AV_PIX_FMT_YUV420P,
+            AV_PIX_FMT_YUV422P,
+            AV_PIX_FMT_BGRA,
+            AV_PIX_FMT_NONE
+        };
+    for( int i = 0; dr_support_pix_fmt[i] != AV_PIX_FMT_NONE; i++ )
+        if( dr_support_pix_fmt[i] == decoded_pixel_format )
+            return 1;
+    return 0;
+}
+
 int as_video_get_buffer
 (
     AVCodecContext *ctx,
@@ -249,12 +264,13 @@ int as_video_get_buffer
     lw_vohp->scaler.enabled = 0;
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
-    if( lw_vohp->scaler.input_pixel_format != pix_fmt )
+    if( lw_vohp->scaler.input_pixel_format != pix_fmt
+     || !as_check_dr_support_format( pix_fmt ) )
         lw_vohp->scaler.enabled = 1;
-    /* New AviSynth video frame buffer. */
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
     if( lw_vohp->scaler.enabled )
         return avcodec_default_get_buffer( ctx, av_frame );
+    /* New AviSynth video frame buffer. */
     as_video_buffer_handler_t *as_vbhp = new as_video_buffer_handler_t;
     if( !as_vbhp )
         return -1;
@@ -266,9 +282,10 @@ int as_video_get_buffer
     if( lw_vohp->output_width != aligned_width || lw_vohp->output_height != aligned_height )
         as_vohp->make_black_background( as_vbhp->as_frame_buffer );
     /* Set data address and linesize. */
-    if( as_vohp->vi->pixel_type != VideoInfo::CS_I420 )
+    if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
     {
         av_frame->data    [0] = as_vbhp->as_frame_buffer->GetWritePtr();
+        av_frame->data    [0] = av_frame->base[0];
         av_frame->linesize[0] = as_vbhp->as_frame_buffer->GetPitch   ();
     }
     else
@@ -312,7 +329,7 @@ void as_video_release_buffer
         as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
         if( !as_vohp )
             return;
-        if( as_vohp->vi->pixel_type != VideoInfo::CS_I420 )
+        if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
         {
             av_frame->base    [0] = NULL;
             av_frame->data    [0] = NULL;
