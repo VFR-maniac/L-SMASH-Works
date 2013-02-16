@@ -53,7 +53,7 @@ static void make_black_background_rgba32( PVideoFrame &frame )
     memset( frame->GetWritePtr(), 0x00, frame->GetPitch() * frame->GetHeight() );
 }
 
-/* In AviSynth each line is also most of the time aligned to an address dividable by 16 (or 8 for planar chroma).
+/* This source filter always uses lines aligned to an address dividable by 32.
  * Furthermore it seems Avisynth bulit-in BitBlt is slow.
  * So, I think it's OK that we always use swscale instead. */
 static inline int convert_av_pixel_format
