@@ -124,6 +124,11 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         return -1;
     }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    vs_vohp->frame_ctx = NULL;
+    vs_vohp->core      = core;
+    vs_vohp->vsapi     = vsapi;
+    vs_vohp->direct_rendering &= !!(vdhp->ctx->codec->capabilities & CODEC_CAP_DR1);
+    vs_vohp->direct_rendering &= check_dr_support_format( vdhp->ctx->pix_fmt );
     if( vs_vohp->variable_info )
     {
         vi->format = NULL;
@@ -135,6 +140,15 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
         vi->width  = vdhp->max_width;
         vi->height = vdhp->max_height;
+        if( vs_vohp->direct_rendering )
+        {
+            /* Align output width and height for direct rendering. */
+            int linesize_align[AV_NUM_DATA_POINTERS];
+            input_pixel_format = vdhp->ctx->pix_fmt;
+            vdhp->ctx->pix_fmt = vohp->scaler.output_pixel_format;
+            avcodec_align_dimensions2( vdhp->ctx, &vi->width, &vi->height, linesize_align );
+            vdhp->ctx->pix_fmt = input_pixel_format;
+        }
         vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
         if( !vs_vohp->background_frame )
         {
@@ -143,6 +157,8 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         }
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
+    vohp->output_width  = vi->width;
+    vohp->output_height = vi->height;
     /* Set up scaler. */
     lwlibav_video_scaler_handler_t *vshp = &vohp->scaler;
     vshp->flags   = SWS_FAST_BILINEAR;
@@ -154,6 +170,17 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     {
         set_error( vsbhp, "lsmas: failed to get swscale context." );
         return -1;
+    }
+    vshp->input_width        = vdhp->ctx->width;
+    vshp->input_height       = vdhp->ctx->height;
+    vshp->input_pixel_format = vdhp->ctx->pix_fmt;
+    /* Set up custom get_buffer() for direct rendering if available. */
+    if( vs_vohp->direct_rendering )
+    {
+        vdhp->ctx->get_buffer     = vs_video_get_buffer;
+        vdhp->ctx->release_buffer = vs_video_release_buffer;
+        vdhp->ctx->opaque         = vohp;
+        vdhp->ctx->flags         |= CODEC_FLAG_EMU_EDGE;
     }
     /* Find the first valid video frame. */
     vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
@@ -180,7 +207,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, NULL, core, vsapi );
+                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( vsbhp, "lsmas: failed to allocate the first valid video frame." );
@@ -265,11 +292,16 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vdhp->eh.message_priv  = &vsbh;
     vdhp->eh.error_message = set_error;
     /* Get and decode the desired video frame. */
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    vs_vohp->frame_ctx = frame_ctx;
+    vs_vohp->core      = core;
+    vs_vohp->vsapi     = vsapi;
+    vdhp->ctx->opaque = vohp;
     if( lwlibav_get_video_frame( vdhp, frame_number, vi->numFrames ) )
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = make_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
@@ -340,14 +372,16 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     int64_t seek_mode;
     int64_t seek_threshold;
     int64_t variable_info;
+    int64_t direct_rendering;
     const char *format;
-    set_option_int64 ( &stream_index,  -1,    "stream_index",   in, vsapi );
-    set_option_int64 ( &threads,        0,    "threads",        in, vsapi );
-    set_option_int64 ( &cache_index,    1,    "cache_index",    in, vsapi );
-    set_option_int64 ( &seek_mode,      0,    "seek_mode",      in, vsapi );
-    set_option_int64 ( &seek_threshold, 10,   "seek_threshold", in, vsapi );
-    set_option_int64 ( &variable_info,  0,    "variable",       in, vsapi );
-    set_option_string( &format,         NULL, "format",         in, vsapi );
+    set_option_int64 ( &stream_index,    -1,    "stream_index",   in, vsapi );
+    set_option_int64 ( &threads,          0,    "threads",        in, vsapi );
+    set_option_int64 ( &cache_index,      1,    "cache_index",    in, vsapi );
+    set_option_int64 ( &seek_mode,        0,    "seek_mode",      in, vsapi );
+    set_option_int64 ( &seek_threshold,   10,   "seek_threshold", in, vsapi );
+    set_option_int64 ( &variable_info,    0,    "variable",       in, vsapi );
+    set_option_int64 ( &direct_rendering, 0,    "dr",             in, vsapi );
+    set_option_string( &format,           NULL, "format",         in, vsapi );
     /* Set options. */
     lwlibav_option_t opt;
     opt.file_path         = file_path;
@@ -358,9 +392,10 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_video_index = stream_index >= 0 ? stream_index : -1;
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
-    vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
-    vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold, 1, 999 );
-    vs_vohp->variable_info          = CLIP_VALUE( variable_info,  0, 1 );
+    vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
+    vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
+    vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );
+    vs_vohp->direct_rendering       = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
     vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
     /* Set up progress indicator. */
     progress_indicator_t indicator;

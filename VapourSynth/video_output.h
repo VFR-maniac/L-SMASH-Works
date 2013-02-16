@@ -44,11 +44,15 @@ typedef void func_make_frame
 typedef struct
 {
     int                         variable_info;
+    int                         direct_rendering;
     const component_reorder_t  *component_reorder;
     VSPresetFormat              vs_output_pixel_format;
     VSFrameRef                 *background_frame;
     func_make_black_background *make_black_background;
     func_make_frame            *make_frame;
+    VSFrameContext             *frame_ctx;
+    VSCore                     *core;
+    const VSAPI                *vsapi;
 } vs_video_output_handler_t;
 
 VSPresetFormat get_vs_output_pixel_format( const char *format_name );
@@ -71,8 +75,19 @@ VSFrameRef *new_output_video_frame
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
-    VSFrameContext            *frame_ctx,
-    VSCore                    *core,
-    const VSAPI               *vsapi
+    AVFrame                   *av_frame
+);
+
+int check_dr_support_format( enum AVPixelFormat decoded_pixel_format );
+
+int vs_video_get_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
+);
+
+void vs_video_release_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
 );

@@ -89,6 +89,9 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     }
     const VSAPI               *vsapi   = eh.vsapi;
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    vs_vohp->frame_ctx = NULL;
+    vs_vohp->core      = core;
+    vs_vohp->vsapi     = vsapi;
     if( vs_vohp->variable_info )
     {
         vi->format = NULL;
@@ -120,6 +123,9 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         set_error( &eh, "lsmas: failed to get swscale context." );
         return -1;
     }
+    vshp->input_width        = config->ctx->width;
+    vshp->input_height       = config->ctx->height;
+    vshp->input_pixel_format = config->ctx->pix_fmt;
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -133,7 +139,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = make_frame( vohp, av_frame, NULL, core, vsapi );
+                vohp->first_valid_frame = make_frame( vohp, av_frame );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( &eh, "lsmas: failed to allocate the first valid video frame." );
@@ -249,11 +255,16 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     hp->eh.out       = NULL;
     hp->eh.frame_ctx = frame_ctx;
     hp->eh.vsapi     = vsapi;
+    /* Get and decode the desired video frame. */
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    vs_vohp->frame_ctx = frame_ctx;
+    vs_vohp->core      = core;
+    vs_vohp->vsapi     = vsapi;
     if( libavsmash_get_video_frame( vdhp, sample_number, vi->numFrames ) )
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = make_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );

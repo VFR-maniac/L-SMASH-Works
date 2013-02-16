@@ -541,12 +541,21 @@ static inline int convert_av_pixel_format
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
-    VSFrameContext            *frame_ctx,
-    VSCore                    *core,
-    const VSAPI               *vsapi
+    AVFrame                   *av_frame
 )
 {
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    VSFrameContext *frame_ctx = vs_vohp->frame_ctx;
+    VSCore         *core      = vs_vohp->core;
+    const VSAPI    *vsapi     = vs_vohp->vsapi;
+    if( vs_vohp->direct_rendering && !vohp->scaler.enabled )
+    {
+        /* Render from the decoder directly. */
+        VSFrameRef *vs_frame_buffer = (VSFrameRef *)av_frame->opaque;
+        return vsapi->copyFrame( vs_frame_buffer, core );
+    }
+    if( !vs_vohp->make_frame )
+        return NULL;
     /* Convert color space if needed. We don't change the presentation resolution. */
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     avoid_yuv_scale_conversion( input_pixel_format );
@@ -572,9 +581,6 @@ VSFrameRef *make_frame
         vshp->input_pixel_format = *input_pixel_format;
     }
     /* Make video frame. */
-    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
-    if( !vs_vohp->make_frame )
-        return NULL;
     AVPicture av_picture;
     int ret = convert_av_pixel_format( vshp, av_frame, &av_picture );
     if( ret < 0 )
@@ -591,4 +597,104 @@ VSFrameRef *make_frame
     if( ret > 0 )
         av_free( av_picture.data[0] );
     return vs_frame;
+}
+
+int check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
+{
+    static enum AVPixelFormat dr_support_pix_fmt[] =
+        {
+            AV_PIX_FMT_YUV420P,
+            AV_PIX_FMT_YUV422P,
+            AV_PIX_FMT_YUV444P,
+            AV_PIX_FMT_YUV410P,
+            AV_PIX_FMT_YUV411P,
+            AV_PIX_FMT_YUV440P,
+            AV_PIX_FMT_YUV420P9LE,
+            AV_PIX_FMT_YUV422P9LE,
+            AV_PIX_FMT_YUV444P9LE,
+            AV_PIX_FMT_YUV420P10LE,
+            AV_PIX_FMT_YUV422P10LE,
+            AV_PIX_FMT_YUV444P10LE,
+            AV_PIX_FMT_YUV420P16LE,
+            AV_PIX_FMT_YUV422P16LE,
+            AV_PIX_FMT_YUV444P16LE,
+            AV_PIX_FMT_NONE
+        };
+    for( int i = 0; dr_support_pix_fmt[i] != AV_PIX_FMT_NONE; i++ )
+        if( dr_support_pix_fmt[i] == decoded_pixel_format )
+            return 1;
+    return 0;
+}
+
+int vs_video_get_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
+)
+{
+    lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
+    enum AVPixelFormat pix_fmt = ctx->pix_fmt;
+    avoid_yuv_scale_conversion( &pix_fmt );
+    if( (!vs_vohp->variable_info && lw_vohp->scaler.input_pixel_format != pix_fmt)
+     || !check_dr_support_format( pix_fmt ) )
+    {
+        lw_vohp->scaler.enabled = 1;
+        return avcodec_default_get_buffer( ctx, av_frame );
+    }
+    else
+        lw_vohp->scaler.enabled = 0;
+    /* New VapourSynth video frame buffer. */
+    av_frame->width  = ctx->width;
+    av_frame->height = ctx->height;
+    av_frame->format = ctx->pix_fmt;
+    avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
+    VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame, vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
+    av_frame->opaque = vs_frame_buffer;
+    /* Set data address and linesize. */
+    vs_vohp->component_reorder = get_component_reorder( pix_fmt );
+    for( int i = 0; i < 3; i++ )
+    {
+        int plane = vs_vohp->component_reorder[i];
+        av_frame->base    [i] = vs_vohp->vsapi->getWritePtr( vs_frame_buffer, plane );
+        av_frame->data    [i] = av_frame->base[i];
+        av_frame->linesize[i] = vs_vohp->vsapi->getStride  ( vs_frame_buffer, plane );
+    }
+    /* Don't use extended_data. */
+    av_frame->extended_data       = av_frame->data;
+    /* Set fundamental fields. */
+    av_frame->type                = FF_BUFFER_TYPE_USER;
+    av_frame->pkt_pts             = ctx->pkt ? ctx->pkt->pts : AV_NOPTS_VALUE;
+    av_frame->width               = ctx->width;
+    av_frame->height              = ctx->height;
+    av_frame->format              = ctx->pix_fmt;
+    av_frame->sample_aspect_ratio = ctx->sample_aspect_ratio;
+    return 0;
+}
+
+void vs_video_release_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
+)
+{
+    /* Delete VapourSynth video frame buffer. */
+    if( av_frame->type == FF_BUFFER_TYPE_USER )
+    {
+        if( av_frame->opaque )
+        {
+            lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
+            vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
+            vs_vohp->vsapi->freeFrame( (VSFrameRef *)av_frame->opaque );
+            av_frame->opaque = NULL;
+        }
+        for( int i = 0; i < 3; i++ )
+        {
+            av_frame->base    [i] = NULL;
+            av_frame->data    [i] = NULL;
+            av_frame->linesize[i] = 0;
+        }
+        return;
+    }
+    avcodec_default_release_buffer( ctx, av_frame );
 }

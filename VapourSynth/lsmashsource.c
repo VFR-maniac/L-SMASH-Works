@@ -69,7 +69,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit( VSConfigPlugin config_func, VSRegis
     register_func
     (
         "LWLibavSource",
-        "source:data;stream_index:int:opt;threads:int:opt;cache_index:int:opt;seek_mode:int:opt;seek_threshold:int:opt;variable:int:opt;format:data:opt;",
+        "source:data;stream_index:int:opt;threads:int:opt;cache_index:int:opt;seek_mode:int:opt;seek_threshold:int:opt;variable:int:opt;format:data:opt;dr:int:opt;",
         vs_lwlibavsource_create,
         NULL,
         plugin
