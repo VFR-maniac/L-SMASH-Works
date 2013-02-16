@@ -61,6 +61,8 @@ LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number,
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
+    as_vohp->vi  = &vi;
+    as_vohp->env = env;
     voh.private_handler      = as_vohp;
     voh.free_private_handler = free;
     get_video_track( source, track_number, threads, env );
@@ -249,7 +251,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
     libavsmash_video_scaler_handler_t *vshp = &voh.scaler;
-    vshp->enabled            = (config->ctx->pix_fmt != vshp->output_pixel_format);
+    vshp->enabled            = 1;
     vshp->flags              = SWS_FAST_BILINEAR;
     vshp->input_width        = config->ctx->width;
     vshp->input_height       = config->ctx->height;
@@ -301,11 +303,11 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     }
     codec_configuration_t *config = &vdh.config;
     config->message_priv = env;
-    PVideoFrame frame = env->NewVideoFrame( vi );
     if( config->error )
-        return frame;
+        return env->NewVideoFrame( vi );
     if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) )
-        return frame;
+        return env->NewVideoFrame( vi );
+    PVideoFrame frame;
     if( make_frame( &voh, vdh.frame_buffer, frame, env ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return frame;

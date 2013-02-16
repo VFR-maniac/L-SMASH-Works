@@ -37,7 +37,14 @@ typedef struct
 {
     func_make_black_background *make_black_background;
     func_make_frame            *make_frame;
+    IScriptEnvironment         *env;
+    VideoInfo                  *vi;
 } as_video_output_handler_t;
+
+typedef struct
+{
+    PVideoFrame as_frame_buffer;
+} as_video_buffer_handler_t;
 
 int determine_colorspace_conversion
 (
@@ -52,4 +59,16 @@ int make_frame
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
     IScriptEnvironment        *env
+);
+
+int as_video_get_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
+);
+
+void as_video_release_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame
 );

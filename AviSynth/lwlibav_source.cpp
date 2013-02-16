@@ -52,6 +52,7 @@ LWLibavVideoSource::LWLibavVideoSource
     lwlibav_option_t   *opt,
     int                 seek_mode,
     uint32_t            forward_seek_threshold,
+    int                 direct_rendering,
     IScriptEnvironment *env
 )
 {
@@ -65,8 +66,10 @@ LWLibavVideoSource::LWLibavVideoSource
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
+    as_vohp->vi  = &vi;
+    as_vohp->env = env;
     voh.private_handler      = as_vohp;
-    voh.free_private_handler = free;
+    voh.free_private_handler = lw_freep;
     /* Set up error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = env;
@@ -94,7 +97,7 @@ LWLibavVideoSource::LWLibavVideoSource
     lwlibav_setup_timestamp_info( &vdh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
-    prepare_video_decoding( env );
+    prepare_video_decoding( direct_rendering, env );
 }
 
 LWLibavVideoSource::~LWLibavVideoSource()
@@ -104,13 +107,17 @@ LWLibavVideoSource::~LWLibavVideoSource()
     if( voh.scaler.sws_ctx )
         sws_freeContext( voh.scaler.sws_ctx );
     if( voh.free_private_handler && voh.private_handler )
-        voh.free_private_handler( voh.private_handler );
+        voh.free_private_handler( &voh.private_handler );
     lwlibav_cleanup_video_decode_handler( &vdh );
     if( lwh.file_path )
         free( lwh.file_path );
 }
 
-void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
+void LWLibavVideoSource::prepare_video_decoding
+(
+    int                 direct_rendering,
+    IScriptEnvironment *env
+)
 {
     vdh.eh.message_priv = env;
     /* Import AVIndexEntrys. */
@@ -134,10 +141,16 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
     vi.width  = vdh.max_width;
     vi.height = vdh.max_height;
+    if( direct_rendering )
+    {
+        /* Align output width and height for direct rendering. */
+        int linesize_align[AV_NUM_DATA_POINTERS];
+        avcodec_align_dimensions2( vdh.ctx, &vi.width, &vi.height, linesize_align );
+    }
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
     lwlibav_video_scaler_handler_t *vshp = &voh.scaler;
-    vshp->enabled            = (vdh.ctx->pix_fmt != vshp->output_pixel_format);
+    vshp->enabled            = !direct_rendering;
     vshp->flags              = SWS_FAST_BILINEAR;
     vshp->input_width        = vdh.ctx->width;
     vshp->input_height       = vdh.ctx->height;
@@ -148,6 +161,14 @@ void LWLibavVideoSource::prepare_video_decoding( IScriptEnvironment *env )
                                           vshp->flags, NULL, NULL, NULL );
     if( !vshp->sws_ctx )
         env->ThrowError( "LWLibavVideoSource: failed to get swscale context." );
+    /* Set up custom get_buffer() for direct rendering if available. */
+    if( direct_rendering && (vdh.ctx->codec->capabilities & CODEC_CAP_DR1) )
+    {
+        vdh.ctx->get_buffer     = as_video_get_buffer;
+        vdh.ctx->release_buffer = as_video_release_buffer;
+        vdh.ctx->opaque         = &voh;
+        vdh.ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+    }
     /* Find the first valid video sample. */
     vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( vi.num_frames != 1 )
@@ -200,11 +221,11 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
         return *(PVideoFrame *)voh.first_valid_frame;
     }
     vdh.eh.message_priv = env;
-    PVideoFrame frame = env->NewVideoFrame( vi );
     if( vdh.eh.error )
-        return frame;
+        return env->NewVideoFrame( vi );
     if( lwlibav_get_video_frame( &vdh, frame_number, vi.num_frames ) )
-        return frame;
+        return env->NewVideoFrame( vi );
+    PVideoFrame frame;
     if( make_frame( &voh, vdh.frame_buffer, frame, env ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to make a frame." );
     return frame;
@@ -370,6 +391,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         no_create_index        = args[3].AsBool( true ) ? 0 : 1;
     int         seek_mode              = args[4].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
+    int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -382,7 +404,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.force_audio_index = -1;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, env );
+    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, env );
 }
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )

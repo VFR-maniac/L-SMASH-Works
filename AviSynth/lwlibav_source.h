@@ -36,13 +36,18 @@ private:
     lwlibav_file_handler_t         lwh;
     lwlibav_video_decode_handler_t vdh;
     lwlibav_video_output_handler_t voh;
-    void prepare_video_decoding( IScriptEnvironment *env );
+    void prepare_video_decoding
+    (
+        int                 direct_rendering,
+        IScriptEnvironment *env
+    );
 public:
     LWLibavVideoSource
     (
         lwlibav_option_t   *opt,
         int                 seek_mode,
         uint32_t            forward_seek_threshold,
+        int                 direct_rendering,
         IScriptEnvironment *env
     );
     ~LWLibavVideoSource();
