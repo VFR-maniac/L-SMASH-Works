@@ -180,17 +180,11 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = new_output_video_frame( vohp, vdhp->frame_buffer, NULL, core, vsapi );
+                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, NULL, core, vsapi );
                 if( !vohp->first_valid_frame )
                 {
-                    set_error( vsbhp, "lsmas: failed to allocate memory for the first valid video frame data." );
+                    set_error( vsbhp, "lsmas: failed to allocate the first valid video frame." );
                     return -1;
-                }
-                if( make_frame( vohp, vdhp->frame_buffer, vohp->first_valid_frame, NULL, vsapi ) )
-                {
-                    vsapi->freeFrame( vohp->first_valid_frame );
-                    vohp->first_valid_frame = NULL;
-                    continue;
                 }
             }
             break;
@@ -202,15 +196,15 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     return 0;
 }
 
-static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *picture, VSFrameRef *frame, const VSAPI *vsapi )
+static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *av_frame, VSFrameRef *vs_frame, const VSAPI *vsapi )
 {
     lwlibav_video_decode_handler_t *vdhp  = &hp->vdh;
     VSVideoInfo                    *vi    = &hp->vi;
     AVCodecContext                 *ctx   = vdhp->ctx;
-    VSMap                          *props = vsapi->getFramePropsRW( frame );
+    VSMap                          *props = vsapi->getFramePropsRW( vs_frame );
     /* Sample aspect ratio */
-    vsapi->propSetInt( props, "_SARNum", picture->sample_aspect_ratio.num, paReplace );
-    vsapi->propSetInt( props, "_SARDen", picture->sample_aspect_ratio.den, paReplace );
+    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
+    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
     /* Sample duration
      * Variable Frame Rate is not supported yet. */
     vsapi->propSetInt( props, "_DurationNum", vi->fpsDen, paReplace );
@@ -235,10 +229,10 @@ static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *picture, VSFra
             vsapi->propSetInt( props, "_ChromaLocation", chroma_loc, paReplace );
     }
     /* Picture type */
-    char pict_type = av_get_picture_type_char( picture->pict_type );
+    char pict_type = av_get_picture_type_char( av_frame->pict_type );
     vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
     /* Progressive or Interlaced */
-    vsapi->propSetInt( props, "_FieldBased", !!picture->interlaced_frame, paReplace );
+    vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
 }
 
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
@@ -275,16 +269,13 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame, frame_ctx, core, vsapi );
-    if( vs_frame )
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    if( !vs_frame )
     {
-        set_frame_properties( hp, av_frame, vs_frame, vsapi );
-        if( make_frame( vohp, av_frame, vs_frame, frame_ctx, vsapi ) )
-        {
-            vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
-            return vs_frame;
-        }
+        vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
+        return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     }
+    set_frame_properties( hp, av_frame, vs_frame, vsapi );
     return vs_frame;
 }
 

@@ -68,11 +68,11 @@ VSFrameRef *new_output_video_frame
     const VSAPI               *vsapi
 );
 
-int make_frame
+VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
     AVFrame                   *av_frame,
-    VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
+    VSCore                    *core,
     const VSAPI               *vsapi
 );

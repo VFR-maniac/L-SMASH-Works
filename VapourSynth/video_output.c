@@ -230,7 +230,10 @@ static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_f
         };
     for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
         if( *input_pixel_format == range_hack_table[i].full )
+        {
             *input_pixel_format = range_hack_table[i].limited;
+            return;
+        }
 }
 
 VSPresetFormat get_vs_output_pixel_format( const char *format_name )
@@ -535,12 +538,12 @@ static inline int convert_av_pixel_format
     return -1;
 }
 
-int make_frame
+VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
     AVFrame                   *av_frame,
-    VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
+    VSCore                    *core,
     const VSAPI               *vsapi
 )
 {
@@ -562,7 +565,7 @@ int make_frame
         {
             if( frame_ctx )
                 vsapi->setFilterError( "lsmas: failed to update scaler settings.", frame_ctx );
-            return -1;
+            return NULL;
         }
         vshp->input_width        = av_frame->width;
         vshp->input_height       = av_frame->height;
@@ -571,17 +574,21 @@ int make_frame
     /* Make video frame. */
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     if( !vs_vohp->make_frame )
-        return -1;
+        return NULL;
     AVPicture av_picture;
     int ret = convert_av_pixel_format( vshp, av_frame, &av_picture );
     if( ret < 0 )
     {
         if( frame_ctx )
             vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
-        return -1;
+        return NULL;
     }
-    vs_vohp->make_frame( &av_picture, av_frame->width, av_frame->height, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    if( vs_frame )
+        vs_vohp->make_frame( &av_picture, av_frame->width, av_frame->height, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
+    else if( frame_ctx )
+        vsapi->setFilterError( "lsmas: failed to alloc a output video frame.", frame_ctx );
     if( ret > 0 )
         av_free( av_picture.data[0] );
-    return 0;
+    return vs_frame;
 }
