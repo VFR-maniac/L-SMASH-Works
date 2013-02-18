@@ -60,7 +60,7 @@ int convert_colorspace
         vshp->input_pixel_format = *input_pixel_format;
         memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
     }
-    if( au_vohp->convert_colorspace( ctx, vshp->sws_ctx, picture, buf, au_vohp->output_linesize ) < 0 )
+    if( au_vohp->convert_colorspace( ctx, vshp->sws_ctx, picture, buf, au_vohp->output_linesize, au_vohp->output_height ) < 0 )
         return 0;
     return au_vohp->output_frame_size;
 }

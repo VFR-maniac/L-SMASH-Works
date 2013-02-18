@@ -27,6 +27,7 @@
 typedef struct
 {
     int                      output_linesize;
+    int                      output_height;
     uint32_t                 output_frame_size;
     uint8_t                 *back_ground;
     func_convert_colorspace *convert_colorspace;

@@ -26,7 +26,8 @@ typedef int func_convert_colorspace( AVCodecContext *video_ctx,
                                      struct SwsContext *sws_ctx,
                                      AVFrame *picture,
                                      uint8_t *buf,
-                                     int buf_linesize );
+                                     int buf_linesize,
+                                     int buf_height );
 
 func_convert_colorspace to_yuv16le_to_yc48;
 func_convert_colorspace to_rgba;

@@ -492,6 +492,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
     au_vohp->output_linesize   = MAKE_AVIUTL_PITCH( output_width * h->video_format.biBitCount );
+    au_vohp->output_height     = output_height;
     au_vohp->output_frame_size = au_vohp->output_linesize * output_height;
     au_vohp->back_ground       = au_vohp->output_frame_size ? lw_malloc_zero( au_vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )

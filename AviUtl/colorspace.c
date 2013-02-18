@@ -255,7 +255,7 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 #undef COPY_CHROMA
 }
 
-int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
+int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     uint8_t *dst_data    [4];
     int      dst_linesize[4];
@@ -277,51 +277,25 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
+int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGRA, 16 ) < 0 )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
-    }
+    uint8_t *dst_data    [4] = { buf + buf_linesize * (buf_height - 1), NULL, NULL, NULL };
+    int      dst_linesize[4] = { -buf_linesize, 0, 0, 0 };
     int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     int output_linesize = picture->width * RGBA_SIZE;
-    uint8_t *dst = dst_data[0] + dst_linesize[0] * output_height;
-    while( output_height-- )
-    {
-        dst -= dst_linesize[0];
-        memcpy( buf, dst, output_linesize );
-        buf += buf_linesize;
-    }
-    av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
+int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_BGR24, 16 ) < 0 )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
-    }
+    uint8_t *dst_data    [4] = { buf + buf_linesize * (buf_height - 1), NULL, NULL, NULL };
+    int      dst_linesize[4] = { -buf_linesize, 0, 0, 0 };
     int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
     int output_linesize = picture->width * RGB24_SIZE;
-    uint8_t *dst = dst_data[0] + dst_linesize[0] * output_height;
-    while( output_height-- )
-    {
-        dst -= dst_linesize[0];
-        memcpy( buf, dst, output_linesize );
-        buf += buf_linesize;
-    }
-    av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize )
+int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     int output_linesize = 0;
     if( picture->interlaced_frame
@@ -360,23 +334,10 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
     }
     else
     {
-        uint8_t *dst_data    [4];
-        int      dst_linesize[4];
-        if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUYV422, 16 ) < 0 )
-        {
-            MessageBox( HWND_DESKTOP, "Failed to av_image_alloc.", "lsmashinput", MB_ICONERROR | MB_OK );
-            return 0;
-        }
-        int output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
+        uint8_t *dst_data    [4] = { buf, NULL, NULL, NULL };
+        int      dst_linesize[4] = { buf_linesize, 0, 0, 0 };
+        sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
         output_linesize = picture->width * YUY2_SIZE;
-        uint8_t *dst = dst_data[0];
-        while( output_height-- )
-        {
-            memcpy( buf, dst, output_linesize );
-            buf += buf_linesize;
-            dst += dst_linesize[0];
-        }
-        av_free( dst_data[0] );
     }
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * picture->height;
 }
