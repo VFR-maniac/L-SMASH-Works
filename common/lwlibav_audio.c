@@ -177,7 +177,6 @@ static void seek_audio
     /* Seek to the target audio frame and get it. */
     for( uint32_t i = rap_number; i <= frame_number; )
     {
-        av_free_packet( pkt );
         if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt ) )
             break;
         if( i == rap_number
@@ -203,7 +202,8 @@ uint64_t lwlibav_get_pcm_audio_samples
     uint32_t               frame_number;
     uint64_t               output_length = 0;
     enum audio_output_flag output_flags;
-    AVPacket              *pkt = &adhp->packet;
+    AVPacket              *pkt       = &adhp->packet;
+    AVPacket              *alter_pkt = &adhp->alter_packet;
     int                    already_gotten;
     aohp->request_length = wanted_length;
     if( start > 0 && start == adhp->next_pcm_sample_number )
@@ -213,7 +213,7 @@ uint64_t lwlibav_get_pcm_audio_samples
         output_length += output_pcm_samples_from_buffer( aohp, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_OUTPUT_ENOUGH )
             goto audio_out;
-        if( pkt->size <= 0 )
+        if( alter_pkt->size <= 0 )
             ++frame_number;
         aohp->output_sample_offset = 0;
         already_gotten             = 0;
@@ -255,26 +255,34 @@ uint64_t lwlibav_get_pcm_audio_samples
     do
     {
         if( already_gotten )
+        {
             already_gotten = 0;
+            *alter_pkt = *pkt;
+        }
         else if( frame_number > adhp->frame_count )
         {
+            av_free_packet( pkt );
             if( adhp->delay_count )
             {
                 /* Null packet */
                 av_init_packet( pkt );
                 pkt->data = NULL;
                 pkt->size = 0;
+                *alter_pkt = *pkt;
                 -- adhp->delay_count;
             }
             else
                 goto audio_out;
         }
-        else if( pkt->size <= 0 )
+        else if( alter_pkt->size <= 0 )
+        {
             /* Getting an audio packet must be after flushing all remaining samples in resampler's FIFO buffer. */
             lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt );
+            *alter_pkt = *pkt;
+        }
         /* Decode and output from an audio packet. */
         output_flags   = AUDIO_OUTPUT_NO_FLAGS;
-        output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
+        output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, alter_pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_DECODER_DELAY )
             ++ adhp->delay_count;
         if( output_flags & AUDIO_RECONFIG_FAILURE )

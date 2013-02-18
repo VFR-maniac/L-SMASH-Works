@@ -47,8 +47,9 @@ typedef struct
     enum AVCodecID      codec_id;
     uint32_t            frame_count;
     uint32_t            delay_count;
+    AVPacket            packet;         /* for getting and freeing */
+    AVPacket            alter_packet;   /* for consumed by the decoder instead of 'packet'. */
     AVFrame            *frame_buffer;
-    AVPacket            packet;
     audio_frame_info_t *frame_list;
     uint32_t            frame_length;
     uint32_t            last_frame_number;

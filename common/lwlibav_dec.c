@@ -41,6 +41,7 @@ int lwlibav_get_av_frame
     AVPacket        *pkt
 )
 {
+    av_free_packet( pkt );
     av_init_packet( pkt );
     while( read_av_frame( format_ctx, pkt ) >= 0 )
     {

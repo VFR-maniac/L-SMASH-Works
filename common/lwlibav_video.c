@@ -213,15 +213,14 @@ static int decode_video_sample
     uint32_t                        sample_number
 )
 {
-    AVPacket pkt = { 0 };
-    if( lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, &pkt ) )
+    AVPacket *pkt = &vdhp->packet;
+    if( lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, pkt ) )
         return 1;
-    if( pkt.flags & AV_PKT_FLAG_KEY )
+    if( pkt->flags & AV_PKT_FLAG_KEY )
         vdhp->last_rap_number = sample_number;
     avcodec_get_frame_defaults( picture );
-    int64_t pts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
-    int ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, &pkt );
-    av_free_packet( &pkt );
+    int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
+    int ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, pkt );
     picture->pts = pts;
     if( ret < 0 )
     {
@@ -430,6 +429,7 @@ video_fail:
 
 void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp )
 {
+    av_free_packet( &vdhp->packet );
     if( vdhp->frame_list )
         lw_freep( &vdhp->frame_list );
     if( vdhp->order_converter )

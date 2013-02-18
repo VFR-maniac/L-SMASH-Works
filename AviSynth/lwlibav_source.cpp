@@ -184,13 +184,12 @@ void LWLibavVideoSource::prepare_video_decoding
     }
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vdh.ctx ); i++ )
     {
-        AVPacket pkt = { 0 };
-        lwlibav_get_av_frame( vdh.format, vdh.stream_index, &pkt );
+        AVPacket *pkt = &vdh.packet;
+        lwlibav_get_av_frame( vdh.format, vdh.stream_index, pkt );
         avcodec_get_frame_defaults( vdh.frame_buffer );
         int got_picture;
-        int consumed_bytes = avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, &pkt );
-        int is_real_packet = pkt.data ? 1 : 0;
-        av_free_packet( &pkt );
+        int consumed_bytes = avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, pkt );
+        int is_real_packet = pkt->data ? 1 : 0;
         if( consumed_bytes >= 0 && got_picture )
         {
             voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.delay_count );
