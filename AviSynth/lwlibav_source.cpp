@@ -188,9 +188,7 @@ void LWLibavVideoSource::prepare_video_decoding
         lwlibav_get_av_frame( vdh.format, vdh.stream_index, pkt );
         avcodec_get_frame_defaults( vdh.frame_buffer );
         int got_picture;
-        int consumed_bytes = avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, pkt );
-        int is_real_packet = pkt->data ? 1 : 0;
-        if( consumed_bytes >= 0 && got_picture )
+        if( avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
         {
             voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.delay_count );
             if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
@@ -206,7 +204,7 @@ void LWLibavVideoSource::prepare_video_decoding
             }
             break;
         }
-        else if( is_real_packet )
+        else if( pkt->data )
             ++ vdh.delay_count;
     }
     vdh.last_frame_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
