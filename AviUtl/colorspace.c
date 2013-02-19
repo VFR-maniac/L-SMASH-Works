@@ -80,7 +80,10 @@ void avoid_yuv_scale_conversion( int *input_pixel_format )
           };
     for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
         if( *input_pixel_format == range_hack_table[i].full )
+        {
             *input_pixel_format = range_hack_table[i].limited;
+            return;
+        }
 }
 
 output_colorspace_index determine_colorspace_conversion( int *input_pixel_format, int *output_pixel_format )
@@ -413,7 +416,6 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
                 yuv420_index = idx;
                 break;
             }
-
     int output_height;
     if( yuv420_index != -1 )
     {
@@ -424,9 +426,7 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
         output_height = picture->height;
     }
     else
-    {
         output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    }
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int simd_available = -1;
     if( simd_available == -1 )
@@ -476,7 +476,7 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
                 return -1;
             }
             /* convert chroma nv12 to yv12 (split packed uv into planar u and v) */
-            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], picture->width / 2, video_ctx->height / 2 );
+            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], picture->width / 2, picture->height / 2 );
             /* change data set as yv12 */
             picture->data[2] = picture->data[1];
             picture->data[1+(picture->format == AV_PIX_FMT_NV12)] = another_chroma;
