@@ -128,7 +128,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     vs_vohp->direct_rendering &= !!(vdhp->ctx->codec->capabilities & CODEC_CAP_DR1);
-    vs_vohp->direct_rendering &= check_dr_support_format( vdhp->ctx->pix_fmt );
+    vs_vohp->direct_rendering &= vs_check_dr_support_format( vdhp->ctx->pix_fmt );
     if( vs_vohp->variable_info )
     {
         vi->format = NULL;

@@ -599,7 +599,7 @@ VSFrameRef *make_frame
     return vs_frame;
 }
 
-int check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
+int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
 {
     static enum AVPixelFormat dr_support_pix_fmt[] =
         {
@@ -637,7 +637,7 @@ int vs_video_get_buffer
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
     if( (!vs_vohp->variable_info && lw_vohp->scaler.input_pixel_format != pix_fmt)
-     || !check_dr_support_format( pix_fmt ) )
+     || !vs_check_dr_support_format( pix_fmt ) )
     {
         lw_vohp->scaler.enabled = 1;
         return avcodec_default_get_buffer( ctx, av_frame );
@@ -650,6 +650,8 @@ int vs_video_get_buffer
     av_frame->format = ctx->pix_fmt;
     avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
     VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame, vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
+    if( !vs_frame_buffer )
+        return -1;
     av_frame->opaque = vs_frame_buffer;
     /* Set data address and linesize. */
     vs_vohp->component_reorder = get_component_reorder( pix_fmt );
@@ -681,18 +683,22 @@ void vs_video_release_buffer
     /* Delete VapourSynth video frame buffer. */
     if( av_frame->type == FF_BUFFER_TYPE_USER )
     {
-        if( av_frame->opaque )
-        {
-            lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
-            vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
-            vs_vohp->vsapi->freeFrame( (VSFrameRef *)av_frame->opaque );
-            av_frame->opaque = NULL;
-        }
         for( int i = 0; i < 3; i++ )
         {
             av_frame->base    [i] = NULL;
             av_frame->data    [i] = NULL;
             av_frame->linesize[i] = 0;
+        }
+        if( av_frame->opaque )
+        {
+            lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
+            if( !lw_vohp )
+                return;
+            vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
+            if( !vs_vohp || !vs_vohp->vsapi )
+                return;
+            vs_vohp->vsapi->freeFrame( (VSFrameRef *)av_frame->opaque );
+            av_frame->opaque = NULL;
         }
         return;
     }

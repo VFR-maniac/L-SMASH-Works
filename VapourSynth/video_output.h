@@ -78,7 +78,7 @@ VSFrameRef *make_frame
     AVFrame                   *av_frame
 );
 
-int check_dr_support_format( enum AVPixelFormat decoded_pixel_format );
+int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format );
 
 int vs_video_get_buffer
 (
