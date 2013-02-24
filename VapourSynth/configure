@@ -81,7 +81,7 @@ DEPLIBS="liblsmash libavformat libavcodec libswscale libavutil"
 SRC_SOURCE="lsmashsource.c video_output.c libavsmash_source.c lwlibav_source.c    \
             ../common/utils.c ../common/libavsmash.c ../common/libavsmash_video.c \
             ../common/lwlibav_dec.c ../common/lwlibav_video.c                     \
-            ../common/lwlibav_audio.c ../common/lwindex.c"
+            ../common/lwlibav_audio.c ../common/lwindex.c ../common/video_output.c"
 
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log

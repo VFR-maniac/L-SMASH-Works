@@ -81,10 +81,14 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         return -1;
     }
     /* Set up output format. */
-    enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
-    if( determine_colorspace_conversion( vohp, &config->ctx->pix_fmt ) )
+    if( determine_colorspace_conversion( vohp, config->ctx->pix_fmt ) )
     {
-        set_error( &eh, "lsmas: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
+        set_error( &eh, "lsmas: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
+        return -1;
+    }
+    if( initialize_scaler_handler( &vohp->scaler, config->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
+    {
+        set_error( &eh, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
     const VSAPI               *vsapi   = eh.vsapi;
@@ -111,21 +115,6 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
         }
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
-    /* Set up scaler. */
-    libavsmash_video_scaler_handler_t *vshp = &vohp->scaler;
-    vshp->flags   = SWS_FAST_BILINEAR;
-    vshp->sws_ctx = sws_getCachedContext( NULL,
-                                          config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                          config->ctx->width, config->ctx->height, vshp->output_pixel_format,
-                                          vshp->flags, NULL, NULL, NULL );
-    if( !vshp->sws_ctx )
-    {
-        set_error( &eh, "lsmas: failed to get swscale context." );
-        return -1;
-    }
-    vshp->input_width        = config->ctx->width;
-    vshp->input_height       = config->ctx->height;
-    vshp->input_pixel_format = config->ctx->pix_fmt;
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -139,7 +128,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = make_frame( vohp, av_frame );
+                vohp->first_valid_frame = make_frame( vohp, av_frame, config->ctx->colorspace );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( &eh, "lsmas: failed to allocate the first valid video frame." );
@@ -264,7 +253,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = make_frame( vohp, av_frame );
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame, config->ctx->colorspace );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );

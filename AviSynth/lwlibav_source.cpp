@@ -133,44 +133,36 @@ void LWLibavVideoSource::prepare_video_decoding
         av_freep( &vdh.index_entries );
     }
     /* Set up output format. */
-    vdh.ctx->width   = vdh.initial_width;
-    vdh.ctx->height  = vdh.initial_height;
-    vdh.ctx->pix_fmt = vdh.initial_pix_fmt;
-    enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
-    if( determine_colorspace_conversion( &voh, &vdh.ctx->pix_fmt, &vi.pixel_type ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
+    vdh.ctx->width      = vdh.initial_width;
+    vdh.ctx->height     = vdh.initial_height;
+    vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
+    vdh.ctx->colorspace = vdh.initial_colorspace;
+    if( determine_colorspace_conversion( &voh, vdh.ctx->pix_fmt, &vi.pixel_type ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( vdh.ctx->pix_fmt ) );
     vi.width  = vdh.max_width;
     vi.height = vdh.max_height;
+    enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
+    avoid_yuv_scale_conversion( &input_pixel_format );
     direct_rendering &= !!(vdh.ctx->codec->capabilities & CODEC_CAP_DR1);
-    direct_rendering &= as_check_dr_support_format( vdh.ctx->pix_fmt );
+    direct_rendering &= as_check_dr_support_format( input_pixel_format );
+    if( initialize_scaler_handler( &voh.scaler, vdh.ctx, !direct_rendering, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to initialize scaler handler." );
     if( direct_rendering )
     {
         /* Align output width and height for direct rendering. */
         int linesize_align[AV_NUM_DATA_POINTERS];
+        input_pixel_format = vdh.ctx->pix_fmt;
+        vdh.ctx->pix_fmt = voh.scaler.output_pixel_format;
         avcodec_align_dimensions2( vdh.ctx, &vi.width, &vi.height, linesize_align );
-    }
-    voh.output_width  = vi.width;
-    voh.output_height = vi.height;
-    lwlibav_video_scaler_handler_t *vshp = &voh.scaler;
-    vshp->enabled            = !direct_rendering;
-    vshp->flags              = SWS_FAST_BILINEAR;
-    vshp->input_width        = vdh.ctx->width;
-    vshp->input_height       = vdh.ctx->height;
-    vshp->input_pixel_format = vdh.ctx->pix_fmt;
-    vshp->sws_ctx = sws_getCachedContext( NULL,
-                                          vdh.ctx->width, vdh.ctx->height, vshp->input_pixel_format,
-                                          vdh.ctx->width, vdh.ctx->height, vshp->output_pixel_format,
-                                          vshp->flags, NULL, NULL, NULL );
-    if( !vshp->sws_ctx )
-        env->ThrowError( "LWLibavVideoSource: failed to get swscale context." );
-    /* Set up custom get_buffer() for direct rendering if available. */
-    if( direct_rendering )
-    {
+        vdh.ctx->pix_fmt = input_pixel_format;
+        /* Set up custom get_buffer() for direct rendering if available. */
         vdh.ctx->get_buffer     = as_video_get_buffer;
         vdh.ctx->release_buffer = as_video_release_buffer;
         vdh.ctx->opaque         = &voh;
         vdh.ctx->flags         |= CODEC_FLAG_EMU_EDGE;
     }
+    voh.output_width  = vi.width;
+    voh.output_height = vi.height;
     /* Find the first valid video sample. */
     vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( vi.num_frames != 1 )
@@ -196,7 +188,7 @@ void LWLibavVideoSource::prepare_video_decoding
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LWLibavVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, vdh.frame_buffer, temp, env ) < 0 )
+                if( make_frame( &voh, vdh.frame_buffer, temp, vdh.ctx->colorspace, env ) < 0 )
                     continue;
                 voh.first_valid_frame = new PVideoFrame( temp );
                 if( !voh.first_valid_frame )
@@ -224,10 +216,10 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
         return env->NewVideoFrame( vi );
     if( lwlibav_get_video_frame( &vdh, frame_number, vi.num_frames ) )
         return env->NewVideoFrame( vi );
-    PVideoFrame frame;
-    if( make_frame( &voh, vdh.frame_buffer, frame, env ) < 0 )
+    PVideoFrame as_frame;
+    if( make_frame( &voh, vdh.frame_buffer, as_frame, vdh.ctx->colorspace, env ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to make a frame." );
-    return frame;
+    return as_frame;
 }
 
 LWLibavAudioSource::LWLibavAudioSource

@@ -33,6 +33,12 @@ typedef struct
     func_convert_colorspace *convert_colorspace;
 } au_video_output_handler_t;
 
+output_colorspace_index determine_colorspace_conversion
+(
+    enum AVPixelFormat  input_pixel_format,
+    enum AVPixelFormat *output_pixel_format
+);
+
 int convert_colorspace
 (
     lw_video_output_handler_t *vohp,

@@ -33,5 +33,3 @@ func_convert_colorspace to_yuv16le_to_yc48;
 func_convert_colorspace to_rgba;
 func_convert_colorspace to_rgb24;
 func_convert_colorspace to_yuy2;
-
-void avoid_yuv_scale_conversion( int *input_pixel_format );

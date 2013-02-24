@@ -53,6 +53,7 @@ typedef struct
     int                 initial_width;
     int                 initial_height;
     enum AVPixelFormat  initial_pix_fmt;
+    enum AVColorSpace   initial_colorspace;
     enum AVCodecID      codec_id;
     uint32_t            frame_count;
     uint32_t            delay_count;

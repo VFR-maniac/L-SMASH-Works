@@ -469,13 +469,13 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=5>
+        <LibavReaderIndexFile=6>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0
-        Key=1,Width=1920,Height=1080,PixelFormat=yuv420p
+        Key=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
@@ -563,16 +563,17 @@ static void create_index
                     fseek( index, current_pos, SEEK_SET );
                 }
                 memset( video_info, 0, (video_sample_count + 1) * sizeof(video_frame_info_t) );
-                vdhp->ctx               = pkt_ctx;
-                vdhp->codec_id          = pkt_ctx->codec_id;
-                vdhp->stream_index      = pkt.stream_index;
-                video_resolution        = pkt_ctx->width * pkt_ctx->height;
-                video_sample_count      = 0;
-                last_keyframe_pts       = AV_NOPTS_VALUE;
-                vdhp->initial_width     = pkt_ctx->width;
-                vdhp->initial_height    = pkt_ctx->height;
-                vdhp->max_width         = pkt_ctx->width;
-                vdhp->max_height        = pkt_ctx->height;
+                vdhp->ctx                = pkt_ctx;
+                vdhp->codec_id           = pkt_ctx->codec_id;
+                vdhp->stream_index       = pkt.stream_index;
+                video_resolution         = pkt_ctx->width * pkt_ctx->height;
+                video_sample_count       = 0;
+                last_keyframe_pts        = AV_NOPTS_VALUE;
+                vdhp->max_width          = pkt_ctx->width;
+                vdhp->max_height         = pkt_ctx->height;
+                vdhp->initial_width      = pkt_ctx->width;
+                vdhp->initial_height     = pkt_ctx->height;
+                vdhp->initial_colorspace = pkt_ctx->colorspace;
             }
             if( pkt.stream_index == vdhp->stream_index )
             {
@@ -606,13 +607,14 @@ static void create_index
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                         "Key=%d,Width=%d,Height=%d,PixelFormat=%s\n",
+                         "Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          format_ctx->streams[ pkt.stream_index ]->time_base.num,
                          format_ctx->streams[ pkt.stream_index ]->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts,
                          !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
-                         av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none" );
+                         av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
+                         pkt_ctx->colorspace );
         }
         else
         {
@@ -720,7 +722,7 @@ static void create_index
             }
             /* Write an audio packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                         "Channels=%d:0x%"PRIx64",SampleRate=%d,SampleFormat=%s,BitsPerSample=%d,Length=%d\n",
+                         "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                          format_ctx->streams[ pkt.stream_index ]->time_base.num,
                          format_ctx->streams[ pkt.stream_index ]->time_base.den,
@@ -792,7 +794,7 @@ static void create_index
                             constant_frame_length = 0;
                     }
                     print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
-                                 "Channels=%d:0x%"PRIx64",SampleRate=%d,SampleFormat=%s,BitsPerSample=%d,Length=%d\n",
+                                 "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
                                  stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                                  format_ctx->streams[stream_index]->time_base.num,
                                  format_ctx->streams[stream_index]->time_base.den,
@@ -970,6 +972,7 @@ static int parse_index
     vdhp->codec_id             = AV_CODEC_ID_NONE;
     adhp->codec_id             = AV_CODEC_ID_NONE;
     vdhp->initial_pix_fmt      = AV_PIX_FMT_NONE;
+    vdhp->initial_colorspace   = AVCOL_SPC_NB;
     aohp->output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
@@ -1012,9 +1015,10 @@ static int parse_index
                 int key;
                 int width;
                 int height;
+                int colorspace;
                 char pix_fmt[64];
-                if( sscanf( buf, "Key=%d,Width=%d,Height=%d,PixelFormat=%s",
-                    &key, &width, &height, pix_fmt ) != 4 )
+                if( sscanf( buf, "Key=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
+                    &key, &width, &height, pix_fmt, &colorspace ) != 5 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
@@ -1034,6 +1038,8 @@ static int parse_index
                 }
                 if( vdhp->initial_pix_fmt == AV_PIX_FMT_NONE )
                     vdhp->initial_pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
+                if( vdhp->initial_colorspace == AVCOL_SPC_NB )
+                    vdhp->initial_colorspace = (enum AVColorSpace)colorspace;
                 if( video_time_base.num == 0 || video_time_base.den == 0 )
                 {
                     video_time_base.num = time_base.num;
@@ -1073,7 +1079,7 @@ static int parse_index
                 char     sample_fmt[64];
                 int      bits_per_sample;
                 int      frame_length;
-                if( sscanf( buf, "Channels=%d:0x%"SCNx64",SampleRate=%d,SampleFormat=%[^,],BitsPerSample=%d,Length=%d",
+                if( sscanf( buf, "Channels=%d:0x%"SCNx64",Rate=%d,Format=%[^,],BPS=%d,Length=%d",
                             &channels, &layout, &sample_rate, sample_fmt, &bits_per_sample, &frame_length ) != 6 )
                     goto fail_parsing;
                 if( adhp->codec_id == AV_CODEC_ID_NONE )

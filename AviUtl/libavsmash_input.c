@@ -444,7 +444,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
-    /* swscale */
+    /* Set up output format. */
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)lw_malloc_zero( sizeof(au_video_output_handler_t) );
     if( !au_vohp )
@@ -454,8 +454,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = free_au_video_output_handler;
-    libavsmash_video_scaler_handler_t *vshp = &vohp->scaler;
-    output_colorspace_index index = determine_colorspace_conversion( &config->ctx->pix_fmt, &vshp->output_pixel_format );
+    enum AVPixelFormat output_pixel_format;
+    output_colorspace_index index = determine_colorspace_conversion( config->ctx->pix_fmt, &output_pixel_format );
+    if( initialize_scaler_handler( &vohp->scaler, config->ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
+    {
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
+        return -1;
+    }
     static const struct
     {
         func_convert_colorspace *convert_colorspace;
@@ -468,19 +473,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
             { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    vshp->enabled = 1;
-    vshp->flags   = 1 << opt->scaler;
-    if( vshp->flags != SWS_FAST_BILINEAR )
-        vshp->flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND;
-    vshp->sws_ctx = sws_getCachedContext( NULL,
-                                          config->ctx->width, config->ctx->height, config->ctx->pix_fmt,
-                                          config->ctx->width, config->ctx->height, vshp->output_pixel_format,
-                                          vshp->flags, NULL, NULL, NULL );
-    if( !vshp->sws_ctx )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get swscale context." );
-        return -1;
-    }
     au_vohp->convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */
     int output_width  = config->prefer.width;

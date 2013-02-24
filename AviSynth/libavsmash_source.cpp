@@ -60,7 +60,7 @@ LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number,
     voh.first_valid_frame      = NULL;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
-        env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
+        env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
     as_vohp->vi  = &vi;
     as_vohp->env = env;
     voh.private_handler      = as_vohp;
@@ -243,25 +243,14 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
     if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
-    enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
-    if( determine_colorspace_conversion( &voh, &config->ctx->pix_fmt, &vi.pixel_type ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
+    if( determine_colorspace_conversion( &voh, config->ctx->pix_fmt, &vi.pixel_type ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
-    libavsmash_video_scaler_handler_t *vshp = &voh.scaler;
-    vshp->enabled            = 1;
-    vshp->flags              = SWS_FAST_BILINEAR;
-    vshp->input_width        = config->ctx->width;
-    vshp->input_height       = config->ctx->height;
-    vshp->input_pixel_format = config->ctx->pix_fmt;
-    vshp->sws_ctx = sws_getCachedContext( NULL,
-                                        config->ctx->width, config->ctx->height, vshp->input_pixel_format,
-                                        config->ctx->width, config->ctx->height, vshp->output_pixel_format,
-                                        vshp->flags, NULL, NULL, NULL );
-    if( !vshp->sws_ctx )
-        env->ThrowError( "LSMASHVideoSource: failed to get swscale context." );
+    if( initialize_scaler_handler( &voh.scaler, config->ctx, 1, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to initialize scaler handler." );
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -278,7 +267,7 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
                 PVideoFrame temp = env->NewVideoFrame( vi );
                 if( !temp )
                     env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, picture, temp, env ) < 0 )
+                if( make_frame( &voh, picture, temp, config->ctx->colorspace, env ) < 0 )
                     continue;
                 voh.first_valid_frame = new PVideoFrame( temp );
                 if( !voh.first_valid_frame )
@@ -307,10 +296,10 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
         return env->NewVideoFrame( vi );
     if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) )
         return env->NewVideoFrame( vi );
-    PVideoFrame frame;
-    if( make_frame( &voh, vdh.frame_buffer, frame, env ) < 0 )
+    PVideoFrame as_frame;
+    if( make_frame( &voh, vdh.frame_buffer, as_frame, config->ctx->colorspace, env ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
-    return frame;
+    return as_frame;
 }
 
 LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )

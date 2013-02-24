@@ -116,34 +116,14 @@ static int make_frame_rgba32
     return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
 }
 
-static inline void avoid_yuv_scale_conversion( enum AVPixelFormat *input_pixel_format )
-{
-    static const struct
-    {
-        enum AVPixelFormat full;
-        enum AVPixelFormat limited;
-    } range_hack_table[]
-        = {
-            { AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUV420P },
-            { AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV422P },
-            { AV_PIX_FMT_NONE,     AV_PIX_FMT_NONE    }
-          };
-    for( int i = 0; range_hack_table[i].full != AV_PIX_FMT_NONE; i++ )
-        if( *input_pixel_format == range_hack_table[i].full )
-        {
-            *input_pixel_format = range_hack_table[i].limited;
-            return;
-        }
-}
-
 int determine_colorspace_conversion
 (
     lw_video_output_handler_t *vohp,
-    enum AVPixelFormat        *input_pixel_format,
+    enum AVPixelFormat         input_pixel_format,
     int                       *output_pixel_type
 )
 {
-    avoid_yuv_scale_conversion( input_pixel_format );
+    avoid_yuv_scale_conversion( &input_pixel_format );
     static const struct
     {
         enum AVPixelFormat input_pixel_format;
@@ -166,7 +146,7 @@ int determine_colorspace_conversion
         };
     vohp->scaler.output_pixel_format = AV_PIX_FMT_NONE;
     for( int i = 0; conversion_table[i].output_pixel_format != AV_PIX_FMT_NONE; i++ )
-        if( conversion_table[i].input_pixel_format == *input_pixel_format )
+        if( conversion_table[i].input_pixel_format == input_pixel_format )
         {
             vohp->scaler.output_pixel_format = conversion_table[i].output_pixel_format;
             break;
@@ -202,6 +182,7 @@ int make_frame
     lw_video_output_handler_t *vohp,
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
+    enum AVColorSpace          colorspace,
     IScriptEnvironment        *env
 )
 {
@@ -211,25 +192,29 @@ int make_frame
         as_frame = ((as_video_buffer_handler_t *)av_frame->opaque)->as_frame_buffer;
         return 0;
     }
-    /* Convert color space. We don't change the presentation resolution. */
+    /* Convert pixel format. We don't change the presentation resolution. */
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
-    avoid_yuv_scale_conversion( input_pixel_format );
+    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != av_frame->width
      || vshp->input_height       != av_frame->height
-     || vshp->input_pixel_format != *input_pixel_format )
+     || vshp->input_pixel_format != *input_pixel_format
+     || vshp->input_colorspace   != colorspace
+     || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
-        vshp->sws_ctx = sws_getCachedContext( vshp->sws_ctx,
-                                              av_frame->width, av_frame->height, *input_pixel_format,
-                                              av_frame->width, av_frame->height, vshp->output_pixel_format,
-                                              vshp->flags, NULL, NULL, NULL );
+        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
+                                                     av_frame->width, av_frame->height,
+                                                     *input_pixel_format, vshp->output_pixel_format,
+                                                     colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return -1;
         vshp->input_width        = av_frame->width;
         vshp->input_height       = av_frame->height;
         vshp->input_pixel_format = *input_pixel_format;
+        vshp->input_colorspace   = colorspace;
+        vshp->input_yuv_range    = yuv_range;
     }
     /* Render a video frame through the scaler from the decoder. */
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;

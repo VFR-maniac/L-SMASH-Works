@@ -28,6 +28,8 @@ typedef struct
     int                input_height;
     enum AVPixelFormat input_pixel_format;
     enum AVPixelFormat output_pixel_format;
+    enum AVColorSpace  input_colorspace;
+    int                input_yuv_range;
     struct SwsContext *sws_ctx;
 } lw_video_scaler_handler_t;
 
@@ -43,3 +45,26 @@ typedef struct
     void                     *private_handler;
     void (*free_private_handler)( void *private_handler );
 } lw_video_output_handler_t;
+
+int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format );
+
+int initialize_scaler_handler
+(
+    lw_video_scaler_handler_t *vshp,
+    AVCodecContext            *ctx,
+    int                        enabled,
+    int                        flags,
+    enum AVPixelFormat         output_pixel_format
+);
+
+struct SwsContext *update_scaler_configuration
+(
+    struct SwsContext *sws_ctx,
+    int                flags,
+    int                width,
+    int                height,
+    enum AVPixelFormat input_pixel_format,
+    enum AVPixelFormat output_pixel_format,
+    enum AVColorSpace  colorspace,
+    int                yuv_range
+);

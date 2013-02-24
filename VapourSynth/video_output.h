@@ -60,7 +60,7 @@ VSPresetFormat get_vs_output_pixel_format( const char *format_name );
 int determine_colorspace_conversion
 (
     lw_video_output_handler_t *vohp,
-    enum AVPixelFormat        *input_pixel_format
+    enum AVPixelFormat         input_pixel_format
 );
 
 VSFrameRef *new_output_video_frame
@@ -75,7 +75,8 @@ VSFrameRef *new_output_video_frame
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame
+    AVFrame                   *av_frame,
+    enum AVColorSpace          colorspace
 );
 
 int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format );

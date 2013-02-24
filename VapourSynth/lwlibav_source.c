@@ -114,13 +114,18 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         av_freep( &vdhp->index_entries );
     }
     /* Set up output format. */
-    vdhp->ctx->width   = vdhp->initial_width;
-    vdhp->ctx->height  = vdhp->initial_height;
-    vdhp->ctx->pix_fmt = vdhp->initial_pix_fmt;
-    enum AVPixelFormat input_pixel_format = vdhp->ctx->pix_fmt;
-    if( determine_colorspace_conversion( vohp, &vdhp->ctx->pix_fmt ) )
+    vdhp->ctx->width      = vdhp->initial_width;
+    vdhp->ctx->height     = vdhp->initial_height;
+    vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
+    vdhp->ctx->colorspace = vdhp->initial_colorspace;
+    if( determine_colorspace_conversion( vohp, vdhp->ctx->pix_fmt ) )
     {
-        set_error( vsbhp, "lsmas: %s is not supported", av_get_pix_fmt_name( input_pixel_format ) );
+        set_error( vsbhp, "lsmas: %s is not supported", av_get_pix_fmt_name( vdhp->ctx->pix_fmt ) );
+        return -1;
+    }
+    if( initialize_scaler_handler( &vohp->scaler, vdhp->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
+    {
+        set_error( vsbhp, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -144,7 +149,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         {
             /* Align output width and height for direct rendering. */
             int linesize_align[AV_NUM_DATA_POINTERS];
-            input_pixel_format = vdhp->ctx->pix_fmt;
+            enum AVPixelFormat input_pixel_format = vdhp->ctx->pix_fmt;
             vdhp->ctx->pix_fmt = vohp->scaler.output_pixel_format;
             avcodec_align_dimensions2( vdhp->ctx, &vi->width, &vi->height, linesize_align );
             vdhp->ctx->pix_fmt = input_pixel_format;
@@ -159,21 +164,6 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     }
     vohp->output_width  = vi->width;
     vohp->output_height = vi->height;
-    /* Set up scaler. */
-    lwlibav_video_scaler_handler_t *vshp = &vohp->scaler;
-    vshp->flags   = SWS_FAST_BILINEAR;
-    vshp->sws_ctx = sws_getCachedContext( NULL,
-                                          vdhp->ctx->width, vdhp->ctx->height, vdhp->ctx->pix_fmt,
-                                          vdhp->ctx->width, vdhp->ctx->height, vshp->output_pixel_format,
-                                          vshp->flags, NULL, NULL, NULL );
-    if( !vshp->sws_ctx )
-    {
-        set_error( vsbhp, "lsmas: failed to get swscale context." );
-        return -1;
-    }
-    vshp->input_width        = vdhp->ctx->width;
-    vshp->input_height       = vdhp->ctx->height;
-    vshp->input_pixel_format = vdhp->ctx->pix_fmt;
     /* Set up custom get_buffer() for direct rendering if available. */
     if( vs_vohp->direct_rendering )
     {
@@ -204,7 +194,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
-                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer );
+                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
                 if( !vohp->first_valid_frame )
                 {
                     set_error( vsbhp, "lsmas: failed to allocate the first valid video frame." );
@@ -298,7 +288,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = make_frame( vohp, av_frame );
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame, vdhp->ctx->colorspace );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
