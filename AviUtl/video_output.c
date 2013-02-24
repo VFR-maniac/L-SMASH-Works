@@ -140,11 +140,11 @@ int convert_colorspace
         vshp->input_pixel_format = *input_pixel_format;
         vshp->input_colorspace   = ctx->colorspace;
         vshp->input_yuv_range    = yuv_range;
-        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
+        memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( au_vohp->convert_colorspace( ctx, vshp->sws_ctx, picture, buf, au_vohp->output_linesize, au_vohp->output_height ) < 0 )
+    if( au_vohp->convert_colorspace( ctx, vshp->sws_ctx, picture, buf, vohp->output_linesize, vohp->output_height ) < 0 )
         return 0;
-    return au_vohp->output_frame_size;
+    return vohp->output_frame_size;
 }
 
 void free_au_video_output_handler( void *private_handler )

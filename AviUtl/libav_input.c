@@ -216,23 +216,24 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
     h->video_format.biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
-    au_vohp->output_linesize   = MAKE_AVIUTL_PITCH( vdhp->max_width * h->video_format.biBitCount );
-    au_vohp->output_height     = vdhp->max_height;
-    au_vohp->output_frame_size = au_vohp->output_linesize * vdhp->max_height;
-    au_vohp->back_ground       = au_vohp->output_frame_size ? lw_malloc_zero( au_vohp->output_frame_size ) : NULL;
+    vohp->output_width      = h->video_format.biWidth;
+    vohp->output_height     = h->video_format.biHeight;
+    vohp->output_linesize   = MAKE_AVIUTL_PITCH( vohp->output_width * h->video_format.biBitCount );
+    vohp->output_frame_size = vohp->output_linesize * vohp->output_height;
+    au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )
         return -1;
     if( h->video_format.biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = au_vohp->back_ground;
-        for( int i = 0; i < vdhp->max_height; i++ )
+        for( int i = 0; i < vohp->output_height; i++ )
         {
-            for( int j = 0; j < au_vohp->output_linesize; j += 2 )
+            for( int j = 0; j < vohp->output_linesize; j += 2 )
             {
                 pic[j    ] = 0;
                 pic[j + 1] = 128;
             }
-            pic += au_vohp->output_linesize;
+            pic += vohp->output_linesize;
         }
     }
     /* Find the first valid video frame. */
@@ -259,11 +260,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             {
                 if( !vohp->first_valid_frame )
                 {
-                    vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, au_vohp->output_frame_size );
+                    vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
                     if( !vohp->first_valid_frame )
                         return -1;
                 }
-                if( au_vohp->output_frame_size
+                if( vohp->output_frame_size
                  != convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
                     continue;
             }
@@ -375,15 +376,14 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
     if( frame_number == 1 )
     {
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
+        memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
     if( frame_number < vohp->first_valid_frame_number || h->video_sample_count == 1 )
     {
         /* Copy the first valid video frame data. */
-        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        memcpy( buf, vohp->first_valid_frame, au_vohp->output_frame_size );
+        memcpy( buf, vohp->first_valid_frame, vohp->output_frame_size );
         vdhp->last_frame_number = h->video_sample_count + 1;    /* Force seeking at the next access for valid video frame. */
-        return au_vohp->output_frame_size;
+        return vohp->output_frame_size;
     }
     if( lwlibav_get_video_frame( vdhp, frame_number, h->video_sample_count ) )
         return 0;
