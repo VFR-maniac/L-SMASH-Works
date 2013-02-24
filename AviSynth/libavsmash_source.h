@@ -81,13 +81,18 @@ private:
         bool                skip_priming,
         IScriptEnvironment *env
     );
-    void prepare_audio_decoding( IScriptEnvironment *env );
+    void prepare_audio_decoding
+    (
+        uint64_t            channel_layout,
+        IScriptEnvironment *env
+    );
 public:
     LSMASHAudioSource
     (
         const char         *source,
         uint32_t            track_number,
         bool                skip_priming,
+        uint64_t            channel_layout,
         IScriptEnvironment *env
     );
     ~LSMASHAudioSource();

@@ -225,6 +225,7 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
 LWLibavAudioSource::LWLibavAudioSource
 (
     lwlibav_option_t   *opt,
+    uint64_t            channel_layout,
     IScriptEnvironment *env
 )
 {
@@ -250,7 +251,7 @@ LWLibavAudioSource::LWLibavAudioSource
     if( lwlibav_get_desired_audio_track( lwh.file_path, &adh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get the audio track." );
     adh.eh = eh;
-    prepare_audio_decoding( env );
+    prepare_audio_decoding( channel_layout, env );
 }
 
 LWLibavAudioSource::~LWLibavAudioSource()
@@ -261,7 +262,11 @@ LWLibavAudioSource::~LWLibavAudioSource()
         free( lwh.file_path );
 }
 
-void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
+void LWLibavAudioSource::prepare_audio_decoding
+(
+    uint64_t            channel_layout,
+    IScriptEnvironment *env
+)
 {
     adh.eh.message_priv = env;
     /* Count the number of PCM audio samples. */
@@ -291,6 +296,8 @@ void LWLibavAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         env->ThrowError( "LWLibavAudioSource: failed to avresample_alloc_context." );
     if( adh.ctx->channel_layout == 0 )
         adh.ctx->channel_layout = av_get_default_channel_layout( adh.ctx->channels );
+    if( channel_layout != 0 )
+        aoh.output_channel_layout = channel_layout;
     aoh.output_sample_format = decide_audio_output_sample_format( aoh.output_sample_format );
     av_opt_set_int( aoh.avr_ctx, "in_channel_layout",   adh.ctx->channel_layout,   0 );
     av_opt_set_int( aoh.avr_ctx, "in_sample_fmt",       adh.ctx->sample_fmt,       0 );
@@ -404,6 +411,7 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     int         stream_index    = args[1].AsInt( -1 );
     int         no_create_index = args[2].AsBool( true  ) ? 0 : 1;
     int         av_sync         = args[3].AsBool( false ) ? 1 : 0;
+    const char *layout_string   = args[4].AsString( NULL );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -414,5 +422,6 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.force_video_index = -1;
     opt.force_audio       = (stream_index >= 0);
     opt.force_audio_index = stream_index >= 0 ? stream_index : -1;
-    return new LWLibavAudioSource( &opt, env );
+    uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
+    return new LWLibavAudioSource( &opt, channel_layout, env );
 }

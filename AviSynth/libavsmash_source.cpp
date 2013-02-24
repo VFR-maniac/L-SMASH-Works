@@ -302,7 +302,14 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     return as_frame;
 }
 
-LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
+LSMASHAudioSource::LSMASHAudioSource
+(
+    const char         *source,
+    uint32_t            track_number,
+    bool                skip_priming,
+    uint64_t            channel_layout,
+    IScriptEnvironment *env
+)
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &adh, 0, sizeof(libavsmash_audio_decode_handler_t) );
@@ -310,7 +317,7 @@ LSMASHAudioSource::LSMASHAudioSource( const char *source, uint32_t track_number,
     format_ctx = NULL;
     get_audio_track( source, track_number, skip_priming, env );
     lsmash_discard_boxes( adh.root );
-    prepare_audio_decoding( env );
+    prepare_audio_decoding( channel_layout, env );
 }
 
 LSMASHAudioSource::~LSMASHAudioSource()
@@ -491,7 +498,11 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
-void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
+void LSMASHAudioSource::prepare_audio_decoding
+(
+    uint64_t            channel_layout,
+    IScriptEnvironment *env
+)
 {
     adh.frame_buffer = avcodec_alloc_frame();
     if( !adh.frame_buffer )
@@ -516,6 +527,8 @@ void LSMASHAudioSource::prepare_audio_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHAudioSource: failed to avresample_alloc_context." );
     if( config->ctx->channel_layout == 0 )
         config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
+    if( channel_layout != 0 )
+        aoh.output_channel_layout = channel_layout;
     aoh.output_sample_format = decide_audio_output_sample_format( aoh.output_sample_format );
     av_opt_set_int( aoh.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
     av_opt_set_int( aoh.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
@@ -596,8 +609,10 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
-    const char *source       = args[0].AsString();
-    uint32_t    track_number = args[1].AsInt( 0 );
-    bool        skip_priming = args[2].AsBool( true );
-    return new LSMASHAudioSource( source, track_number, skip_priming, env );
+    const char *source        = args[0].AsString();
+    uint32_t    track_number  = args[1].AsInt( 0 );
+    bool        skip_priming  = args[2].AsBool( true );
+    const char *layout_string = args[3].AsString( NULL );
+    uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
+    return new LSMASHAudioSource( source, track_number, skip_priming, channel_layout, env );
 }

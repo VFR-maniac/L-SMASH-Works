@@ -55,7 +55,7 @@ extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( ISc
     env->AddFunction
     (
         "LSMASHAudioSource",
-        "[source]s[track]i[skip_priming]b",
+        "[source]s[track]i[skip_priming]b[layout]s",
         CreateLSMASHAudioSource,
         0
     );
@@ -71,7 +71,7 @@ extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( ISc
     env->AddFunction
     (
         "LWLibavAudioSource",
-        "[source]s[stream_index]i[cache]b[av_sync]b",
+        "[source]s[stream_index]i[cache]b[av_sync]b[layout]s",
         CreateLWLibavAudioSource,
         0
     );

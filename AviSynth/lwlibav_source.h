@@ -65,12 +65,17 @@ private:
     lwlibav_file_handler_t         lwh;
     lwlibav_audio_decode_handler_t adh;
     lwlibav_audio_output_handler_t aoh;
-    void prepare_audio_decoding( IScriptEnvironment *env );
+    void prepare_audio_decoding
+    (
+        uint64_t            channel_layout,
+        IScriptEnvironment *env
+    );
     int delay_audio( int64_t *start, int64_t wanted_length );
 public:
     LWLibavAudioSource
     (
         lwlibav_option_t   *opt,
+        uint64_t            channel_layout,
         IScriptEnvironment *env
     );
     ~LWLibavAudioSource();
