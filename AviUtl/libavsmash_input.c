@@ -533,7 +533,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static int prepare_audio_decoding( lsmash_handler_t *h )
+static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     libavsmash_audio_decode_handler_t *adhp = &hp->adh;
@@ -584,6 +584,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h )
     }
     if( config->ctx->channel_layout == 0 )
         config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
+    if( opt->channel_layout != 0 )
+        aohp->output_channel_layout = opt->channel_layout;
     aohp->output_sample_format = decide_audio_output_sample_format( aohp->output_sample_format, aohp->output_bits_per_sample );
     av_opt_set_int( aohp->avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
     av_opt_set_int( aohp->avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );

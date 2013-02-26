@@ -201,7 +201,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     return 0;
 }
 
-static int prepare_audio_decoding( lsmash_handler_t *h )
+static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 {
     avs_handler_t *hp = (avs_handler_t *)h->audio_private;
     h->audio_pcm_sample_count = hp->vi->num_audio_samples;

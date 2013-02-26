@@ -106,6 +106,11 @@ typedef struct
 
 typedef struct
 {
+    uint64_t channel_layout;
+} audio_option_t;
+
+typedef struct
+{
     int threads;
     int av_sync;
     /* for libav reader */
@@ -116,6 +121,8 @@ typedef struct
     int force_audio_index;
     /* for video stream */
     video_option_t video_opt;
+    /* for audio stream */
+    audio_option_t audio_opt;
 } reader_option_t;
 
 typedef struct lsmash_handler_tag lsmash_handler_t;
@@ -128,7 +135,7 @@ typedef struct
     int   (*get_audio_track)       ( lsmash_handler_t *h );
     void  (*destroy_disposable)    ( void *private_stuff );
     int   (*prepare_video_decoding)( lsmash_handler_t *h, video_option_t *opt );
-    int   (*prepare_audio_decoding)( lsmash_handler_t *h );
+    int   (*prepare_audio_decoding)( lsmash_handler_t *h, audio_option_t *opt );
     int   (*read_video)            ( lsmash_handler_t *h, int sample_number, void *buf );
     int   (*read_audio)            ( lsmash_handler_t *h, int start, int wanted_length, void *buf );
     int   (*is_keyframe)           ( lsmash_handler_t *h, int sample_number );

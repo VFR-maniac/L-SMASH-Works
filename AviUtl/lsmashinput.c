@@ -29,6 +29,8 @@
 
 #include <commctrl.h>
 
+#include <libavutil/channel_layout.h>
+
 #define MAX_AUTO_NUM_THREADS 16
 
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v;*.ismv;*.isma"
@@ -62,6 +64,7 @@ EXTERN_C INPUT_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetInputPluginTabl
 
 static reader_option_t reader_opt = { 0 };
 static video_option_t *video_opt = &reader_opt.video_opt;
+static audio_option_t *audio_opt = &reader_opt.audio_opt;
 static int reader_disabled[4] = { 0 };
 static int audio_delay = 0;
 static char *settings_path = NULL;
@@ -146,6 +149,9 @@ static void get_settings( void )
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
+        /* channel_layout */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "channel_layout=0x%"SCNx64, &audio_opt->channel_layout ) != 1 )
+            audio_opt->channel_layout = 0;
         /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
@@ -202,6 +208,7 @@ static void get_settings( void )
         video_opt->framerate_num          = 24;
         video_opt->framerate_den          = 1;
         video_opt->colorspace             = OUTPUT_YUY2;
+        audio_opt->channel_layout         = 0;
     }
 }
 
@@ -294,7 +301,7 @@ INPUT_HANDLE func_open( LPSTR file )
             }
             if( !audio_none
              && reader.prepare_audio_decoding
-             && reader.prepare_audio_decoding( hp ) )
+             && reader.prepare_audio_decoding( hp, audio_opt ) )
             {
                 if( hp->audio_cleanup )
                 {
@@ -401,7 +408,7 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
 
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
 {
-    static char edit_buf[128] = { 0 };
+    static char edit_buf[256] = { 0 };
     switch( message )
     {
         case WM_INITDIALOG :
@@ -439,6 +446,33 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
+            /* channel_layout */
+            if( audio_opt->channel_layout )
+            {
+                char *buf = edit_buf;
+                for( int i = 0; i < 64; i++ )
+                {
+                    uint64_t audio_channel = audio_opt->channel_layout & (1ULL << i);
+                    if( audio_channel )
+                    {
+                        const char *channel_name = av_get_channel_name( audio_channel );
+                        if( channel_name )
+                        {
+                            int name_length = strlen( channel_name );
+                            memcpy( buf, channel_name, name_length );
+                            buf += name_length;
+                            *(buf++) = '+';
+                        }
+                    }
+                }
+                if( buf > edit_buf )
+                    *(buf - 1) = '\0';  /* Set NULL terminator. */
+                else
+                    memcpy( edit_buf, "Unspecified", 12 );
+            }
+            else
+                memcpy( edit_buf, "Unspecified", 12 );
+            SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
@@ -540,6 +574,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );
                     fprintf( ini, "audio_delay=%d\n", audio_delay );
+                    /* channel_layout */
+                    GetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    audio_opt->channel_layout = av_get_channel_layout( edit_buf );
+                    fprintf( ini, "channel_layout=0x%"PRIx64"\n", audio_opt->channel_layout );
                     /* readers */
                     reader_disabled[0] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 ));
                     reader_disabled[1] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_GETCHECK, 0, 0 ));
