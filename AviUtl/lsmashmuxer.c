@@ -252,15 +252,16 @@ static FILE *open_settings( void )
 static void get_settings( lsmash_handler_t *hp )
 {
     FILE *ini = open_settings();
-    if( ini )
+    if( !ini )
     {
-        char buf[128];
-        while( fgets( buf, sizeof(buf), ini ) )
-            if( sscanf( buf, "av_sync=%d", &hp->av_sync ) == 1 )
-                return;
-        fclose( ini );
+        hp->av_sync = 1;
+        return;
     }
-    hp->av_sync = 1;
+    char buf[128];
+    while( fgets( buf, sizeof(buf), ini ) )
+        if( sscanf( buf, "av_sync=%d", &hp->av_sync ) == 1 )
+            break;
+    fclose( ini );
 }
 
 static uint64_t get_empty_duration( lsmash_root_t *root, uint32_t track_ID, uint32_t movie_timescale, uint32_t media_timescale )
