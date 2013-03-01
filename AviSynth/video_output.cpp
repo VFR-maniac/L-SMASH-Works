@@ -269,7 +269,7 @@ int as_video_get_buffer
     /* Set data address and linesize. */
     if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
     {
-        av_frame->data    [0] = as_vbhp->as_frame_buffer->GetWritePtr();
+        av_frame->base    [0] = as_vbhp->as_frame_buffer->GetWritePtr();
         av_frame->data    [0] = av_frame->base[0];
         av_frame->linesize[0] = as_vbhp->as_frame_buffer->GetPitch   ();
     }
