@@ -143,24 +143,11 @@ void LWLibavVideoSource::prepare_video_decoding
     vi.height = vdh.max_height;
     enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
     avoid_yuv_scale_conversion( &input_pixel_format );
-    direct_rendering &= !!(vdh.ctx->codec->capabilities & CODEC_CAP_DR1);
-    direct_rendering &= as_check_dr_support_format( input_pixel_format );
+    direct_rendering &= as_check_dr_available( vdh.ctx, input_pixel_format );
     if( initialize_scaler_handler( &voh.scaler, vdh.ctx, !direct_rendering, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to initialize scaler handler." );
     if( direct_rendering )
-    {
-        /* Align output width and height for direct rendering. */
-        int linesize_align[AV_NUM_DATA_POINTERS];
-        input_pixel_format = vdh.ctx->pix_fmt;
-        vdh.ctx->pix_fmt = voh.scaler.output_pixel_format;
-        avcodec_align_dimensions2( vdh.ctx, &vi.width, &vi.height, linesize_align );
-        vdh.ctx->pix_fmt = input_pixel_format;
-        /* Set up custom get_buffer() for direct rendering if available. */
-        vdh.ctx->get_buffer     = as_video_get_buffer;
-        vdh.ctx->release_buffer = as_video_release_buffer;
-        vdh.ctx->opaque         = &voh;
-        vdh.ctx->flags         |= CODEC_FLAG_EMU_EDGE;
-    }
+        setup_direct_rendering( &voh, vdh.ctx, &vi.width, &vi.height );
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
     /* Find the first valid video sample. */

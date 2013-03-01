@@ -43,7 +43,11 @@ private:
         int                 threads,
         IScriptEnvironment *env
     );
-    void prepare_video_decoding( IScriptEnvironment *env );
+    void prepare_video_decoding
+    (
+        int                 direct_rendering,
+        IScriptEnvironment *env
+    );
 public:
     LSMASHVideoSource
     (
@@ -52,6 +56,7 @@ public:
         int                 threads,
         int                 seek_mode,
         uint32_t            forward_seek_threshold,
+        int                 direct_rendering,
         IScriptEnvironment *env
     );
     ~LSMASHVideoSource();

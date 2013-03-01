@@ -47,7 +47,7 @@ extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( ISc
     env->AddFunction
     (
         "LSMASHVideoSource",
-        "[source]s[track]i[threads]i[seek_mode]i[seek_threshold]i",
+        "[source]s[track]i[threads]i[seek_mode]i[seek_threshold]i[dr]b",
         CreateLSMASHVideoSource,
         0
     );

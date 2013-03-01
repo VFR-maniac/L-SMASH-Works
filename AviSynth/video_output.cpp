@@ -224,8 +224,14 @@ int make_frame
     return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
 }
 
-int as_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
+int as_check_dr_available
+(
+    AVCodecContext    *ctx,
+    enum AVPixelFormat pixel_format
+)
 {
+    if( !(ctx->codec->capabilities & CODEC_CAP_DR1) )
+        return 0;
     static enum AVPixelFormat dr_support_pix_fmt[] =
         {
             AV_PIX_FMT_YUV420P,
@@ -234,9 +240,30 @@ int as_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
             AV_PIX_FMT_NONE
         };
     for( int i = 0; dr_support_pix_fmt[i] != AV_PIX_FMT_NONE; i++ )
-        if( dr_support_pix_fmt[i] == decoded_pixel_format )
+        if( dr_support_pix_fmt[i] == pixel_format )
             return 1;
     return 0;
+}
+
+void setup_direct_rendering
+(
+    lw_video_output_handler_t *vohp,
+    AVCodecContext            *ctx,
+    int                       *width,
+    int                       *height
+)
+{
+    /* Align output width and height for direct rendering. */
+    int linesize_align[AV_NUM_DATA_POINTERS];
+    enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
+    ctx->pix_fmt = vohp->scaler.output_pixel_format;
+    avcodec_align_dimensions2( ctx, width, height, linesize_align );
+    ctx->pix_fmt = input_pixel_format;
+    /* Set up custom get_buffer() for direct rendering if available. */
+    ctx->get_buffer     = as_video_get_buffer;
+    ctx->release_buffer = as_video_release_buffer;
+    ctx->opaque         = vohp;
+    ctx->flags         |= CODEC_FLAG_EMU_EDGE;
 }
 
 int as_video_get_buffer
@@ -250,7 +277,7 @@ int as_video_get_buffer
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
     if( lw_vohp->scaler.input_pixel_format != pix_fmt
-     || !as_check_dr_support_format( pix_fmt ) )
+     || !as_check_dr_available( ctx, pix_fmt ) )
         lw_vohp->scaler.enabled = 1;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
     if( lw_vohp->scaler.enabled )

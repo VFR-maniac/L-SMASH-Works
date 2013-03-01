@@ -49,7 +49,16 @@ extern "C"
 #include "audio_output.h"
 #include "libavsmash_source.h"
 
-LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number, int threads, int seek_mode, uint32_t forward_seek_threshold, IScriptEnvironment *env )
+LSMASHVideoSource::LSMASHVideoSource
+(
+    const char         *source,
+    uint32_t            track_number,
+    int                 threads,
+    int                 seek_mode,
+    uint32_t            forward_seek_threshold,
+    int                 direct_rendering,
+    IScriptEnvironment *env
+)
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &vdh, 0, sizeof(libavsmash_video_decode_handler_t) );
@@ -64,24 +73,24 @@ LSMASHVideoSource::LSMASHVideoSource( const char *source, uint32_t track_number,
     as_vohp->vi  = &vi;
     as_vohp->env = env;
     voh.private_handler      = as_vohp;
-    voh.free_private_handler = free;
+    voh.free_private_handler = lw_freep;
     get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vdh.root );
-    prepare_video_decoding( env );
+    prepare_video_decoding( direct_rendering, env );
 }
 
 LSMASHVideoSource::~LSMASHVideoSource()
 {
     if( voh.first_valid_frame )
         delete voh.first_valid_frame;
+    if( voh.scaler.sws_ctx )
+        sws_freeContext( voh.scaler.sws_ctx );
+    if( voh.free_private_handler && voh.private_handler )
+        voh.free_private_handler( &voh.private_handler );
     if( vdh.order_converter )
         delete [] vdh.order_converter;
     if( vdh.frame_buffer )
         avcodec_free_frame( &vdh.frame_buffer );
-    if( voh.scaler.sws_ctx )
-        sws_freeContext( voh.scaler.sws_ctx );
-    if( voh.free_private_handler && voh.private_handler )
-        voh.free_private_handler( voh.private_handler );
     cleanup_configuration( &vdh.config );
     if( format_ctx )
         avformat_close_input( &format_ctx );
@@ -232,7 +241,11 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
-void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
+void LSMASHVideoSource::prepare_video_decoding
+(
+    int                 direct_rendering,
+    IScriptEnvironment *env
+)
 {
     vdh.frame_buffer = avcodec_alloc_frame();
     if( !vdh.frame_buffer )
@@ -247,10 +260,15 @@ void LSMASHVideoSource::prepare_video_decoding( IScriptEnvironment *env )
         env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
     vi.width  = config->prefer.width;
     vi.height = config->prefer.height;
+    enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
+    avoid_yuv_scale_conversion( &input_pixel_format );
+    direct_rendering &= as_check_dr_available( config->ctx, input_pixel_format );
+    if( initialize_scaler_handler( &voh.scaler, config->ctx, !direct_rendering, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to initialize scaler handler." );
+    if( direct_rendering )
+        setup_direct_rendering( &voh, config->ctx, &vi.width, &vi.height );
     voh.output_width  = vi.width;
     voh.output_height = vi.height;
-    if( initialize_scaler_handler( &voh.scaler, config->ctx, 1, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to initialize scaler handler." );
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
@@ -601,10 +619,11 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
     int         threads                = args[2].AsInt( 0 );
     int         seek_mode              = args[3].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[4].AsInt( 10 );
+    int         direct_rendering       = args[5].AsBool( false ) ? 1 : 0;
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold, env );
+    return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold, direct_rendering, env );
 }
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
