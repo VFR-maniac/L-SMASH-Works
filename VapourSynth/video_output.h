@@ -79,16 +79,11 @@ VSFrameRef *make_frame
     enum AVColorSpace          colorspace
 );
 
-int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format );
-
-int vs_video_get_buffer
+int setup_video_rendering
 (
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-);
-
-void vs_video_release_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
+    lw_video_output_handler_t *lw_vohp,
+    AVCodecContext            *ctx,
+    VSVideoInfo               *vi,
+    int                        width,
+    int                        height
 );

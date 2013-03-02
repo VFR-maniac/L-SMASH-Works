@@ -582,8 +582,14 @@ VSFrameRef *make_frame
     return vs_frame;
 }
 
-int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
+static int vs_check_dr_available
+(
+    AVCodecContext    *ctx,
+    enum AVPixelFormat pixel_format
+)
 {
+    if( !(ctx->codec->capabilities & CODEC_CAP_DR1) )
+        return 0;
     static enum AVPixelFormat dr_support_pix_fmt[] =
         {
             AV_PIX_FMT_YUV420P,
@@ -604,12 +610,12 @@ int vs_check_dr_support_format( enum AVPixelFormat decoded_pixel_format )
             AV_PIX_FMT_NONE
         };
     for( int i = 0; dr_support_pix_fmt[i] != AV_PIX_FMT_NONE; i++ )
-        if( dr_support_pix_fmt[i] == decoded_pixel_format )
+        if( dr_support_pix_fmt[i] == pixel_format )
             return 1;
     return 0;
 }
 
-int vs_video_get_buffer
+static int vs_video_get_buffer
 (
     AVCodecContext *ctx,
     AVFrame        *av_frame
@@ -620,7 +626,7 @@ int vs_video_get_buffer
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
     if( (!vs_vohp->variable_info && lw_vohp->scaler.input_pixel_format != pix_fmt)
-     || !vs_check_dr_support_format( pix_fmt ) )
+     || !vs_check_dr_available( ctx, pix_fmt ) )
     {
         lw_vohp->scaler.enabled = 1;
         return avcodec_default_get_buffer( ctx, av_frame );
@@ -657,7 +663,7 @@ int vs_video_get_buffer
     return 0;
 }
 
-void vs_video_release_buffer
+static void vs_video_release_buffer
 (
     AVCodecContext *ctx,
     AVFrame        *av_frame
@@ -686,4 +692,54 @@ void vs_video_release_buffer
         return;
     }
     avcodec_default_release_buffer( ctx, av_frame );
+}
+
+int setup_video_rendering
+(
+    lw_video_output_handler_t *lw_vohp,
+    AVCodecContext            *ctx,
+    VSVideoInfo               *vi,
+    int                        width,
+    int                        height
+)
+{
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
+    vs_vohp->direct_rendering &= vs_check_dr_available( ctx, ctx->pix_fmt );
+    if( vs_vohp->variable_info )
+    {
+        vi->format = NULL;
+        vi->width  = 0;
+        vi->height = 0;
+    }
+    else
+    {
+        const VSAPI *vsapi = vs_vohp->vsapi;
+        vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, vs_vohp->core );
+        vi->width  = width;
+        vi->height = height;
+        if( vs_vohp->direct_rendering )
+        {
+            /* Align output width and height for direct rendering. */
+            int linesize_align[AV_NUM_DATA_POINTERS];
+            enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
+            ctx->pix_fmt = lw_vohp->scaler.output_pixel_format;
+            avcodec_align_dimensions2( ctx, &vi->width, &vi->height, linesize_align );
+            ctx->pix_fmt = input_pixel_format;
+        }
+        vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, vs_vohp->core );
+        if( !vs_vohp->background_frame )
+            return -1;
+        vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
+    }
+    lw_vohp->output_width  = vi->width;
+    lw_vohp->output_height = vi->height;
+    /* Set up custom get_buffer() for direct rendering if available. */
+    if( vs_vohp->direct_rendering )
+    {
+        ctx->get_buffer     = vs_video_get_buffer;
+        ctx->release_buffer = vs_video_release_buffer;
+        ctx->opaque         = lw_vohp;
+        ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+    }
+    return 0;
 }

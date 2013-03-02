@@ -132,45 +132,10 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    vs_vohp->direct_rendering &= !!(vdhp->ctx->codec->capabilities & CODEC_CAP_DR1);
-    vs_vohp->direct_rendering &= vs_check_dr_support_format( vdhp->ctx->pix_fmt );
-    if( vs_vohp->variable_info )
+    if( setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height ) < 0 )
     {
-        vi->format = NULL;
-        vi->width  = 0;
-        vi->height = 0;
-    }
-    else
-    {
-        vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
-        vi->width  = vdhp->max_width;
-        vi->height = vdhp->max_height;
-        if( vs_vohp->direct_rendering )
-        {
-            /* Align output width and height for direct rendering. */
-            int linesize_align[AV_NUM_DATA_POINTERS];
-            enum AVPixelFormat input_pixel_format = vdhp->ctx->pix_fmt;
-            vdhp->ctx->pix_fmt = vohp->scaler.output_pixel_format;
-            avcodec_align_dimensions2( vdhp->ctx, &vi->width, &vi->height, linesize_align );
-            vdhp->ctx->pix_fmt = input_pixel_format;
-        }
-        vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
-        if( !vs_vohp->background_frame )
-        {
-            set_error( vsbhp, "lsmas: failed to allocate memory for the background black frame data." );
-            return -1;
-        }
-        vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
-    }
-    vohp->output_width  = vi->width;
-    vohp->output_height = vi->height;
-    /* Set up custom get_buffer() for direct rendering if available. */
-    if( vs_vohp->direct_rendering )
-    {
-        vdhp->ctx->get_buffer     = vs_video_get_buffer;
-        vdhp->ctx->release_buffer = vs_video_release_buffer;
-        vdhp->ctx->opaque         = vohp;
-        vdhp->ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+        set_error( vsbhp, "lsmas: failed to allocate memory for the background black frame data." );
+        return -1;
     }
     /* Find the first valid video frame. */
     vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;

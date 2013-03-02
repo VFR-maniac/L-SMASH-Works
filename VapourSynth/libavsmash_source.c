@@ -96,30 +96,16 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    if( vs_vohp->variable_info )
+    if( setup_video_rendering( vohp, config->ctx, vi, config->prefer.width, config->prefer.height ) < 0 )
     {
-        vi->format = NULL;
-        vi->width  = 0;
-        vi->height = 0;
-    }
-    else
-    {
-        vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
-        vi->width  = config->prefer.width;
-        vi->height = config->prefer.height;
-        vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
-        if( !vs_vohp->background_frame )
-        {
-            set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
-            return -1;
-        }
-        vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
+        set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
+        return -1;
     }
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
-        get_sample( vdhp->root, vdhp->track_ID, i, &vdhp->config, &pkt );
+        get_sample( vdhp->root, vdhp->track_ID, i, config, &pkt );
         AVFrame *av_frame = vdhp->frame_buffer;
         avcodec_get_frame_defaults( av_frame );
         int got_picture;
@@ -260,7 +246,9 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     }
     set_frame_properties( hp, av_frame, vs_frame, sample_number, vsapi );
-    return vs_frame;
+    return vs_frame != av_frame->opaque
+         ? vs_frame
+         : vsapi->cloneFrameRef( vs_frame );
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )
@@ -530,17 +518,20 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     int64_t seek_mode;
     int64_t seek_threshold;
     int64_t variable_info;
+    int64_t direct_rendering;
     const char *format;
-    set_option_int64 ( &track_number,   0,    "track",          in, vsapi );
-    set_option_int64 ( &threads,        0,    "threads",        in, vsapi );
-    set_option_int64 ( &seek_mode,      0,    "seek_mode",      in, vsapi );
-    set_option_int64 ( &seek_threshold, 10,   "seek_threshold", in, vsapi );
-    set_option_int64 ( &variable_info,  0,    "variable",       in, vsapi );
-    set_option_string( &format,         NULL, "format",         in, vsapi );
+    set_option_int64 ( &track_number,     0,    "track",          in, vsapi );
+    set_option_int64 ( &threads,          0,    "threads",        in, vsapi );
+    set_option_int64 ( &seek_mode,        0,    "seek_mode",      in, vsapi );
+    set_option_int64 ( &seek_threshold,   10,   "seek_threshold", in, vsapi );
+    set_option_int64 ( &variable_info,    0,    "variable",       in, vsapi );
+    set_option_int64 ( &direct_rendering, 0,    "dr",             in, vsapi );
+    set_option_string( &format,           NULL, "format",         in, vsapi );
     threads                         = threads >= 0 ? threads : 0;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold, 1, 999 );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,  0, 1 );
+    vs_vohp->direct_rendering       = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
     vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
     if( track_number && track_number > number_of_tracks )
     {
