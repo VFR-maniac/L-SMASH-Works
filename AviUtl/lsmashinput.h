@@ -104,9 +104,17 @@ typedef struct
     output_colorspace_index colorspace;
 } video_option_t;
 
+enum
+{
+    MIX_LEVEL_INDEX_CENTER = 0,
+    MIX_LEVEL_INDEX_SURROUND,
+    MIX_LEVEL_INDEX_LFE,
+};
+
 typedef struct
 {
     uint64_t channel_layout;
+    int      mix_level[3];      /* { Center, Surround, LFE } */
 } audio_option_t;
 
 typedef struct

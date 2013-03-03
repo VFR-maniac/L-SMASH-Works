@@ -152,6 +152,23 @@ static void get_settings( void )
         /* channel_layout */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "channel_layout=0x%"SCNx64, &audio_opt->channel_layout ) != 1 )
             audio_opt->channel_layout = 0;
+        /* mix_level */
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "mix_level=%d:%d:%d",
+                    &audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ],
+                    &audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND],
+                    &audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] ) != 3 )
+        {
+            audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
+            audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] = 71;
+            audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] = 0;
+        }
+        else
+        {
+            audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = CLIP_VALUE( audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], 0, 10000 );
+            audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] = CLIP_VALUE( audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], 0, 10000 );
+            audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] = CLIP_VALUE( audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ], 0, 30000 );
+        }
         /* readers */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libavsmash_disabled=%d", &reader_disabled[0] ) != 1 )
             reader_disabled[0] = 0;
@@ -209,6 +226,9 @@ static void get_settings( void )
         video_opt->framerate_den          = 1;
         video_opt->colorspace             = OUTPUT_YUY2;
         audio_opt->channel_layout         = 0;
+        audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
+        audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] = 71;
+        audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] = 0;
     }
 }
 
@@ -406,6 +426,42 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
     return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : TRUE;
 }
 
+static void send_mix_level
+(
+    HWND  hwnd,
+    int   slider_idc,
+    int   text_idc,
+    int   range_min,
+    int   range_max,
+    int   mix_level,
+    char *edit_buf
+)
+{
+    HWND hslider = GetDlgItem( hwnd, slider_idc );
+    SendMessage( hslider, TBM_SETRANGE,    TRUE, MAKELPARAM( range_min, range_max ) );
+    SendMessage( hslider, TBM_SETTICFREQ,  1,    0 );
+    SendMessage( hslider, TBM_SETPOS,      TRUE, mix_level );
+    SendMessage( hslider, TBM_SETLINESIZE, 0,    1 );
+    SendMessage( hslider, TBM_SETPAGESIZE, 0,    1 );
+    sprintf( edit_buf, "%.2f", mix_level / 100.0 );
+    SetWindowText( GetDlgItem( hwnd, text_idc ), (LPCTSTR)edit_buf );
+}
+
+static void get_mix_level
+(
+    HWND  hwnd,
+    int   slider_idc,
+    int   text_idc,
+    int  *mix_level,
+    char *edit_buf
+)
+{
+    HWND hslider = GetDlgItem( hwnd, slider_idc );
+    *mix_level = SendMessage( hslider, TBM_GETPOS, 0, 0 );
+    sprintf( edit_buf, "%.2f", *mix_level / 100.0 );
+    SetWindowText( GetDlgItem( hwnd, text_idc ), (LPCTSTR)edit_buf );
+}
+
 static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
 {
     static char edit_buf[256] = { 0 };
@@ -473,6 +529,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             else
                 memcpy( edit_buf, "Unspecified", 12 );
             SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
+            /* mix_level */
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], edit_buf );
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, 0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], edit_buf );
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ], edit_buf );
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
@@ -522,6 +582,14 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 }
             }
             return TRUE;
+        case WM_HSCROLL :
+            if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER ) == (HWND)lparam )
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   &audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], edit_buf );
+            else if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND ) == (HWND)lparam )
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, &audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], edit_buf );
+            else if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_LFE ) == (HWND)lparam )
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      &audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ], edit_buf );
+            return FALSE;
         case WM_COMMAND :
             switch( wparam )
             {
@@ -578,6 +646,11 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     GetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_opt->channel_layout = av_get_channel_layout( edit_buf );
                     fprintf( ini, "channel_layout=0x%"PRIx64"\n", audio_opt->channel_layout );
+                    /* mix_level */
+                    fprintf( ini, "mix_level=%d:%d:%d\n",
+                             audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ],
+                             audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND],
+                             audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
                     /* readers */
                     reader_disabled[0] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 ));
                     reader_disabled[1] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_GETCHECK, 0, 0 ));

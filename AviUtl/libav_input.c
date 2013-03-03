@@ -326,6 +326,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     av_opt_set_int( aohp->avr_ctx, "out_sample_fmt",      aohp->output_sample_format,  0 );
     av_opt_set_int( aohp->avr_ctx, "out_sample_rate",     aohp->output_sample_rate,    0 );
     av_opt_set_int( aohp->avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
+    au_opt_set_mix_level( aohp->avr_ctx, "center_mix_level",   opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] );
+    au_opt_set_mix_level( aohp->avr_ctx, "surround_mix_level", opt->mix_level[MIX_LEVEL_INDEX_SURROUND] );
+    au_opt_set_mix_level( aohp->avr_ctx, "lfe_mix_level",      opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
     if( avresample_open( aohp->avr_ctx ) < 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to open resampler." );

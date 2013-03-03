@@ -24,8 +24,11 @@
 
 #include "../common/audio_output.h"
 
-static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format,
-                                                                     int input_bits_per_sample )
+static inline enum AVSampleFormat decide_audio_output_sample_format
+(
+    enum AVSampleFormat input_sample_format,
+    int                 input_bits_per_sample
+)
 {
     /* AviUtl doesn't support IEEE floating point format. */
     switch ( input_sample_format )
@@ -49,4 +52,14 @@ static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSamp
             else
                 return AV_SAMPLE_FMT_S32;
     }
+}
+
+static inline void au_opt_set_mix_level
+(
+    AVAudioResampleContext *avr_ctx,
+    const char             *opt,
+    int                     value
+)
+{
+    av_opt_set_double( avr_ctx, opt, value == 71 ? M_SQRT1_2 : (value / 100.0), 0 );
 }
