@@ -38,26 +38,7 @@ extern "C"
 
 int flush_resampler_buffers( AVAudioResampleContext *avr )
 {
-    int64_t in_channel_layout;
-    int64_t in_sample_fmt;
-    int64_t in_sample_rate;
-    int64_t out_channel_layout;
-    int64_t out_sample_fmt;
-    int64_t out_sample_rate;
-    av_opt_get_int( avr, "in_channel_layout",   0, &in_channel_layout );
-    av_opt_get_int( avr, "in_sample_fmt",       0, &in_sample_fmt );
-    av_opt_get_int( avr, "in_sample_rate",      0, &in_sample_rate );
-    av_opt_get_int( avr, "out_channel_layout",  0, &out_channel_layout );
-    av_opt_get_int( avr, "out_sample_fmt",      0, &out_sample_fmt );
-    av_opt_get_int( avr, "out_sample_rate",     0, &out_sample_rate );
     avresample_close( avr );
-    av_opt_set_int( avr, "in_channel_layout",   in_channel_layout,  0 );
-    av_opt_set_int( avr, "in_sample_fmt",       in_sample_fmt,      0 );
-    av_opt_set_int( avr, "in_sample_rate",      in_sample_rate,     0 );
-    av_opt_set_int( avr, "out_channel_layout",  out_channel_layout, 0 );
-    av_opt_set_int( avr, "out_sample_fmt",      out_sample_fmt,     0 );
-    av_opt_set_int( avr, "out_sample_rate",     out_sample_rate,    0 );
-    av_opt_set_int( avr, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP, 0 );
     return avresample_open( avr ) < 0 ? -1 : 0;
 }
 
