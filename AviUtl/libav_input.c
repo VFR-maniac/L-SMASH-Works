@@ -28,7 +28,6 @@
 #include <libavcodec/avcodec.h>         /* Decoder */
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavresample/avresample.h>   /* Audio resampler */
-#include <libavutil/opt.h>
 
 #include "lsmashinput.h"
 #include "resource.h"
@@ -307,67 +306,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         av_freep( &adhp->index_entries );
     }
     avcodec_get_frame_defaults( adhp->frame_buffer );
-    /* Set up resampler. */
-    aohp->avr_ctx = avresample_alloc_context();
-    if( !aohp->avr_ctx )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avresample_alloc_context." );
-        return -1;
-    }
-    if( adhp->ctx->channel_layout == 0 )
-        adhp->ctx->channel_layout = av_get_default_channel_layout( adhp->ctx->channels );
-    if( opt->channel_layout != 0 )
-        aohp->output_channel_layout = opt->channel_layout;
-    aohp->output_sample_format = decide_audio_output_sample_format( aohp->output_sample_format, aohp->output_bits_per_sample );
-    av_opt_set_int( aohp->avr_ctx, "in_channel_layout",   adhp->ctx->channel_layout,   0 );
-    av_opt_set_int( aohp->avr_ctx, "in_sample_fmt",       adhp->ctx->sample_fmt,       0 );
-    av_opt_set_int( aohp->avr_ctx, "in_sample_rate",      adhp->ctx->sample_rate,      0 );
-    av_opt_set_int( aohp->avr_ctx, "out_channel_layout",  aohp->output_channel_layout, 0 );
-    av_opt_set_int( aohp->avr_ctx, "out_sample_fmt",      aohp->output_sample_format,  0 );
-    av_opt_set_int( aohp->avr_ctx, "out_sample_rate",     aohp->output_sample_rate,    0 );
-    av_opt_set_int( aohp->avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
-    au_opt_set_mix_level( aohp->avr_ctx, "center_mix_level",   opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] );
-    au_opt_set_mix_level( aohp->avr_ctx, "surround_mix_level", opt->mix_level[MIX_LEVEL_INDEX_SURROUND] );
-    au_opt_set_mix_level( aohp->avr_ctx, "lfe_mix_level",      opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
-    if( avresample_open( aohp->avr_ctx ) < 0 )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to open resampler." );
-        return -1;
-    }
-    /* Decide output Bits Per Sample. */
-    int output_channels = av_get_channel_layout_nb_channels( aohp->output_channel_layout );
-    if( aohp->output_sample_format == AV_SAMPLE_FMT_S32
-     && (aohp->output_bits_per_sample == 0 || aohp->output_bits_per_sample == 24) )
-    {
-        /* 24bit signed integer output */
-        aohp->s24_output             = 1;
-        aohp->output_bits_per_sample = 24;
-    }
-    else
-        aohp->output_bits_per_sample = av_get_bytes_per_sample( aohp->output_sample_format ) * 8;
-    /* Support of WAVEFORMATEXTENSIBLE is much restrictive on AviUtl, so we always use WAVEFORMATEX instead. */
-    WAVEFORMATEX *Format = &h->audio_format.Format;
-    Format->nChannels       = output_channels;
-    Format->nSamplesPerSec  = aohp->output_sample_rate;
-    Format->wBitsPerSample  = aohp->output_bits_per_sample;
-    Format->nBlockAlign     = (Format->nChannels * Format->wBitsPerSample) / 8;
-    Format->nAvgBytesPerSec = Format->nSamplesPerSec * Format->nBlockAlign;
-    Format->wFormatTag      = WAVE_FORMAT_PCM;
-    Format->cbSize          = 0;
-    /* Set up the number of planes and the block alignment of decoded and output data. */
-    int input_channels = av_get_channel_layout_nb_channels( adhp->ctx->channel_layout );
-    if( av_sample_fmt_is_planar( adhp->ctx->sample_fmt ) )
-    {
-        aohp->input_planes      = input_channels;
-        aohp->input_block_align = av_get_bytes_per_sample( adhp->ctx->sample_fmt );
-    }
-    else
-    {
-        aohp->input_planes      = 1;
-        aohp->input_block_align = av_get_bytes_per_sample( adhp->ctx->sample_fmt ) * input_channels;
-    }
-    aohp->output_block_align = Format->nBlockAlign;
-    return 0;
+    return au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format );
 }
 
 static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
