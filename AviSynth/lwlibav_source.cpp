@@ -370,6 +370,9 @@ void __stdcall LWLibavAudioSource::GetAudio( void *buf, __int64 start, __int64 w
 
 AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
+#ifdef NDEBUG
+    av_log_set_level( AV_LOG_QUIET );
+#endif
     const char *source                 = args[0].AsString();
     int         stream_index           = args[1].AsInt( -1 );
     int         threads                = args[2].AsInt( 0 );
@@ -394,6 +397,9 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
+#ifdef NDEBUG
+    av_log_set_level( AV_LOG_QUIET );
+#endif
     const char *source          = args[0].AsString();
     int         stream_index    = args[1].AsInt( -1 );
     int         no_create_index = args[2].AsBool( true  ) ? 0 : 1;

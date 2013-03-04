@@ -614,6 +614,9 @@ void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wa
 
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
+#ifdef NDEBUG
+    av_log_set_level( AV_LOG_QUIET );
+#endif
     const char *source                 = args[0].AsString();
     uint32_t    track_number           = args[1].AsInt( 0 );
     int         threads                = args[2].AsInt( 0 );
@@ -628,6 +631,9 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
 {
+#ifdef NDEBUG
+    av_log_set_level( AV_LOG_QUIET );
+#endif
     const char *source        = args[0].AsString();
     uint32_t    track_number  = args[1].AsInt( 0 );
     bool        skip_priming  = args[2].AsBool( true );
