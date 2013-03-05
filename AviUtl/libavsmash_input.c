@@ -443,63 +443,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
-    /* Set up output format. */
+    /* Set up video rendering. */
     libavsmash_video_output_handler_t *vohp = &hp->voh;
-    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)lw_malloc_zero( sizeof(au_video_output_handler_t) );
-    if( !au_vohp )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the AviUtl video output handler." );
+    if( au_setup_video_rendering( vohp, config->ctx, opt, &h->video_format, config->prefer.width, config->prefer.height ) < 0 )
         return -1;
-    }
-    vohp->private_handler      = au_vohp;
-    vohp->free_private_handler = free_au_video_output_handler;
-    enum AVPixelFormat output_pixel_format;
-    output_colorspace_index index = determine_colorspace_conversion( config->ctx->pix_fmt, &output_pixel_format );
-    if( initialize_scaler_handler( &vohp->scaler, config->ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
-        return -1;
-    }
-    static const struct
-    {
-        func_convert_colorspace *convert_colorspace;
-        int                      pixel_size;
-        output_colorspace_tag    compression;
-    } colorspace_table[4] =
-        {
-            { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 },
-            { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
-            { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
-            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
-        };
-    au_vohp->convert_colorspace = colorspace_table[index].convert_colorspace;
-    /* BITMAPINFOHEADER */
-    h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    h->video_format.biWidth       = config->prefer.width;
-    h->video_format.biHeight      = config->prefer.height;
-    h->video_format.biBitCount    = colorspace_table[index].pixel_size << 3;
-    h->video_format.biCompression = colorspace_table[index].compression;
-    /* Set up a black frame of back ground. */
-    vohp->output_width      = h->video_format.biWidth;
-    vohp->output_height     = h->video_format.biHeight;
-    vohp->output_linesize   = MAKE_AVIUTL_PITCH( vohp->output_width * h->video_format.biBitCount );
-    vohp->output_frame_size = vohp->output_linesize * vohp->output_height;
-    au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
-    if( !au_vohp->back_ground )
-        return -1;
-    if( h->video_format.biCompression == OUTPUT_TAG_YUY2 )
-    {
-        uint8_t *pic = au_vohp->back_ground;
-        for( int i = 0; i < vohp->output_height; i++ )
-        {
-            for( int j = 0; j < vohp->output_linesize; j += 2 )
-            {
-                pic[j    ] = 0;
-                pic[j + 1] = 128;
-            }
-            pic += vohp->output_linesize;
-        }
-    }
     /* Find the first valid video frame. */
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
     {
@@ -514,6 +461,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             {
                 if( !vohp->first_valid_frame )
                 {
+                    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->free_private_handler;
                     vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
                     if( !vohp->first_valid_frame )
                         return -1;
