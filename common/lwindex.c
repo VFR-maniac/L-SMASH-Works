@@ -586,8 +586,22 @@ static void create_index
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
-                    video_info[video_sample_count].keyframe = 1;
-                    last_keyframe_pts = pkt.pts;
+                    /* FIXME: if AVInputFormat.flags supports AVFMT_GLOBALHEADER in the future,
+                     *        replace (format_ctx->ctx_flags & AVFMTCTX_NOHEADER) with (format_ctx->iformat->flags & AVFMTCTX_NOHEADER). */
+                    AVCodecParserContext *parser_ctx = format_ctx->streams[ pkt.stream_index ]->parser;
+                    if( (format_ctx->ctx_flags & AVFMTCTX_NOHEADER)
+                     && parser_ctx && parser_ctx->parser && parser_ctx->parser->split
+                     && parser_ctx->parser->split( pkt_ctx, pkt.data, pkt.size ) <= 0 )
+                        /* Probably, this frame should not be marked as a keyframe.
+                         * For instance, an IDR-picture which corresponding SPS and PPS
+                         * does not precede immediately shall be decodable incorrectly. */
+                        pkt.flags &= ~AV_PKT_FLAG_KEY;
+                    else
+                    {
+                        /* For the present, treat this frame as a keyframe. */
+                        video_info[video_sample_count].keyframe = 1;
+                        last_keyframe_pts = pkt.pts;
+                    }
                 }
                 if( vdhp->max_width  < pkt_ctx->width )
                     vdhp->max_width  = pkt_ctx->width;
