@@ -587,14 +587,14 @@ static void create_index
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
                     /* FIXME: if AVInputFormat.flags supports AVFMT_GLOBALHEADER in the future,
-                     *        replace (format_ctx->ctx_flags & AVFMTCTX_NOHEADER) with (format_ctx->iformat->flags & AVFMTCTX_NOHEADER). */
+                     *        replace (format_ctx->ctx_flags & AVFMTCTX_NOHEADER) with !(format_ctx->iformat->flags & AVFMTCTX_NOHEADER). */
                     AVCodecParserContext *parser_ctx = format_ctx->streams[ pkt.stream_index ]->parser;
                     if( (format_ctx->ctx_flags & AVFMTCTX_NOHEADER)
                      && parser_ctx && parser_ctx->parser && parser_ctx->parser->split
                      && parser_ctx->parser->split( pkt_ctx, pkt.data, pkt.size ) <= 0 )
                         /* Probably, this frame should not be marked as a keyframe.
-                         * For instance, an IDR-picture which corresponding SPS and PPS
-                         * does not precede immediately shall be decodable incorrectly. */
+                         * For instance, an IDR-picture which corresponding SPSs and PPSs
+                         * do not precede immediately shall be decodable incorrectly. */
                         pkt.flags &= ~AV_PKT_FLAG_KEY;
                     else
                     {
