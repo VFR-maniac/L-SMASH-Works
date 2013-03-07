@@ -98,7 +98,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     /* Set up error handler. */
     error_handler_t eh = { 0 };
     eh.message_priv  = &hp->uType;
-    eh.error_message = message_box_desktop;
+    eh.error_message = NULL;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set options. */
     lwlibav_option_t lwlibav_opt;
