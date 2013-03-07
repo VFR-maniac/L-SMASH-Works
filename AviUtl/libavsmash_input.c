@@ -461,7 +461,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             {
                 if( !vohp->first_valid_frame )
                 {
-                    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->free_private_handler;
+                    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
                     vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
                     if( !vohp->first_valid_frame )
                         return -1;
