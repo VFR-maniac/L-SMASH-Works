@@ -136,8 +136,8 @@ void lwlibav_setup_timestamp_info
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
     if( vdhp->frame_count == 1 || !(vdhp->seek_base & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
     {
-        *framerate_num = video_stream->r_frame_rate.num;
-        *framerate_den = video_stream->r_frame_rate.den;
+        *framerate_num = video_stream->avg_frame_rate.num;
+        *framerate_den = video_stream->avg_frame_rate.den;
         return;
     }
     video_frame_info_t *info = vdhp->frame_list;
