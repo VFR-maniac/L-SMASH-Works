@@ -116,7 +116,7 @@ static int make_frame_rgba32
     return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
 }
 
-int determine_colorspace_conversion
+static int determine_colorspace_conversion
 (
     lw_video_output_handler_t *vohp,
     enum AVPixelFormat         input_pixel_format,
@@ -224,7 +224,7 @@ int make_frame
     return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
 }
 
-int as_check_dr_available
+static int as_check_dr_available
 (
     AVCodecContext    *ctx,
     enum AVPixelFormat pixel_format
@@ -245,25 +245,44 @@ int as_check_dr_available
     return 0;
 }
 
-void setup_direct_rendering
+void as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,
-    int                       *width,
-    int                       *height
+    const char                *filter_name,
+    int                        direct_rendering,
+    int                        output_width,
+    int                        output_height
 )
 {
-    /* Align output width and height for direct rendering. */
-    int linesize_align[AV_NUM_DATA_POINTERS];
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    IScriptEnvironment        *env     = as_vohp->env;
+    VideoInfo                 *vi      = as_vohp->vi;
+    if( determine_colorspace_conversion( vohp, ctx->pix_fmt, &vi->pixel_type ) < 0 )
+        env->ThrowError( "%s: %s is not supported", filter_name, av_get_pix_fmt_name( ctx->pix_fmt ) );
+    vi->width  = output_width;
+    vi->height = output_height;
     enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
-    ctx->pix_fmt = vohp->scaler.output_pixel_format;
-    avcodec_align_dimensions2( ctx, width, height, linesize_align );
-    ctx->pix_fmt = input_pixel_format;
-    /* Set up custom get_buffer() for direct rendering if available. */
-    ctx->get_buffer     = as_video_get_buffer;
-    ctx->release_buffer = as_video_release_buffer;
-    ctx->opaque         = vohp;
-    ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+    avoid_yuv_scale_conversion( &input_pixel_format );
+    direct_rendering &= as_check_dr_available( ctx, input_pixel_format );
+    if( initialize_scaler_handler( &vohp->scaler, ctx, !direct_rendering, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
+        env->ThrowError( "%s: failed to initialize scaler handler.", filter_name );
+    if( direct_rendering )
+    {
+        /* Align output width and height for direct rendering. */
+        int linesize_align[AV_NUM_DATA_POINTERS];
+        input_pixel_format = ctx->pix_fmt;
+        ctx->pix_fmt = vohp->scaler.output_pixel_format;
+        avcodec_align_dimensions2( ctx, &vi->width, &vi->height, linesize_align );
+        ctx->pix_fmt = input_pixel_format;
+        /* Set up custom get_buffer() for direct rendering if available. */
+        ctx->get_buffer     = as_video_get_buffer;
+        ctx->release_buffer = as_video_release_buffer;
+        ctx->opaque         = vohp;
+        ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+    }
+    vohp->output_width  = vi->width;
+    vohp->output_height = vi->height;
 }
 
 int as_video_get_buffer

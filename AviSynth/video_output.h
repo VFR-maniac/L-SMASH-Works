@@ -46,13 +46,6 @@ typedef struct
     PVideoFrame as_frame_buffer;
 } as_video_buffer_handler_t;
 
-int determine_colorspace_conversion
-(
-    lw_video_output_handler_t *vohp,
-    enum AVPixelFormat         input_pixel_format,
-    int                       *output_pixel_type
-);
-
 int make_frame
 (
     lw_video_output_handler_t *vohp,
@@ -62,18 +55,14 @@ int make_frame
     IScriptEnvironment        *env
 );
 
-int as_check_dr_available
-(
-    AVCodecContext    *ctx,
-    enum AVPixelFormat pixel_format
-);
-
-void setup_direct_rendering
+void as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,
-    int                       *width,
-    int                       *height
+    const char                *filter_name,
+    int                        direct_rendering,
+    int                        output_width,
+    int                        output_height
 );
 
 int as_video_get_buffer

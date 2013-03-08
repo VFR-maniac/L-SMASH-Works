@@ -137,19 +137,7 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.ctx->height     = vdh.initial_height;
     vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
     vdh.ctx->colorspace = vdh.initial_colorspace;
-    if( determine_colorspace_conversion( &voh, vdh.ctx->pix_fmt, &vi.pixel_type ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: %s is not supported", av_get_pix_fmt_name( vdh.ctx->pix_fmt ) );
-    vi.width  = vdh.max_width;
-    vi.height = vdh.max_height;
-    enum AVPixelFormat input_pixel_format = vdh.ctx->pix_fmt;
-    avoid_yuv_scale_conversion( &input_pixel_format );
-    direct_rendering &= as_check_dr_available( vdh.ctx, input_pixel_format );
-    if( initialize_scaler_handler( &voh.scaler, vdh.ctx, !direct_rendering, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: failed to initialize scaler handler." );
-    if( direct_rendering )
-        setup_direct_rendering( &voh, vdh.ctx, &vi.width, &vi.height );
-    voh.output_width  = vi.width;
-    voh.output_height = vi.height;
+    as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource", direct_rendering, vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
     vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( vi.num_frames != 1 )

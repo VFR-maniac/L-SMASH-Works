@@ -256,19 +256,7 @@ void LSMASHVideoSource::prepare_video_decoding
     if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
-    if( determine_colorspace_conversion( &voh, config->ctx->pix_fmt, &vi.pixel_type ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
-    vi.width  = config->prefer.width;
-    vi.height = config->prefer.height;
-    enum AVPixelFormat input_pixel_format = config->ctx->pix_fmt;
-    avoid_yuv_scale_conversion( &input_pixel_format );
-    direct_rendering &= as_check_dr_available( config->ctx, input_pixel_format );
-    if( initialize_scaler_handler( &voh.scaler, config->ctx, !direct_rendering, SWS_FAST_BILINEAR, voh.scaler.output_pixel_format ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to initialize scaler handler." );
-    if( direct_rendering )
-        setup_direct_rendering( &voh, config->ctx, &vi.width, &vi.height );
-    voh.output_width  = vi.width;
-    voh.output_height = vi.height;
+    as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource", direct_rendering, config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {
