@@ -23,8 +23,6 @@
 
 #include "lsmashsource.h"
 
-#define NO_PROGRESS_HANDLER
-
 extern "C"
 {
 /* Libav
@@ -37,9 +35,6 @@ extern "C"
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
 }
-
-#include "../common/audio_output.h"
-#include "../common/progress.h"
 
 #include "video_output.h"
 #include "audio_output.h"
@@ -260,77 +255,13 @@ void LWLibavAudioSource::prepare_audio_decoding
         {
             AVIndexEntry *ie = &adh.index_entries[i];
             if( av_add_index_entry( audio_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-                env->ThrowError( "LWLibavVideoSource: failed to import AVIndexEntrys for audio." );
+                env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
         }
         av_freep( &adh.index_entries );
     }
-    avcodec_get_frame_defaults( adh.frame_buffer );
-    /* Set up resampler. */
-    aoh.avr_ctx = avresample_alloc_context();
-    if( !aoh.avr_ctx )
-        env->ThrowError( "LWLibavAudioSource: failed to avresample_alloc_context." );
-    if( adh.ctx->channel_layout == 0 )
-        adh.ctx->channel_layout = av_get_default_channel_layout( adh.ctx->channels );
-    if( channel_layout != 0 )
-        aoh.output_channel_layout = channel_layout;
-    aoh.output_sample_format = decide_audio_output_sample_format( aoh.output_sample_format );
-    av_opt_set_int( aoh.avr_ctx, "in_channel_layout",   adh.ctx->channel_layout,   0 );
-    av_opt_set_int( aoh.avr_ctx, "in_sample_fmt",       adh.ctx->sample_fmt,       0 );
-    av_opt_set_int( aoh.avr_ctx, "in_sample_rate",      adh.ctx->sample_rate,      0 );
-    av_opt_set_int( aoh.avr_ctx, "out_channel_layout",  aoh.output_channel_layout, 0 );
-    av_opt_set_int( aoh.avr_ctx, "out_sample_fmt",      aoh.output_sample_format,  0 );
-    av_opt_set_int( aoh.avr_ctx, "out_sample_rate",     aoh.output_sample_rate,    0 );
-    av_opt_set_int( aoh.avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,        0 );
-    if( avresample_open( aoh.avr_ctx ) < 0 )
-        env->ThrowError( "LWLibavAudioSource: failed to open resampler." );
-    /* Decide output Bits Per Sample. */
-    int output_channels = av_get_channel_layout_nb_channels( aoh.output_channel_layout );
-    if( aoh.output_sample_format == AV_SAMPLE_FMT_S32
-     && (aoh.output_bits_per_sample == 0 || aoh.output_bits_per_sample == 24) )
-    {
-        /* 24bit signed integer output */
-        aoh.s24_output             = 1;
-        aoh.output_bits_per_sample = 24;
-    }
-    else
-        aoh.output_bits_per_sample = av_get_bytes_per_sample( aoh.output_sample_format ) * 8;
     /* */
-    vi.nchannels                = output_channels;
-    vi.audio_samples_per_second = aoh.output_sample_rate;
-    switch ( aoh.output_sample_format )
-    {
-        case AV_SAMPLE_FMT_U8 :
-        case AV_SAMPLE_FMT_U8P :
-            vi.sample_type = SAMPLE_INT8;
-            break;
-        case AV_SAMPLE_FMT_S16 :
-        case AV_SAMPLE_FMT_S16P :
-            vi.sample_type = SAMPLE_INT16;
-            break;
-        case AV_SAMPLE_FMT_S32 :
-        case AV_SAMPLE_FMT_S32P :
-            vi.sample_type = aoh.s24_output ? SAMPLE_INT24 : SAMPLE_INT32;
-            break;
-        case AV_SAMPLE_FMT_FLT :
-        case AV_SAMPLE_FMT_FLTP :
-            vi.sample_type = SAMPLE_FLOAT;
-            break;
-        default :
-            env->ThrowError( "LWLibavAudioSource: %s is not supported.", av_get_sample_fmt_name( adh.ctx->sample_fmt ) );
-    }
-    /* Set up the number of planes and the block alignment of decoded and output data. */
-    int input_channels = av_get_channel_layout_nb_channels( adh.ctx->channel_layout );
-    if( av_sample_fmt_is_planar( adh.ctx->sample_fmt ) )
-    {
-        aoh.input_planes      = input_channels;
-        aoh.input_block_align = av_get_bytes_per_sample( adh.ctx->sample_fmt );
-    }
-    else
-    {
-        aoh.input_planes      = 1;
-        aoh.input_block_align = av_get_bytes_per_sample( adh.ctx->sample_fmt ) * input_channels;
-    }
-    aoh.output_block_align = (output_channels * aoh.output_bits_per_sample) / 8;
+    avcodec_get_frame_defaults( adh.frame_buffer );
+    as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout );
 }
 
 int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )

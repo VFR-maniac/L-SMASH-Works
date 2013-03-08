@@ -21,21 +21,14 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
-static inline enum AVSampleFormat decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
-{
-    /* Avisynth doesn't support IEEE double precision floating point format. */
-    switch( input_sample_format )
-    {
-        case AV_SAMPLE_FMT_U8 :
-        case AV_SAMPLE_FMT_U8P :
-            return AV_SAMPLE_FMT_U8;
-        case AV_SAMPLE_FMT_S16 :
-        case AV_SAMPLE_FMT_S16P :
-            return AV_SAMPLE_FMT_S16;
-        case AV_SAMPLE_FMT_S32 :
-        case AV_SAMPLE_FMT_S32P :
-            return AV_SAMPLE_FMT_S32;
-        default :
-            return AV_SAMPLE_FMT_FLT;
-    }
-}
+#include "../common/audio_output.h"
+
+void as_setup_audio_rendering
+(
+    lw_audio_output_handler_t *aohp,
+    AVCodecContext            *ctx,
+    VideoInfo                 *vi,
+    IScriptEnvironment        *env,
+    const char                *filter_name,
+    uint64_t                   channel_layout
+);

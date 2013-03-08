@@ -40,11 +40,6 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "../common/audio_output.h"
-#include "../common/libavsmash.h"
-#include "../common/libavsmash_video.h"
-#include "../common/libavsmash_audio.h"
-
 #include "video_output.h"
 #include "audio_output.h"
 #include "libavsmash_source.h"
@@ -527,72 +522,7 @@ void LSMASHAudioSource::prepare_audio_decoding
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
     adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
-    /* Set up resampler. */
-    aoh.avr_ctx = avresample_alloc_context();
-    if( !aoh.avr_ctx )
-        env->ThrowError( "LSMASHAudioSource: failed to avresample_alloc_context." );
-    if( config->ctx->channel_layout == 0 )
-        config->ctx->channel_layout = av_get_default_channel_layout( config->ctx->channels );
-    if( channel_layout != 0 )
-        aoh.output_channel_layout = channel_layout;
-    aoh.output_sample_format = decide_audio_output_sample_format( aoh.output_sample_format );
-    av_opt_set_int( aoh.avr_ctx, "in_channel_layout",   config->ctx->channel_layout, 0 );
-    av_opt_set_int( aoh.avr_ctx, "in_sample_fmt",       config->ctx->sample_fmt,     0 );
-    av_opt_set_int( aoh.avr_ctx, "in_sample_rate",      config->ctx->sample_rate,    0 );
-    av_opt_set_int( aoh.avr_ctx, "out_channel_layout",  aoh.output_channel_layout,   0 );
-    av_opt_set_int( aoh.avr_ctx, "out_sample_fmt",      aoh.output_sample_format,    0 );
-    av_opt_set_int( aoh.avr_ctx, "out_sample_rate",     aoh.output_sample_rate,      0 );
-    av_opt_set_int( aoh.avr_ctx, "internal_sample_fmt", AV_SAMPLE_FMT_FLTP,          0 );
-    if( avresample_open( aoh.avr_ctx ) < 0 )
-        env->ThrowError( "LSMASHAudioSource: failed to open resampler." );
-    /* Decide output Bits Per Sample. */
-    int output_channels = av_get_channel_layout_nb_channels( aoh.output_channel_layout );
-    if( aoh.output_sample_format == AV_SAMPLE_FMT_S32
-     && (aoh.output_bits_per_sample == 0 || aoh.output_bits_per_sample == 24) )
-    {
-        /* 24bit signed integer output */
-        aoh.s24_output             = 1;
-        aoh.output_bits_per_sample = 24;
-    }
-    else
-        aoh.output_bits_per_sample = av_get_bytes_per_sample( aoh.output_sample_format ) * 8;
-    /* */
-    vi.nchannels                = output_channels;
-    vi.audio_samples_per_second = aoh.output_sample_rate;
-    switch ( aoh.output_sample_format )
-    {
-        case AV_SAMPLE_FMT_U8 :
-        case AV_SAMPLE_FMT_U8P :
-            vi.sample_type = SAMPLE_INT8;
-            break;
-        case AV_SAMPLE_FMT_S16 :
-        case AV_SAMPLE_FMT_S16P :
-            vi.sample_type = SAMPLE_INT16;
-            break;
-        case AV_SAMPLE_FMT_S32 :
-        case AV_SAMPLE_FMT_S32P :
-            vi.sample_type = aoh.s24_output ? SAMPLE_INT24 : SAMPLE_INT32;
-            break;
-        case AV_SAMPLE_FMT_FLT :
-        case AV_SAMPLE_FMT_FLTP :
-            vi.sample_type = SAMPLE_FLOAT;
-            break;
-        default :
-            env->ThrowError( "LSMASHAudioSource: %s is not supported.", av_get_sample_fmt_name( config->ctx->sample_fmt ) );
-    }
-    /* Set up the number of planes and the block alignment of decoded and output data. */
-    int input_channels = av_get_channel_layout_nb_channels( config->ctx->channel_layout );
-    if( av_sample_fmt_is_planar( config->ctx->sample_fmt ) )
-    {
-        aoh.input_planes      = input_channels;
-        aoh.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt );
-    }
-    else
-    {
-        aoh.input_planes      = 1;
-        aoh.input_block_align = av_get_bytes_per_sample( config->ctx->sample_fmt ) * input_channels;
-    }
-    aoh.output_block_align = (output_channels * aoh.output_bits_per_sample) / 8;
+    as_setup_audio_rendering( &aoh, config->ctx, &vi, env, "LSMASHAudioSource", channel_layout );
 }
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )

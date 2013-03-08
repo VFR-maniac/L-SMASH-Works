@@ -21,6 +21,9 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
+#define NO_PROGRESS_HANDLER
+
+#include "../common/progress.h"
 #include "../common/lwlibav_dec.h"
 #include "../common/lwlibav_video.h"
 #include "../common/lwlibav_audio.h"
