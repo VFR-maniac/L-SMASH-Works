@@ -350,6 +350,136 @@ static int64_t calculate_av_gap
     return 0;
 }
 
+static lwlibav_extradata_t *alloc_extradata_entries( lwlibav_extradata_handler_t *exhp, int count )
+{
+    assert( count > 0 && count > exhp->entry_count );
+    lwlibav_extradata_t *temp = (lwlibav_extradata_t *)realloc( exhp->entries, count * sizeof(lwlibav_extradata_t) );
+    if( !temp )
+        return NULL;
+    exhp->entries = temp;
+    temp = &exhp->entries[ exhp->entry_count ];
+    for( int i = exhp->entry_count; i < count; i++ )
+    {
+        lwlibav_extradata_t *entry = &exhp->entries[i];
+        entry->extradata       = NULL;
+        entry->extradata_size  = 0;
+        entry->codec_id        = AV_CODEC_ID_NONE;
+        entry->codec_tag       = 0;
+        entry->width           = 0;
+        entry->height          = 0;
+        entry->pixel_format    = AV_PIX_FMT_NONE;
+        entry->channel_layout  = 0;
+        entry->sample_format   = AV_SAMPLE_FMT_NONE;
+        entry->sample_rate     = 0;
+        entry->bits_per_sample = 0;
+        entry->block_align     = 0;
+    }
+    exhp->entry_count = count;
+    return temp;
+}
+
+static int append_extradata_if_new
+(
+    AVStream *stream,
+    AVPacket *pkt
+)
+{
+    AVCodecContext              *ctx  = stream->codec;
+    lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)ctx->opaque;
+    if( !(pkt->flags & AV_PKT_FLAG_KEY) && list )
+        /* Some decoders might not change AVCodecContext.extradata even if a new extradata occurs.
+         * Here, we assume non-keyframes reference the latest extradata. */
+        return list->current_index;
+    /* Anyway, import extradata from AVCodecContext. */
+    lwlibav_extradata_t current = { ctx->extradata, ctx->extradata_size };
+    /* Import extradata from a side data in the packet if present. */
+    av_packet_get_side_data( pkt, AV_PKT_DATA_NEW_EXTRADATA, &current.extradata_size );
+    for( int i = 0; i < pkt->side_data_elems; i++ )
+        if( pkt->side_data[i].type == AV_PKT_DATA_NEW_EXTRADATA )
+        {
+            current.extradata      = pkt->side_data[i].data;
+            current.extradata_size = pkt->side_data[i].size;
+            break;
+        }
+    /* Try to import extradata from the packet by splitting if no extradata is present in side data. */
+    if( current.extradata == ctx->extradata )
+    {
+        AVCodecParserContext *parser_ctx = stream->parser;
+        if( parser_ctx && parser_ctx->parser && parser_ctx->parser->split )
+        {
+            int extradata_size = parser_ctx->parser->split( ctx, pkt->data, pkt->size );
+            if( extradata_size > 0 )
+            {
+                current.extradata      = pkt->data;
+                current.extradata_size = extradata_size;
+            }
+            else if( list )
+                /* Probably, this frame should not be marked as a keyframe.
+                 * For instance, an IDR-picture which corresponding SPSs and PPSs
+                 * do not precede immediately might not be decodable correctly. */
+                return list->current_index;
+        }
+    }
+    if( !list )
+    {
+        /* Create and initialize extradata handler for this stream. */
+        list = (lwlibav_extradata_handler_t *)lw_malloc_zero( sizeof(lwlibav_extradata_handler_t) );
+        if( !list )
+            return -1;
+        ctx->opaque = (void *)list;
+        lwlibav_extradata_t *entry = alloc_extradata_entries( list, 1 );
+        if( !entry )
+            return -1;
+        list->current_index = 0;
+        if( current.extradata && current.extradata_size > 0 )
+        {
+            entry->extradata_size = current.extradata_size;
+            entry->extradata      = (uint8_t *)av_malloc( current.extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
+            if( !entry->extradata )
+                return -1;
+            memcpy( entry->extradata, current.extradata, entry->extradata_size );
+            memset( entry->extradata + entry->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
+        }
+    }
+    else
+    {
+        lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
+        if( current.extradata_size != entry->extradata_size
+         || memcmp( current.extradata, entry->extradata, current.extradata_size ) )
+        {
+            /* Check if this extradata is a new one. If so, append it to the list. */
+            for( int i = 0; i < list->entry_count; i++ )
+            {
+                if( i == list->current_index )
+                    continue;   /* already compared */
+                entry = &list->entries[i];
+                if( current.extradata_size == entry->extradata_size
+                 && (current.extradata_size == 0 || !memcmp( current.extradata, entry->extradata, current.extradata_size )) )
+                {
+                    /* The same extradata is found. */
+                    list->current_index = i;
+                    return list->current_index;
+                }
+            }
+            /* Append a new extradata. */
+            entry = alloc_extradata_entries( list, list->entry_count + 1 );
+            if( !entry )
+                return -1;
+            if( current.extradata && current.extradata_size > 0 )
+            {
+                entry->extradata_size = current.extradata_size;
+                entry->extradata      = (uint8_t *)av_malloc( current.extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
+                if( !entry->extradata )
+                    return -1;
+                memcpy( entry->extradata, current.extradata, entry->extradata_size );
+                memset( entry->extradata + entry->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
+            }
+            list->current_index = list->entry_count - 1;
+        }
+    }
+    return list->current_index;
+}
+
 static void investigate_pix_fmt_by_decoding
 (
     AVCodecContext *video_ctx,
@@ -428,6 +558,40 @@ static inline void write_av_index_entry
                  ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
+static void write_video_extradata
+(
+    FILE                *index,
+    lwlibav_extradata_t *entry
+)
+{
+    if( !index )
+        return;
+    fprintf( index, "Size=%d,Codec=%d,4CC=0x%x,Width=%d,Height=%d,Format=%s,BPS=%d\n",
+             entry->extradata_size, entry->codec_id, entry->codec_tag, entry->width, entry->height,
+             av_get_pix_fmt_name( entry->pixel_format ) ? av_get_pix_fmt_name( entry->pixel_format ) : "none",
+             entry->bits_per_sample );
+    if( entry->extradata_size > 0 )
+        fwrite( entry->extradata, 1, entry->extradata_size, index );
+    fprintf( index, "\n" );
+}
+
+static void write_audio_extradata
+(
+    FILE                *index,
+    lwlibav_extradata_t *entry
+)
+{
+    if( !index )
+        return;
+    fprintf( index, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Align=%d\n",
+             entry->extradata_size, entry->codec_id, entry->codec_tag, entry->channel_layout, entry->sample_rate,
+             av_get_sample_fmt_name( entry->sample_format ) ? av_get_sample_fmt_name( entry->sample_format ) : "none",
+             entry->bits_per_sample, entry->block_align );
+    if( entry->extradata_size > 0 )
+        fwrite( entry->extradata, 1, entry->extradata_size, index );
+    fprintf( index, "\n" );
+}
+
 static void disable_video_stream( lwlibav_video_decode_handler_t *vdhp )
 {
     if( vdhp->frame_list )
@@ -441,6 +605,24 @@ static void disable_video_stream( lwlibav_video_decode_handler_t *vdhp )
     vdhp->stream_index        = -1;
     vdhp->index_entries_count = 0;
     vdhp->frame_count         = 0;
+}
+
+static void cleanup_extradata_handlers( AVFormatContext *format_ctx )
+{
+    for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+    {
+        lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)format_ctx->streams[stream_index]->codec->opaque;
+        if( !list )
+            continue;
+        if( list->entries )
+        {
+            for( int i = 0; i < list->entry_count; i++ )
+                if( list->entries[i].extradata )
+                    av_free( list->entries[i].extradata );
+            free( list->entries );
+        }
+        lw_freep( &format_ctx->streams[stream_index]->codec->opaque );
+    }
 }
 
 static void create_index
@@ -469,17 +651,21 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=6>
+        <LibavReaderIndexFile=7>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
-        Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0
+        Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
         Key=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
         </StreamIndexEntries>
+        <ExtraDataList=0,0,1>
+        Size=252,Codec=28,4CC=0x564d4448,Width=1920,Height=1080,Format=yuv420p,BPS=0
+        ... binary string ...
+        </ExtraDataList>
         </LibavReaderIndexFile>
      */
     char index_path[512] = { 0 };
@@ -527,7 +713,8 @@ static void create_index
     /* Start to read frames and write the index file. */
     while( read_av_frame( format_ctx, &pkt ) >= 0 )
     {
-        AVCodecContext *pkt_ctx = format_ctx->streams[ pkt.stream_index ]->codec;
+        AVStream       *stream  = format_ctx->streams[ pkt.stream_index ];
+        AVCodecContext *pkt_ctx = stream->codec;
         if( pkt_ctx->codec_type != AVMEDIA_TYPE_VIDEO
          && pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
             continue;
@@ -535,6 +722,12 @@ static void create_index
             continue;
         if( !av_codec_is_decoder( pkt_ctx->codec ) && open_decoder( pkt_ctx, pkt_ctx->codec_id, lwhp->threads ) )
             continue;
+        int extradata_index = append_extradata_if_new( stream, &pkt );
+        if( extradata_index < 0 )
+        {
+            av_free_packet( &pkt );
+            goto fail_index;
+        }
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
         {
             if( pkt_ctx->pix_fmt == AV_PIX_FMT_NONE )
@@ -578,31 +771,20 @@ static void create_index
             if( pkt.stream_index == vdhp->stream_index )
             {
                 ++video_sample_count;
-                video_info[video_sample_count].pts           = pkt.pts;
-                video_info[video_sample_count].dts           = pkt.dts;
-                video_info[video_sample_count].file_offset   = pkt.pos;
-                video_info[video_sample_count].sample_number = video_sample_count;
+                video_info[video_sample_count].pts             = pkt.pts;
+                video_info[video_sample_count].dts             = pkt.dts;
+                video_info[video_sample_count].file_offset     = pkt.pos;
+                video_info[video_sample_count].sample_number   = video_sample_count;
+                video_info[video_sample_count].extradata_index = extradata_index;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
-                    /* FIXME: if AVInputFormat.flags supports AVFMT_GLOBALHEADER in the future,
-                     *        replace (format_ctx->ctx_flags & AVFMTCTX_NOHEADER) with !(format_ctx->iformat->flags & AVFMTCTX_NOHEADER). */
-                    AVCodecParserContext *parser_ctx = format_ctx->streams[ pkt.stream_index ]->parser;
-                    if( (format_ctx->ctx_flags & AVFMTCTX_NOHEADER)
-                     && parser_ctx && parser_ctx->parser && parser_ctx->parser->split
-                     && parser_ctx->parser->split( pkt_ctx, pkt.data, pkt.size ) <= 0 )
-                        /* Probably, this frame should not be marked as a keyframe.
-                         * For instance, an IDR-picture which corresponding SPSs and PPSs
-                         * do not precede immediately shall be decodable incorrectly. */
-                        pkt.flags &= ~AV_PKT_FLAG_KEY;
-                    else
-                    {
-                        /* For the present, treat this frame as a keyframe. */
-                        video_info[video_sample_count].keyframe = 1;
-                        last_keyframe_pts = pkt.pts;
-                    }
+                    /* For the present, treat this frame as a keyframe. */
+                    video_info[video_sample_count].keyframe = 1;
+                    last_keyframe_pts = pkt.pts;
                 }
+                /* Set maximum resolution. */
                 if( vdhp->max_width  < pkt_ctx->width )
                     vdhp->max_width  = pkt_ctx->width;
                 if( vdhp->max_height < pkt_ctx->height )
@@ -619,13 +801,30 @@ static void create_index
                     video_info = temp;
                 }
             }
+            /* Set width, height and pixel_format for the current extradata. */
+            if( extradata_index >= 0 )
+            {
+                lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)pkt_ctx->opaque;
+                lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
+                if( entry->width  == 0 )
+                    entry->width  = pkt_ctx->width;
+                if( entry->height == 0 )
+                    entry->height = pkt_ctx->height;
+                if( entry->pixel_format == AV_PIX_FMT_NONE )
+                    entry->pixel_format = pkt_ctx->pix_fmt;
+                if( entry->bits_per_sample == 0 )
+                    entry->bits_per_sample = pkt_ctx->bits_per_coded_sample;
+                if( entry->codec_id == AV_CODEC_ID_NONE )
+                    entry->codec_id = pkt_ctx->codec_id;
+                if( entry->codec_tag == 0 )
+                    entry->codec_tag = pkt_ctx->codec_tag;
+            }
             /* Write a video packet info to the index file. */
-            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
                          "Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
-                         format_ctx->streams[ pkt.stream_index ]->time_base.num,
-                         format_ctx->streams[ pkt.stream_index ]->time_base.den,
-                         pkt.pos, pkt.pts, pkt.dts,
+                         stream->time_base.num, stream->time_base.den,
+                         pkt.pos, pkt.pts, pkt.dts, extradata_index,
                          !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
@@ -660,8 +859,8 @@ static void create_index
                                 : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3;
             uint32_t *delay_count = &audio_delay_count[ pkt.stream_index ];
             /* Get frame_length. */
-            frame_length = format_ctx->streams[ pkt.stream_index ]->parser
-                         ? format_ctx->streams[ pkt.stream_index ]->parser->duration
+            frame_length = stream->parser
+                         ? stream->parser->duration
                          : pkt_ctx->frame_size;
             if( frame_length == 0 )
             {
@@ -699,11 +898,12 @@ static void create_index
                 {
                     /* Set up audio frame info. */
                     ++audio_sample_count;
-                    audio_info[audio_sample_count].pts           = pkt.pts;
-                    audio_info[audio_sample_count].dts           = pkt.dts;
-                    audio_info[audio_sample_count].file_offset   = pkt.pos;
-                    audio_info[audio_sample_count].sample_number = audio_sample_count;
-                    audio_info[audio_sample_count].sample_rate   = pkt_ctx->sample_rate;
+                    audio_info[audio_sample_count].pts             = pkt.pts;
+                    audio_info[audio_sample_count].dts             = pkt.dts;
+                    audio_info[audio_sample_count].file_offset     = pkt.pos;
+                    audio_info[audio_sample_count].sample_number   = audio_sample_count;
+                    audio_info[audio_sample_count].extradata_index = extradata_index;
+                    audio_info[audio_sample_count].sample_rate     = pkt_ctx->sample_rate;
                     if( frame_length != -1 && audio_sample_count > *delay_count )
                     {
                         uint32_t audio_frame_number = audio_sample_count - *delay_count;
@@ -734,13 +934,32 @@ static void create_index
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
                 }
             }
+            /* Set channel_layout, sample_rate, sample_format and bits_per_sample for the current extradata. */
+            if( extradata_index >= 0 )
+            {
+                lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)pkt_ctx->opaque;
+                lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
+                if( entry->channel_layout == 0 )
+                    entry->channel_layout = pkt_ctx->channel_layout;
+                if( entry->sample_rate == 0 )
+                    entry->sample_rate = pkt_ctx->sample_rate;
+                if( entry->sample_format == AV_SAMPLE_FMT_NONE )
+                    entry->sample_format = pkt_ctx->sample_fmt;
+                if( entry->bits_per_sample == 0 )
+                    entry->bits_per_sample = bits_per_sample;
+                if( entry->block_align == 0 )
+                    entry->block_align = pkt_ctx->block_align;
+                if( entry->codec_id == AV_CODEC_ID_NONE )
+                    entry->codec_id = pkt_ctx->codec_id;
+                if( entry->codec_tag == 0 )
+                    entry->codec_tag = pkt_ctx->codec_tag;
+            }
             /* Write an audio packet info to the index file. */
-            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
                          "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                         format_ctx->streams[ pkt.stream_index ]->time_base.num,
-                         format_ctx->streams[ pkt.stream_index ]->time_base.den,
-                         pkt.pos, pkt.pts, pkt.dts,
+                         stream->time_base.num, stream->time_base.den,
+                         pkt.pos, pkt.pts, pkt.dts, extradata_index,
                          pkt_ctx->channels, pkt_ctx->channel_layout, pkt_ctx->sample_rate,
                          av_get_sample_fmt_name( pkt_ctx->sample_fmt ) ? av_get_sample_fmt_name( pkt_ctx->sample_fmt ) : "none",
                          bits_per_sample, frame_length );
@@ -754,7 +973,7 @@ static void create_index
             int percent = first_dts == AV_NOPTS_VALUE || pkt.dts == AV_NOPTS_VALUE
                         ? 0
                         : (int)(100.0 * (pkt.dts - first_dts)
-                             * (format_ctx->streams[ pkt.stream_index ]->time_base.num / (double)format_ctx->streams[ pkt.stream_index ]->time_base.den)
+                             * (stream->time_base.num / (double)stream->time_base.den)
                              / (format_ctx->duration / AV_TIME_BASE) + 0.5);
             int abort = indicator->update( php, message, percent );
             av_free_packet( &pkt );
@@ -807,12 +1026,12 @@ static void create_index
                         if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                             constant_frame_length = 0;
                     }
-                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64"\n"
+                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
                                  "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
                                  stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                                  format_ctx->streams[stream_index]->time_base.num,
                                  format_ctx->streams[stream_index]->time_base.den,
-                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
+                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
                                  0, 0, 0, "none", 0, frame_length );
                 }
             }
@@ -827,11 +1046,12 @@ static void create_index
             audio_sample_count = video_info ? MIN( video_sample_count, audio_sample_count ) : 0;
             for( uint32_t i = 1; i <= audio_sample_count; i++ )
             {
-                audio_info[i].keyframe      = video_info[i].keyframe;
-                audio_info[i].sample_number = video_info[i].sample_number;
-                audio_info[i].pts           = video_info[i].pts;
-                audio_info[i].dts           = video_info[i].dts;
-                audio_info[i].file_offset   = video_info[i].file_offset;
+                audio_info[i].keyframe        = video_info[i].keyframe;
+                audio_info[i].sample_number   = video_info[i].sample_number;
+                audio_info[i].pts             = video_info[i].pts;
+                audio_info[i].dts             = video_info[i].dts;
+                audio_info[i].file_offset     = video_info[i].file_offset;
+                audio_info[i].extradata_index = video_info[i].extradata_index;
             }
         }
         else
@@ -906,7 +1126,37 @@ static void create_index
             print_index( index, "</StreamIndexEntries>\n" );
         }
     }
+    for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+    {
+        AVStream *stream = format_ctx->streams[stream_index];
+        if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO || stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
+        {
+            lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)stream->codec->opaque;
+            void (*write_av_extradata)( FILE *, lwlibav_extradata_t * ) = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
+                                                                        ? write_video_extradata
+                                                                        : write_audio_extradata;
+            print_index( index, "<ExtraDataList=%d,%d,%d>\n", stream_index, stream->codec->codec_type, list->entry_count );
+            if( (stream->codec->codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index)
+             || (stream->codec->codec_type == AVMEDIA_TYPE_AUDIO && stream_index == adhp->stream_index) )
+            {
+                for( int i = 0; i < list->entry_count; i++ )
+                    write_av_extradata( index, &list->entries[i] );
+                lwlibav_extradata_handler_t *exhp = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO ? &vdhp->exh : &adhp->exh;
+                exhp->entry_count   = list->entry_count;
+                exhp->entries       = list->entries;
+                exhp->current_index = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
+                                    ? video_info[1].extradata_index
+                                    : audio_info[1].extradata_index;
+                stream->codec->opaque = NULL;
+            }
+            else
+                for( int i = 0; i < list->entry_count; i++ )
+                    write_av_extradata( index, &list->entries[i] );
+            print_index( index, "</ExtraDataList>\n" );
+        }
+    }
     print_index( index, "</LibavReaderIndexFile>\n" );
+    cleanup_extradata_handlers( format_ctx );
     if( index )
         fclose( index );
     if( indicator->close )
@@ -915,6 +1165,7 @@ static void create_index
     adhp->format = NULL;
     return;
 fail_index:
+    cleanup_extradata_handlers( format_ctx );
     free( video_info );
     free( audio_info );
     if( audio_delay_count )
@@ -1002,12 +1253,13 @@ static int parse_index
         int stream_index;
         int codec_type;
         int codec_id;
+        int extradata_index;
         AVRational time_base;
         int64_t pos;
         int64_t pts;
         int64_t dts;
-        if( sscanf( buf, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"SCNd64",PTS=%"SCNd64",DTS=%"SCNd64,
-                    &stream_index, &codec_type, &codec_id, &time_base.num, &time_base.den, &pos, &pts, &dts ) != 8 )
+        if( sscanf( buf, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"SCNd64",PTS=%"SCNd64",DTS=%"SCNd64",EDI=%d",
+                    &stream_index, &codec_type, &codec_id, &time_base.num, &time_base.den, &pos, &pts, &dts, &extradata_index ) != 9 )
             break;
         if( codec_type == AVMEDIA_TYPE_VIDEO )
         {
@@ -1060,10 +1312,11 @@ static int parse_index
                     video_time_base.den = time_base.den;
                 }
                 ++video_sample_count;
-                video_info[video_sample_count].pts           = pts;
-                video_info[video_sample_count].dts           = dts;
-                video_info[video_sample_count].file_offset   = pos;
-                video_info[video_sample_count].sample_number = video_sample_count;
+                video_info[video_sample_count].pts             = pts;
+                video_info[video_sample_count].dts             = dts;
+                video_info[video_sample_count].file_offset     = pos;
+                video_info[video_sample_count].sample_number   = video_sample_count;
+                video_info[video_sample_count].extradata_index = extradata_index;
                 if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( key )
@@ -1117,16 +1370,17 @@ static int parse_index
                     aohp->output_sample_rate     = MAX( aohp->output_sample_rate, audio_sample_rate );
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
                     ++audio_sample_count;
-                    audio_info[audio_sample_count].pts           = pts;
-                    audio_info[audio_sample_count].dts           = dts;
-                    audio_info[audio_sample_count].file_offset   = pos;
-                    audio_info[audio_sample_count].sample_number = audio_sample_count;
-                    audio_info[audio_sample_count].sample_rate   = sample_rate;
+                    audio_info[audio_sample_count].pts             = pts;
+                    audio_info[audio_sample_count].dts             = dts;
+                    audio_info[audio_sample_count].file_offset     = pos;
+                    audio_info[audio_sample_count].sample_number   = audio_sample_count;
+                    audio_info[audio_sample_count].extradata_index = extradata_index;
+                    audio_info[audio_sample_count].sample_rate     = sample_rate;
                 }
                 else
-                    for( uint32_t i = 1; i <= adhp->delay_count; i++ )
+                    for( uint32_t i = 1; i <= adhp->exh.delay_count; i++ )
                     {
-                        uint32_t audio_frame_number = audio_sample_count - adhp->delay_count + i;
+                        uint32_t audio_frame_number = audio_sample_count - adhp->exh.delay_count + i;
                         if( audio_frame_number > audio_sample_count )
                             goto fail_parsing;
                         audio_info[audio_frame_number].length = frame_length;
@@ -1143,10 +1397,10 @@ static int parse_index
                     audio_info = temp;
                 }
                 if( frame_length == -1 )
-                    ++ adhp->delay_count;
-                else if( audio_sample_count > adhp->delay_count )
+                    ++ adhp->exh.delay_count;
+                else if( audio_sample_count > adhp->exh.delay_count )
                 {
-                    uint32_t audio_frame_number = audio_sample_count - adhp->delay_count;
+                    uint32_t audio_frame_number = audio_sample_count - adhp->exh.delay_count;
                     audio_info[audio_frame_number].length = frame_length;
                     if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                         constant_frame_length = 0;
@@ -1176,13 +1430,7 @@ static int parse_index
             goto fail_parsing;
         if( index_entries_count > 0 )
         {
-            if( stream_index != vdhp->stream_index && stream_index != adhp->stream_index )
-            {
-                for( int i = 0; i < index_entries_count; i++ )
-                    if( !fgets( buf, sizeof(buf), index ) )
-                        goto fail_parsing;
-            }
-            else if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index )
+            if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index )
             {
                 vdhp->index_entries_count = index_entries_count;
                 vdhp->index_entries = (AVIndexEntry *)av_malloc( vdhp->index_entries_count * sizeof(AVIndexEntry) );
@@ -1224,12 +1472,101 @@ static int parse_index
                         goto fail_parsing;
                 }
             }
+            else
+                for( int i = 0; i < index_entries_count; i++ )
+                    if( !fgets( buf, sizeof(buf), index ) )
+                        goto fail_parsing;
         }
         if( strncmp( buf, "</StreamIndexEntries>", strlen( "</StreamIndexEntries>" ) ) )
             goto fail_parsing;
         if( !fgets( buf, sizeof(buf), index ) )
             goto fail_parsing;
-        ++stream_index;
+    }
+    /* Parse extradata. */
+    while( !strncmp( buf, "<ExtraDataList=", strlen( "<ExtraDataList=" ) ) )
+    {
+        int stream_index;
+        int codec_type;
+        int entry_count;
+        if( sscanf( buf, "<ExtraDataList=%d,%d,%d>", &stream_index, &codec_type, &entry_count ) != 3 )
+            goto fail_parsing;
+        if( !fgets( buf, sizeof(buf), index ) )
+            goto fail_parsing;
+        if( entry_count > 0 )
+        {
+            if( (codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index)
+             || (codec_type == AVMEDIA_TYPE_AUDIO && stream_index == adhp->stream_index) )
+            {
+                lwlibav_extradata_handler_t *exhp = codec_type == AVMEDIA_TYPE_VIDEO ? &vdhp->exh : &adhp->exh;
+                if( !alloc_extradata_entries( exhp, entry_count ) )
+                    goto fail_parsing;
+                exhp->current_index = codec_type == AVMEDIA_TYPE_VIDEO
+                                    ? video_info[1].extradata_index
+                                    : audio_info[1].extradata_index;
+                for( int i = 0; i < exhp->entry_count; i++ )
+                {
+                    lwlibav_extradata_t *entry = &exhp->entries[i];
+                    /* Get extradata size and others. */
+                    int codec_id;
+                    if( codec_type == AVMEDIA_TYPE_VIDEO )
+                    {
+                        char pix_fmt[64];
+                        if( sscanf( buf, "Size=%d,Codec=%d,4CC=0x%x,Width=%d,Height=%d,Format=%[^,],BPS=%d",
+                                    &entry->extradata_size, &codec_id, &entry->codec_tag,
+                                    &entry->width, &entry->height,
+                                    pix_fmt, &entry->bits_per_sample ) != 7 )
+                            break;
+                        entry->pixel_format = av_get_pix_fmt( (const char *)pix_fmt );
+                    }
+                    else
+                    {
+                        char sample_fmt[64];
+                        if( sscanf( buf, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%"SCNx64",Rate=%d,Format=%[^,],BPS=%d,Align=%d",
+                                    &entry->extradata_size, &codec_id, &entry->codec_tag,
+                                    &entry->channel_layout, &entry->sample_rate,
+                                    sample_fmt, &entry->bits_per_sample, &entry->block_align ) != 8 )
+                            break;
+                        entry->sample_format = av_get_sample_fmt( (const char *)sample_fmt );
+                    }
+                    entry->codec_id = (enum AVCodecID)codec_id;
+                    /* Get extradata. */
+                    if( entry->extradata_size > 0 )
+                    {
+                        entry->extradata = (uint8_t *)av_malloc( entry->extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
+                        if( !entry->extradata )
+                            goto fail_parsing;
+                        if( fread( entry->extradata, 1, entry->extradata_size, index ) != entry->extradata_size )
+                        {
+                            av_free( entry->extradata );
+                            goto fail_parsing;
+                        }
+                        memset( entry->extradata + entry->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
+                    }
+                    if( !fgets( buf, sizeof(buf), index )   /* new line ('\n') */
+                     || !fgets( buf, sizeof(buf), index ) ) /* the first line of the next entry */
+                        goto fail_parsing;
+                }
+            }
+            else
+                for( int i = 0; i < entry_count; i++ )
+                {
+                    /* extradata size */
+                    int extradata_size;
+                    if( sscanf( buf, "Size=%d", &extradata_size ) != 1 )
+                        goto fail_parsing;
+                    /* extradata */
+                    for( int i = 0; i < extradata_size; i++ )
+                        if( fgetc( index ) == EOF )
+                            goto fail_parsing;
+                    if( !fgets( buf, sizeof(buf), index )   /* new line ('\n') */
+                     || !fgets( buf, sizeof(buf), index ) ) /* the first line of the next entry */
+                        goto fail_parsing;
+                }
+        }
+        if( strncmp( buf, "</ExtraDataList>", strlen( "</ExtraDataList>" ) ) )
+            goto fail_parsing;
+        if( !fgets( buf, sizeof(buf), index ) )
+            goto fail_parsing;
     }
     if( !strncmp( buf, "</LibavReaderIndexFile>", strlen( "</LibavReaderIndexFile>" ) ) )
     {
@@ -1253,11 +1590,12 @@ static int parse_index
                 audio_sample_count = MIN( video_sample_count, audio_sample_count );
                 for( uint32_t i = 0; i <= audio_sample_count; i++ )
                 {
-                    audio_info[i].keyframe      = video_info[i].keyframe;
-                    audio_info[i].sample_number = video_info[i].sample_number;
-                    audio_info[i].pts           = video_info[i].pts;
-                    audio_info[i].dts           = video_info[i].dts;
-                    audio_info[i].file_offset   = video_info[i].file_offset;
+                    audio_info[i].keyframe        = video_info[i].keyframe;
+                    audio_info[i].sample_number   = video_info[i].sample_number;
+                    audio_info[i].pts             = video_info[i].pts;
+                    audio_info[i].dts             = video_info[i].dts;
+                    audio_info[i].file_offset     = video_info[i].file_offset;
+                    audio_info[i].extradata_index = video_info[i].extradata_index;
                 }
             }
             else

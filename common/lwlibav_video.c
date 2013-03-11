@@ -210,17 +210,18 @@ static int decode_video_sample
     lwlibav_video_decode_handler_t *vdhp,
     AVFrame                        *picture,
     int                            *got_picture,
-    uint32_t                        sample_number
+    uint32_t                        frame_number
 )
 {
     AVPacket *pkt = &vdhp->packet;
-    if( lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, pkt ) )
-        return 1;
+    int ret = lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, frame_number, pkt );
+    if( ret )
+        return ret;
     if( pkt->flags & AV_PKT_FLAG_KEY )
-        vdhp->last_rap_number = sample_number;
+        vdhp->last_rap_number = frame_number;
     avcodec_get_frame_defaults( picture );
     int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
-    int ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, pkt );
+    ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, pkt );
     picture->pts = pts;
     if( ret < 0 )
     {
@@ -286,16 +287,22 @@ static uint32_t seek_video
 )
 {
     /* Prepare to decode from random accessible sample. */
-    flush_buffers( vdhp->ctx, &vdhp->eh );
+    lwlibav_extradata_handler_t *exhp = &vdhp->exh;
+    int extradata_index = vdhp->frame_list[rap_number].extradata_index;
+    if( extradata_index != exhp->current_index )
+        /* Update the decoder configuration. */
+        lwlibav_update_configuration( (lwlibav_decode_handler_t *)vdhp, rap_number, extradata_index, rap_pos );
+    else
+        lwlibav_flush_buffers( (lwlibav_decode_handler_t *)vdhp );
     if( vdhp->eh.error )
         return 0;
     if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
         av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
-    vdhp->delay_count = 0;
     int dummy;
     int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t i;
-    for( i = rap_number; i < presentation_sample_number + get_decoder_delay( vdhp->ctx ); i++ )
+    uint32_t decoder_delay = get_decoder_delay( vdhp->ctx );
+    for( i = rap_number; i < presentation_sample_number + decoder_delay; i++ )
     {
         int ret = decode_video_sample( vdhp, picture, &dummy, i );
         /* Some decoders return -1 when feeding a leading sample.
@@ -310,10 +317,11 @@ static uint32_t seek_video
 #endif
             return 0;
         }
-        else if( ret == 1 )
-            break;      /* Sample doesn't exist. */
+        else if( ret >= 1 )
+            /* No decoding occurs. */
+            break;
     }
-    vdhp->delay_count = MIN( get_decoder_delay( vdhp->ctx ), i - rap_number );
+    vdhp->exh.delay_count = MIN( decoder_delay, i - rap_number );
     return i;
 }
 
@@ -336,7 +344,7 @@ static int get_picture
             break;      /* Sample doesn't exist. */
         ++current;
         if( !got_picture )
-            ++ vdhp->delay_count;
+            ++ vdhp->exh.delay_count;
     }
     /* Flush the last frames. */
     if( current > video_sample_count && get_decoder_delay( vdhp->ctx ) )
@@ -376,14 +384,14 @@ int lwlibav_get_video_frame
     if( frame_number > vdhp->last_frame_number
      && frame_number <= vdhp->last_frame_number + vdhp->forward_seek_threshold )
     {
-        start_number = vdhp->last_frame_number + 1 + vdhp->delay_count;
+        start_number = vdhp->last_frame_number + 1 + vdhp->exh.delay_count;
         rap_number   = vdhp->last_rap_number;
     }
     else
     {
         lwlibav_find_random_accessible_point( vdhp, frame_number, 0, &rap_number );
         if( rap_number == vdhp->last_rap_number && frame_number > vdhp->last_frame_number )
-            start_number = vdhp->last_frame_number + 1 + vdhp->delay_count;
+            start_number = vdhp->last_frame_number + 1 + vdhp->exh.delay_count;
         else
         {
             /* Require starting to decode from random accessible sample. */
@@ -394,7 +402,8 @@ int lwlibav_get_video_frame
     }
     /* Get desired picture. */
     int error_count = 0;
-    while( start_number == 0 || get_picture( vdhp, picture, start_number, frame_number + vdhp->delay_count, frame_count ) )
+    while( start_number == 0
+        || get_picture( vdhp, picture, start_number, frame_number + vdhp->exh.delay_count, frame_count ) < 0 )
     {
         /* Failed to get desired picture. */
         if( vdhp->eh.error || seek_mode == SEEK_MODE_AGGRESSIVE )
@@ -429,6 +438,14 @@ video_fail:
 
 void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp )
 {
+    lwlibav_extradata_handler_t *exhp = &vdhp->exh;
+    if( exhp->entries )
+    {
+        for( int i = 0; i < exhp->entry_count; i++ )
+            if( exhp->entries[i].extradata )
+                av_free( exhp->entries[i].extradata );
+        free( exhp->entries );
+    }
     av_free_packet( &vdhp->packet );
     if( vdhp->frame_list )
         lw_freep( &vdhp->frame_list );
@@ -447,4 +464,70 @@ void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp 
     }
     if( vdhp->format )
         lavf_close_file( &vdhp->format );
+}
+
+void set_video_basic_settings
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number
+)
+{
+    lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)dhp;
+    AVCodecContext *ctx = vdhp->format->streams[ vdhp->stream_index ]->codec;
+    lwlibav_extradata_t *entry = &vdhp->exh.entries[ vdhp->frame_list[frame_number].extradata_index ];
+    ctx->width                 = entry->width;
+    ctx->height                = entry->height;
+    ctx->pix_fmt               = entry->pixel_format;
+    ctx->bits_per_coded_sample = entry->bits_per_sample;
+}
+
+int try_decode_video_frame
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number,
+    int64_t                   rap_pos,
+    char                     *error_string
+)
+{
+    AVFrame *picture = avcodec_alloc_frame();
+    if( !picture )
+    {
+        strcpy( error_string, "Failed to alloc AVFrame to set up a decoder configuration.\n" );
+        return -1;
+    }
+    lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)dhp;
+    AVFormatContext *format_ctx   = vdhp->format;
+    int              stream_index = vdhp->stream_index;
+    AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
+    if( av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->seek_flags ) < 0 )
+        av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+    do
+    {
+        if( frame_number > vdhp->frame_count )
+            break;
+        /* Get a frame. */
+        AVPacket pkt = { 0 };
+        int extradata_index = vdhp->frame_list[frame_number].extradata_index;
+        if( extradata_index != vdhp->exh.current_index )
+            break;
+        int ret = lwlibav_get_av_frame( format_ctx, stream_index, frame_number, &pkt );
+        if( ret > 0 )
+            break;
+        else if( ret < 0 )
+        {
+            if( ctx->pix_fmt == AV_PIX_FMT_NONE )
+                strcpy( error_string, "Failed to set up pixel format.\n" );
+            else
+                strcpy( error_string, "Failed to set up resolution.\n" );
+            avcodec_free_frame( &picture );
+            return -1;
+        }
+        /* Try decode a frame. */
+        avcodec_get_frame_defaults( picture );
+        int dummy;
+        avcodec_decode_video2( ctx, picture, &dummy, &pkt );
+        ++frame_number;
+    } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
+    avcodec_free_frame( &picture );
+    return 0;
 }

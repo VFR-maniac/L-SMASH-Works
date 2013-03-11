@@ -24,33 +24,36 @@ typedef lw_audio_output_handler_t lwlibav_audio_output_handler_t;
 
 typedef struct
 {
-    int      length;
-    int      keyframe;
-    int      sample_rate;
-    uint32_t sample_number;
     int64_t  pts;
     int64_t  dts;
     int64_t  file_offset;
+    uint32_t sample_number;
+    int      extradata_index;
+    uint8_t  keyframe;
+    int      length;
+    int      sample_rate;
 } audio_frame_info_t;
 
 typedef struct
 {
+    /* common */
     AVFormatContext    *format;
     int                 stream_index;
-    /* */
     error_handler_t     eh;
+    lwlibav_extradata_handler_t exh;
     AVCodecContext     *ctx;
     AVIndexEntry       *index_entries;
     int                 index_entries_count;
-    int                 dv_in_avi;      /* 1 = 'DV in AVI Type-1', 0 = otherwise */
     int                 seek_base;
+    int                 seek_flags;     /* unused */
+    int                 dv_in_avi;      /* 1 = 'DV in AVI Type-1', 0 = otherwise */
     enum AVCodecID      codec_id;
     uint32_t            frame_count;
-    uint32_t            delay_count;
-    AVPacket            packet;         /* for getting and freeing */
-    AVPacket            alter_packet;   /* for consumed by the decoder instead of 'packet'. */
     AVFrame            *frame_buffer;
     audio_frame_info_t *frame_list;
+    /* */
+    AVPacket            packet;         /* for getting and freeing */
+    AVPacket            alter_packet;   /* for consumed by the decoder instead of 'packet'. */
     uint32_t            frame_length;
     uint32_t            last_frame_number;
     uint64_t            next_pcm_sample_number;

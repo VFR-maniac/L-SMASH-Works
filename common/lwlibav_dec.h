@@ -31,6 +31,52 @@ typedef struct
     void (*error_message)( void *message_priv, const char *message, ... );
 } error_handler_t;
 
+typedef struct
+{
+    uint8_t            *extradata;
+    int                 extradata_size;
+    /* Codec identifier */
+    enum AVCodecID      codec_id;
+    unsigned int        codec_tag;
+    /* Video */
+    int                 width;
+    int                 height;
+    enum AVPixelFormat  pixel_format;
+    /* Audio */
+    uint64_t            channel_layout;
+    enum AVSampleFormat sample_format;
+    int                 sample_rate;
+    int                 bits_per_sample;
+    int                 block_align;
+} lwlibav_extradata_t;
+
+typedef struct
+{
+    int                  current_index;
+    int                  entry_count;
+    lwlibav_extradata_t *entries;
+    uint32_t             delay_count;
+} lwlibav_extradata_handler_t;
+
+typedef struct
+{
+    /* common */
+    AVFormatContext            *format;
+    int                         stream_index;
+    error_handler_t             eh;
+    lwlibav_extradata_handler_t exh;
+    AVCodecContext             *ctx;
+    AVIndexEntry               *index_entries;
+    int                         index_entries_count;
+    int                         seek_base;
+    int                         seek_flags;
+    int                         dv_in_avi;
+    enum AVCodecID              codec_id;
+    uint32_t                    frame_count;
+    AVFrame                    *frame_buffer;
+    void                       *frame_list;
+} lwlibav_decode_handler_t;
+
 static inline int lavf_open_file
 (
     AVFormatContext **format_ctx,
@@ -95,29 +141,50 @@ static inline int read_av_frame
     } while( 1 );
 }
 
-static inline void flush_buffers
+void lwlibav_flush_buffers
 (
-    AVCodecContext  *ctx,
-    error_handler_t *ehp
-)
-{
-    /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
-     * It seems this brings about more stable composition when seeking. */
-    const AVCodec *codec = ctx->codec;
-    avcodec_close( ctx );
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        ehp->error = 1;
-        if( ehp->error_message )
-            ehp->error_message( ehp->message_priv,
-                                "Failed to flush buffers.\n"
-                                "It is recommended you reopen the file." );
-    }
-}
+    lwlibav_decode_handler_t *dhp
+);
 
 int lwlibav_get_av_frame
 (
     AVFormatContext *format_ctx,
     int              stream_index,
+    uint32_t         frame_number,
     AVPacket        *pkt
+);
+
+void lwlibav_update_configuration
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number,
+    int                       extradata_index,
+    int64_t                   rap_pos
+);
+
+void set_video_basic_settings
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number
+);
+
+void set_audio_basic_settings
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number
+);
+
+int try_decode_video_frame
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number,
+    int64_t                   rap_pos,
+    char                     *error_string
+);
+
+int try_decode_audio_frame
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number,
+    char                     *error_string
 );

@@ -147,12 +147,12 @@ void LWLibavVideoSource::prepare_video_decoding
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vdh.ctx ); i++ )
     {
         AVPacket *pkt = &vdh.packet;
-        lwlibav_get_av_frame( vdh.format, vdh.stream_index, pkt );
+        lwlibav_get_av_frame( vdh.format, vdh.stream_index, i, pkt );
         avcodec_get_frame_defaults( vdh.frame_buffer );
         int got_picture;
         if( avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
         {
-            voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.delay_count );
+            voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.exh.delay_count );
             if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
             {
                 PVideoFrame temp = env->NewVideoFrame( vi );
@@ -167,7 +167,7 @@ void LWLibavVideoSource::prepare_video_decoding
             break;
         }
         else if( pkt->data )
-            ++ vdh.delay_count;
+            ++ vdh.exh.delay_count;
     }
     vdh.last_frame_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
 }

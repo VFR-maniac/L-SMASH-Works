@@ -151,6 +151,24 @@ static int find_start_audio_frame
     return frame_number;
 }
 
+static uint32_t get_audio_rap
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    uint32_t                        frame_number
+)
+{
+    if( frame_number > adhp->frame_count )
+        return 0;
+    /* Get an unique value of the closest past audio keyframe. */
+    uint32_t rap_number = frame_number;
+    while( rap_number && !adhp->frame_list[rap_number].keyframe )
+        --rap_number;
+    if( rap_number == 0 )
+        rap_number = 1;
+    return rap_number;
+}
+
+/* This function seeks the requested frame and get it. */
 static void seek_audio
 (
     lwlibav_audio_decode_handler_t *adhp,
@@ -158,12 +176,9 @@ static void seek_audio
     AVPacket                       *pkt
 )
 {
-    /* Get an unique value of the closest past audio keyframe. */
-    uint32_t rap_number = frame_number;
-    while( rap_number && !adhp->frame_list[rap_number].keyframe )
-        --rap_number;
+    uint32_t rap_number = get_audio_rap( adhp, frame_number );
     if( rap_number == 0 )
-        rap_number = 1;
+        return;
     int64_t rap_pos = (adhp->seek_base & SEEK_FILE_OFFSET_BASED) ? adhp->frame_list[rap_number].file_offset
                     : (adhp->seek_base & SEEK_PTS_BASED)         ? adhp->frame_list[rap_number].pts
                     : (adhp->seek_base & SEEK_DTS_BASED)         ? adhp->frame_list[rap_number].dts
@@ -177,7 +192,7 @@ static void seek_audio
     /* Seek to the target audio frame and get it. */
     for( uint32_t i = rap_number; i <= frame_number; )
     {
-        if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt ) )
+        if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, i, pkt ) )
             break;
         if( i == rap_number
          && (((adhp->seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || adhp->frame_list[i].file_offset > pkt->pos))
@@ -230,13 +245,12 @@ uint64_t lwlibav_get_pcm_audio_samples
                                         "It is recommended you reopen the file." );
             return 0;
         }
-        flush_buffers( adhp->ctx, &adhp->eh );
         av_free_packet( pkt );
         if( adhp->eh.error )
             return 0;
-        adhp->delay_count            = 0;
         adhp->next_pcm_sample_number = 0;
         adhp->last_frame_number      = 0;
+        /* Get frame_number. */
         uint64_t start_frame_pos;
         if( start >= 0 )
             start_frame_pos = start;
@@ -249,6 +263,19 @@ uint64_t lwlibav_get_pcm_audio_samples
             start_frame_pos = 0;
         }
         frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
+        /* Flush audio decoder buffers. */
+        lwlibav_extradata_handler_t *exhp = &adhp->exh;
+        int extradata_index = adhp->frame_list[frame_number].extradata_index;
+        if( extradata_index != exhp->current_index )
+        {
+            /* Update the extradata. */
+            uint32_t rap_number = get_audio_rap( adhp, frame_number );
+            assert( rap_number != 0 );
+            lwlibav_update_configuration( (lwlibav_decode_handler_t *)adhp, rap_number, extradata_index, 0 );
+        }
+        else
+            lwlibav_flush_buffers( (lwlibav_decode_handler_t *)adhp );
+        /* Seek and get a audio packet. */
         seek_audio( adhp, frame_number, pkt );
         already_gotten = 1;
     }
@@ -262,14 +289,14 @@ uint64_t lwlibav_get_pcm_audio_samples
         else if( frame_number > adhp->frame_count )
         {
             av_free_packet( pkt );
-            if( adhp->delay_count )
+            if( adhp->exh.delay_count )
             {
                 /* Null packet */
                 av_init_packet( pkt );
                 pkt->data = NULL;
                 pkt->size = 0;
                 *alter_pkt = *pkt;
-                -- adhp->delay_count;
+                -- adhp->exh.delay_count;
             }
             else
                 goto audio_out;
@@ -277,14 +304,14 @@ uint64_t lwlibav_get_pcm_audio_samples
         else if( alter_pkt->size <= 0 )
         {
             /* Getting an audio packet must be after flushing all remaining samples in resampler's FIFO buffer. */
-            lwlibav_get_av_frame( adhp->format, adhp->stream_index, pkt );
+            lwlibav_get_av_frame( adhp->format, adhp->stream_index, frame_number, pkt );
             *alter_pkt = *pkt;
         }
         /* Decode and output from an audio packet. */
         output_flags   = AUDIO_OUTPUT_NO_FLAGS;
         output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, alter_pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_DECODER_DELAY )
-            ++ adhp->delay_count;
+            ++ adhp->exh.delay_count;
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
             adhp->eh.error = 1;
@@ -306,6 +333,14 @@ audio_out:
 
 void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp )
 {
+    lwlibav_extradata_handler_t *exhp = &adhp->exh;
+    if( exhp->entries )
+    {
+        for( int i = 0; i < exhp->entry_count; i++ )
+            if( exhp->entries[i].extradata )
+                av_free( exhp->entries[i].extradata );
+        free( exhp->entries );
+    }
     av_free_packet( &adhp->packet );
     if( adhp->index_entries )
         av_freep( &adhp->index_entries );
@@ -326,4 +361,85 @@ void lwlibav_cleanup_audio_output_handler( lwlibav_audio_output_handler_t *aohp 
         av_freep( &aohp->resampled_buffer );
     if( aohp->avr_ctx )
         avresample_free( &aohp->avr_ctx );
+}
+
+void set_audio_basic_settings
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number
+)
+{
+    lwlibav_audio_decode_handler_t *adhp = (lwlibav_audio_decode_handler_t *)dhp;
+    AVCodecContext *ctx = adhp->format->streams[ adhp->stream_index ]->codec;
+    lwlibav_extradata_t *entry = &adhp->exh.entries[ adhp->frame_list[frame_number].extradata_index ];
+    ctx->sample_rate           = entry->sample_rate;
+    ctx->channel_layout        = entry->channel_layout;
+    ctx->sample_fmt            = entry->sample_format;
+    ctx->bits_per_coded_sample = entry->bits_per_sample;
+    ctx->block_align           = entry->block_align;
+    ctx->channels              = av_get_channel_layout_nb_channels( ctx->channel_layout );
+}
+
+int try_decode_audio_frame
+(
+    lwlibav_decode_handler_t *dhp,
+    uint32_t                  frame_number,
+    char                     *error_string
+)
+{
+    AVFrame *picture = avcodec_alloc_frame();
+    if( !picture )
+    {
+        strcpy( error_string, "Failed to alloc AVFrame to set up a decoder configuration.\n" );
+        return -1;
+    }
+    lwlibav_audio_decode_handler_t *adhp = (lwlibav_audio_decode_handler_t *)dhp;
+    AVFormatContext *format_ctx   = adhp->format;
+    int              stream_index = adhp->stream_index;
+    AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
+    uint32_t         start_frame  = frame_number;
+    do
+    {
+        if( frame_number > adhp->frame_count )
+            break;
+        /* Get a frame. */
+        AVPacket pkt = { 0 };
+        int extradata_index = adhp->frame_list[frame_number].extradata_index;
+        if( extradata_index != adhp->exh.current_index )
+            break;
+        if( frame_number == start_frame )
+            seek_audio( adhp, frame_number, &pkt );
+        else
+        {
+            int ret = lwlibav_get_av_frame( format_ctx, stream_index, frame_number, &pkt );
+            if( ret > 0 )
+                break;
+            else if( ret < 0 )
+            {
+                if( ctx->sample_rate == 0 )
+                    strcpy( error_string, "Failed to set up sample rate.\n" );
+                else if( ctx->channel_layout == 0 && ctx->channels == 0 )
+                    strcpy( error_string, "Failed to set up channels.\n" );
+                else
+                    strcpy( error_string, "Failed to set up sample format.\n" );
+                avcodec_free_frame( &picture );
+                return -1;
+            }
+        }
+        /* Try decode a frame. */
+        avcodec_get_frame_defaults( picture );
+        do
+        {
+            int dummy;
+            int consumed_bytes = avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
+            if( pkt.data )
+            {
+                pkt.size -= consumed_bytes;
+                pkt.data += consumed_bytes;
+            }
+        } while( pkt.size > 0 );
+        ++frame_number;
+    } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
+    avcodec_free_frame( &picture );
+    return 0;
 }

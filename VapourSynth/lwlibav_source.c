@@ -151,12 +151,12 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( vdhp->ctx ); i++ )
     {
         AVPacket *pkt = &vdhp->packet;
-        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, pkt );
+        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, i, pkt );
         avcodec_get_frame_defaults( vdhp->frame_buffer );
         int got_picture;
         if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
         {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->delay_count );
+            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
             if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
             {
                 vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
@@ -169,7 +169,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
             break;
         }
         else if( pkt->data )
-            ++ vdhp->delay_count;
+            ++ vdhp->exh.delay_count;
     }
     vdhp->last_frame_number = vi->numFrames + 1;    /* Force seeking at the first reading. */
     return 0;

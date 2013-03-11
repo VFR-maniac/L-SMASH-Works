@@ -22,12 +22,13 @@
 
 typedef struct
 {
-    uint8_t  keyframe;
-    uint8_t  is_leading;
-    uint32_t sample_number;     /* unique value in decoding order */
     int64_t  pts;
     int64_t  dts;
     int64_t  file_offset;
+    uint32_t sample_number;     /* unique value in decoding order */
+    int      extradata_index;
+    uint8_t  keyframe;
+    uint8_t  is_leading;
 } video_frame_info_t;
 
 typedef struct
@@ -37,31 +38,33 @@ typedef struct
 
 typedef struct
 {
+    /* common */
     AVFormatContext    *format;
     int                 stream_index;
-    uint32_t            forward_seek_threshold;
-    int                 seek_mode;
-    /* */
     error_handler_t     eh;
+    lwlibav_extradata_handler_t exh;
     AVCodecContext     *ctx;
     AVIndexEntry       *index_entries;
     int                 index_entries_count;
-    int                 seek_flags;
     int                 seek_base;
+    int                 seek_flags;
+    int                 dv_in_avi;          /* unused */
+    enum AVCodecID      codec_id;
+    uint32_t            frame_count;
+    AVFrame            *frame_buffer;
+    video_frame_info_t *frame_list;         /* stored in presentation order */
+    /* */
+    uint32_t            forward_seek_threshold;
+    int                 seek_mode;
     int                 max_width;
     int                 max_height;
     int                 initial_width;
     int                 initial_height;
     enum AVPixelFormat  initial_pix_fmt;
     enum AVColorSpace   initial_colorspace;
-    enum AVCodecID      codec_id;
-    uint32_t            frame_count;
-    uint32_t            delay_count;
     AVPacket            packet;
-    AVFrame            *frame_buffer;
     order_converter_t  *order_converter;    /* stored in decoding order */
     uint8_t            *keyframe_list;      /* stored in decoding order */
-    video_frame_info_t *frame_list;         /* stored in presentation order */
     uint32_t            last_frame_number;
     uint32_t            last_rap_number;
 } lwlibav_video_decode_handler_t;
