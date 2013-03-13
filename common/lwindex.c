@@ -193,25 +193,28 @@ static int decide_video_seek_method
 {
     vdhp->seek_base = lineup_seek_base_candidates( lwhp );
     video_frame_info_t *info = vdhp->frame_list;
-    if( vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO
-     || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
-     || vdhp->codec_id == AV_CODEC_ID_VC1
-     || vdhp->codec_id == AV_CODEC_ID_WMV3 )
-        mpeg12_vc1_video_genarate_pts( vdhp );
+    for( uint32_t i = 1; i <= sample_count; i++ )
+        if( info[i].pts == AV_NOPTS_VALUE )
+        {
+            vdhp->seek_base &= ~SEEK_PTS_BASED;
+            break;
+        }
+    if( info[1].dts == AV_NOPTS_VALUE )
+        vdhp->seek_base &= ~SEEK_DTS_BASED;
     else
-    {
-        for( uint32_t i = 1; i <= sample_count; i++ )
-            if( info[i].pts == AV_NOPTS_VALUE )
-            {
-                vdhp->seek_base &= ~SEEK_PTS_BASED;
-                break;
-            }
-        for( uint32_t i = 1; i <= sample_count; i++ )
-            if( info[i].dts == AV_NOPTS_VALUE )
+        for( uint32_t i = 2; i <= sample_count; i++ )
+            if( info[i].dts == AV_NOPTS_VALUE || info[i].dts <= info[i - 1].dts )
             {
                 vdhp->seek_base &= ~SEEK_DTS_BASED;
                 break;
             }
+    if( (vdhp->seek_base & SEEK_DTS_BASED) && !(vdhp->seek_base & SEEK_PTS_BASED)
+     && (vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
+      || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3) )
+    {
+        /* Generate PTS from DTS. */
+        vdhp->seek_base |= SEEK_PTS_BASED;
+        mpeg12_vc1_video_genarate_pts( vdhp );
     }
     if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
     {
