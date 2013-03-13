@@ -48,6 +48,9 @@ typedef struct
     lwlibav_extradata_handler_t exh;
     int                         own_parser;
     AVCodecParserContext       *parser_ctx;
+    AVFrame                    *picture;
+    uint32_t                    delay_count;
+    int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
 } lwindex_helper_t;
 
 typedef struct
@@ -165,7 +168,7 @@ static void mpeg12_vc1_video_genarate_pts
             *last_pts = info[ vdhp->frame_count ].dts + duration;
         }
         /* Check leading B-pictures. */
-        int64_t  last_keyframe_pts = AV_NOPTS_VALUE;
+        int64_t last_keyframe_pts = AV_NOPTS_VALUE;
         for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
         {
             if( info[i].pts       != AV_NOPTS_VALUE
@@ -433,7 +436,11 @@ static int64_t calculate_av_gap
     return 0;
 }
 
-static lwlibav_extradata_t *alloc_extradata_entries( lwlibav_extradata_handler_t *exhp, int count )
+static lwlibav_extradata_t *alloc_extradata_entries
+(
+    lwlibav_extradata_handler_t *exhp,
+    int                          count
+)
 {
     assert( count > 0 && count > exhp->entry_count );
     lwlibav_extradata_t *temp = (lwlibav_extradata_t *)realloc( exhp->entries, count * sizeof(lwlibav_extradata_t) );
@@ -463,8 +470,9 @@ static lwlibav_extradata_t *alloc_extradata_entries( lwlibav_extradata_handler_t
 
 static lwindex_helper_t *get_index_helper
 (
-    AVCodecContext    *ctx,
-    AVStream          *stream
+    const char     *format_name,
+    AVCodecContext *ctx,
+    AVStream       *stream
 )
 {
     lwindex_helper_t *helper = (lwindex_helper_t *)ctx->opaque;
@@ -475,15 +483,30 @@ static lwindex_helper_t *get_index_helper
         if( !helper )
             return NULL;
         ctx->opaque = (void *)helper;
-        if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
+        /* VC-1 parser does not work to VC-1 in ASF. */
+        if( (ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3)
+         && !strcmp( format_name, "asf" ) )
         {
-            helper->own_parser = 1;
-            helper->parser_ctx = av_parser_init( ctx->codec_id );
-            if( helper->parser_ctx )
-                helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+            helper->decode  = avcodec_decode_video2;
+            helper->picture = avcodec_alloc_frame();
+            if( !helper->picture )
+            {
+                free( helper );
+                return NULL;
+            }
         }
         else
-            helper->parser_ctx = stream->parser;
+        {
+            if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
+            {
+                helper->own_parser = 1;
+                helper->parser_ctx = av_parser_init( ctx->codec_id );
+                if( helper->parser_ctx )
+                    helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+            }
+            else
+                helper->parser_ctx = stream->parser;
+        }
     }
     return helper;
 }
@@ -604,8 +627,23 @@ static int get_picture_type
     AVPacket         *pkt
 )
 {
-    if( !helper->parser_ctx )
+    if( helper->decode )
+    {
+        /* Get by the decoder. */
+        int got_picture;
+        avcodec_get_frame_defaults( helper->picture );
+        helper->decode( video_ctx, helper->picture, &got_picture, pkt );
+        if( got_picture )
+            return helper->picture->pict_type;
+        else
+        {
+            ++ helper->delay_count;
+            return -1;
+        }
+    }
+    else if( !helper->parser_ctx )
         return 0;
+    /* Get by the parser. */
     if( helper->own_parser )
     {
         uint8_t *dummy;
@@ -739,6 +777,8 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
         lwindex_helper_t *helper = (lwindex_helper_t *)format_ctx->streams[stream_index]->codec->opaque;
         if( helper->own_parser && helper->parser_ctx )
             av_parser_close( helper->parser_ctx );
+        if( helper->picture )
+            avcodec_free_frame( &helper->picture );
         lwlibav_extradata_handler_t *list = &helper->exh;
         if( !list )
             continue;
@@ -850,7 +890,7 @@ static void create_index
             continue;
         if( !av_codec_is_decoder( pkt_ctx->codec ) && open_decoder( pkt_ctx, pkt_ctx->codec_id, lwhp->threads ) )
             continue;
-        lwindex_helper_t *helper = get_index_helper( pkt_ctx, stream );
+        lwindex_helper_t *helper = get_index_helper( lwhp->format_name, pkt_ctx, stream );
         if( !helper )
         {
             av_free_packet( &pkt );
@@ -1121,6 +1161,35 @@ static void create_index
         }
         else
             av_free_packet( &pkt );
+    }
+    for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+    {
+        AVStream         *stream  = format_ctx->streams[stream_index];
+        AVCodecContext   *pkt_ctx = stream->codec;
+        lwindex_helper_t *helper  = (lwindex_helper_t *)pkt_ctx->opaque;
+        if( !helper->decode )
+            continue;
+        /* Flush if video decoding is delayed. */
+        for( uint32_t i = 1; i <= helper->delay_count; i++ )
+        {
+            AVPacket null_pkt = { 0 };
+            av_init_packet( &null_pkt );
+            null_pkt.data = NULL;
+            null_pkt.size = 0;
+            int decode_complete;
+            if( helper->decode( pkt_ctx, helper->picture, &decode_complete, &null_pkt ) >= 0 )
+            {
+                int pict_type = helper->picture->pict_type;
+                if( stream_index == vdhp->stream_index )
+                    video_info[ video_sample_count - helper->delay_count + i ].pict_type = pict_type;
+                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
+                             "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                             stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
+                             stream->time_base.num, stream->time_base.den,
+                             -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
+                             pict_type, 0, 0, 0, "none", AVCOL_SPC_NB );
+            }
+        }
     }
     if( vdhp->stream_index >= 0 )
     {
@@ -1430,42 +1499,51 @@ static int parse_index
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
-                if( vdhp->initial_width == 0 || vdhp->initial_height == 0 )
+                if( (key | width | height) || pict_type == -1 || colorspace != AVCOL_SPC_NB )
                 {
-                    vdhp->initial_width  = width;
-                    vdhp->initial_height = height;
-                    vdhp->max_width      = width;
-                    vdhp->max_height     = height;
+                    if( vdhp->initial_width == 0 || vdhp->initial_height == 0 )
+                    {
+                        vdhp->initial_width  = width;
+                        vdhp->initial_height = height;
+                        vdhp->max_width      = width;
+                        vdhp->max_height     = height;
+                    }
+                    else
+                    {
+                        if( vdhp->max_width  < width )
+                            vdhp->max_width  = width;
+                        if( vdhp->max_height < width )
+                            vdhp->max_height = height;
+                    }
+                    if( vdhp->initial_pix_fmt == AV_PIX_FMT_NONE )
+                        vdhp->initial_pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
+                    if( vdhp->initial_colorspace == AVCOL_SPC_NB )
+                        vdhp->initial_colorspace = (enum AVColorSpace)colorspace;
+                    if( video_time_base.num == 0 || video_time_base.den == 0 )
+                    {
+                        video_time_base.num = time_base.num;
+                        video_time_base.den = time_base.den;
+                    }
+                    ++video_sample_count;
+                    video_info[video_sample_count].pts             = pts;
+                    video_info[video_sample_count].dts             = dts;
+                    video_info[video_sample_count].file_offset     = pos;
+                    video_info[video_sample_count].sample_number   = video_sample_count;
+                    video_info[video_sample_count].extradata_index = extradata_index;
+                    if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
+                        video_info[video_sample_count].is_leading = 1;
+                    if( key )
+                    {
+                        video_info[video_sample_count].keyframe = 1;
+                        last_keyframe_pts = pts;
+                    }
                 }
-                else
+                else if( vdhp->exh.delay_count )
                 {
-                    if( vdhp->max_width  < width )
-                        vdhp->max_width  = width;
-                    if( vdhp->max_height < width )
-                        vdhp->max_height = height;
-                }
-                if( vdhp->initial_pix_fmt == AV_PIX_FMT_NONE )
-                    vdhp->initial_pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
-                if( vdhp->initial_colorspace == AVCOL_SPC_NB )
-                    vdhp->initial_colorspace = (enum AVColorSpace)colorspace;
-                if( video_time_base.num == 0 || video_time_base.den == 0 )
-                {
-                    video_time_base.num = time_base.num;
-                    video_time_base.den = time_base.den;
-                }
-                ++video_sample_count;
-                video_info[video_sample_count].pts             = pts;
-                video_info[video_sample_count].dts             = dts;
-                video_info[video_sample_count].file_offset     = pos;
-                video_info[video_sample_count].sample_number   = video_sample_count;
-                video_info[video_sample_count].extradata_index = extradata_index;
-                video_info[video_sample_count].pict_type       = pict_type;
-                if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
-                    video_info[video_sample_count].is_leading = 1;
-                if( key )
-                {
-                    video_info[video_sample_count].keyframe = 1;
-                    last_keyframe_pts = pts;
+                    uint32_t video_frame_number = video_sample_count - (-- vdhp->exh.delay_count);
+                    if( video_frame_number > video_sample_count )
+                        goto fail_parsing;
+                    video_info[video_frame_number].pict_type = pict_type;
                 }
                 if( video_sample_count + 1 == video_info_count )
                 {
@@ -1475,6 +1553,10 @@ static int parse_index
                         goto fail_parsing;
                     video_info = temp;
                 }
+                if( pict_type == -1 )
+                    ++ vdhp->exh.delay_count;
+                else if( video_sample_count > vdhp->exh.delay_count )
+                    video_info[ video_sample_count - vdhp->exh.delay_count ].pict_type = pict_type;
             }
         }
         else if( codec_type == AVMEDIA_TYPE_AUDIO )
