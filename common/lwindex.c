@@ -106,6 +106,74 @@ static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
          : SEEK_DTS_BASED | SEEK_PTS_BASED;
 }
 
+static void mpeg12_video_genarate_pts
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    video_frame_info_t *info = vdhp->frame_list;
+    int      reordered_stream  = 0;
+    uint32_t num_consecutive_b = 0;
+    for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+    {
+        /* In the case where B-pictures exist
+         * Decode order
+         *      I[1]P[2]P[3]B[4]B[5]P[6]...
+         * DTS
+         *        0   1   2   3   4   5 ...
+         * Presentation order
+         *      I[1]P[2]B[4]B[5]P[3]P[6]...
+         * PTS
+         *        1   2   3   4   5   6 ...
+         * We assumes B-pictures always be present in the stream here. */
+        if( ((enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B && !info[i].keyframe)
+         || (info[i].pts != AV_NOPTS_VALUE && info[i].dts != AV_NOPTS_VALUE && info[i].pts == info[i].dts) )
+        {
+            /* B-pictures shall be output or displayed in the same order as they are encoded. */
+            info[i].pts = info[i].dts;
+            ++num_consecutive_b;
+            reordered_stream = 1;
+        }
+        else
+        {
+            /* Apply DTS of the current picture to PTS of the last I- or P-picture. */
+            if( i > num_consecutive_b + 1 )
+                info[i - num_consecutive_b - 1].pts = info[i].dts;
+            num_consecutive_b = 0;
+        }
+    }
+    if( reordered_stream && num_consecutive_b != vdhp->frame_count )
+    {
+        /* Check if any duplicated PTS. */
+        uint32_t flush_number = vdhp->frame_count - num_consecutive_b;
+        int64_t *last_pts = &info[flush_number].pts;
+        if( *last_pts != AV_NOPTS_VALUE )
+            for( uint32_t i = vdhp->frame_count; i && *last_pts >= info[i].dts; i-- )
+                if( *last_pts == info[i].pts && i != flush_number )
+                    *last_pts = AV_NOPTS_VALUE;
+        if( *last_pts == AV_NOPTS_VALUE )
+        {
+            /* Estimate PTS of the last displayed picture. */
+            int64_t duration = info[ vdhp->frame_count ].dts - info[ vdhp->frame_count - 1 ].dts;
+            *last_pts = info[ vdhp->frame_count ].dts + duration;
+        }
+        /* Check leading B-pictures. */
+        int64_t  last_keyframe_pts = AV_NOPTS_VALUE;
+        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+        {
+            if( info[i].pts       != AV_NOPTS_VALUE
+             && last_keyframe_pts != AV_NOPTS_VALUE
+             && info[i].pts < last_keyframe_pts )
+                info[i].is_leading = 1;
+            if( info[i].keyframe )
+                last_keyframe_pts = info[i].pts;
+        }
+    }
+    else
+        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+            info[i].pts = info[i].dts;
+}
+
 static int decide_video_seek_method
 (
     lwlibav_file_handler_t         *lwhp,
@@ -115,18 +183,24 @@ static int decide_video_seek_method
 {
     vdhp->seek_base = lineup_seek_base_candidates( lwhp );
     video_frame_info_t *info = vdhp->frame_list;
-    for( uint32_t i = 1; i <= sample_count; i++ )
-        if( info[i].pts == AV_NOPTS_VALUE )
-        {
-            vdhp->seek_base &= ~SEEK_PTS_BASED;
-            break;
-        }
-    for( uint32_t i = 1; i <= sample_count; i++ )
-        if( info[i].dts == AV_NOPTS_VALUE )
-        {
-            vdhp->seek_base &= ~SEEK_DTS_BASED;
-            break;
-        }
+    if( vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO
+     || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO )
+        mpeg12_video_genarate_pts( vdhp );
+    else
+    {
+        for( uint32_t i = 1; i <= sample_count; i++ )
+            if( info[i].pts == AV_NOPTS_VALUE )
+            {
+                vdhp->seek_base &= ~SEEK_PTS_BASED;
+                break;
+            }
+        for( uint32_t i = 1; i <= sample_count; i++ )
+            if( info[i].dts == AV_NOPTS_VALUE )
+            {
+                vdhp->seek_base &= ~SEEK_DTS_BASED;
+                break;
+            }
+    }
     if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
     {
         if( lwhp->format_flags & AVFMT_NO_BYTE_SEEK )
@@ -651,13 +725,13 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=7>
+        <LibavReaderIndexFile=8>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
-        Key=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
+        Pic=1,Key=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
@@ -776,6 +850,7 @@ static void create_index
                 video_info[video_sample_count].file_offset     = pkt.pos;
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
+                video_info[video_sample_count].pict_type       = stream->parser ? stream->parser->pict_type : 0;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
@@ -821,10 +896,11 @@ static void create_index
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                         "Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                         "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts, extradata_index,
+                         stream->parser ? stream->parser->pict_type : 0,
                          !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
@@ -1278,13 +1354,14 @@ static int parse_index
             }
             if( stream_index == vdhp->stream_index )
             {
+                int pict_type;
                 int key;
                 int width;
                 int height;
                 int colorspace;
                 char pix_fmt[64];
-                if( sscanf( buf, "Key=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
-                    &key, &width, &height, pix_fmt, &colorspace ) != 5 )
+                if( sscanf( buf, "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
+                    &pict_type, &key, &width, &height, pix_fmt, &colorspace ) != 6 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
@@ -1317,6 +1394,7 @@ static int parse_index
                 video_info[video_sample_count].file_offset     = pos;
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
+                video_info[video_sample_count].pict_type       = pict_type;
                 if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( key )

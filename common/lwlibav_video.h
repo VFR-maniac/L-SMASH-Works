@@ -29,6 +29,7 @@ typedef struct
     int      extradata_index;
     uint8_t  keyframe;
     uint8_t  is_leading;
+    int      pict_type;         /* may be stored as enum AVPictureType */
 } video_frame_info_t;
 
 typedef struct
