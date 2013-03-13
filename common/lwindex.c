@@ -106,7 +106,7 @@ static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
          : SEEK_DTS_BASED | SEEK_PTS_BASED;
 }
 
-static void mpeg12_video_genarate_pts
+static void mpeg12_vc1_video_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp
 )
@@ -184,8 +184,10 @@ static int decide_video_seek_method
     vdhp->seek_base = lineup_seek_base_candidates( lwhp );
     video_frame_info_t *info = vdhp->frame_list;
     if( vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO
-     || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO )
-        mpeg12_video_genarate_pts( vdhp );
+     || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
+     || vdhp->codec_id == AV_CODEC_ID_VC1
+     || vdhp->codec_id == AV_CODEC_ID_WMV3 )
+        mpeg12_vc1_video_genarate_pts( vdhp );
     else
     {
         for( uint32_t i = 1; i <= sample_count; i++ )
