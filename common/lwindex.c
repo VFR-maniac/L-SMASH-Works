@@ -962,8 +962,7 @@ static void create_index
                          "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
-                         pkt.pos, pkt.pts, pkt.dts, extradata_index,
-                         stream->parser ? stream->parser->pict_type : 0,
+                         pkt.pos, pkt.pts, pkt.dts, extradata_index, pict_type,
                          !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
