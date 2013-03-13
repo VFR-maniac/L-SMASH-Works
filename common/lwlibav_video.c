@@ -205,20 +205,64 @@ fail:
     return;
 }
 
+static uint32_t shift_current_frame_number
+(
+    order_converter_t  *oc,
+    video_frame_info_t *info,
+    AVPacket           *pkt,
+    uint32_t            i,      /* frame_number */
+    uint32_t            goal
+)
+{
+    uint32_t p = oc ? oc[i].decoding_to_presentation : i;
+    if( pkt->dts == AV_NOPTS_VALUE || info[p].dts == AV_NOPTS_VALUE || info[p].dts == pkt->dts )
+        return i;
+    if( pkt->dts > info[ p ].dts )
+    {
+        if( oc )
+            while( (pkt->dts != info[ oc[++i].decoding_to_presentation ].dts) && i < goal );
+        else
+            while( (pkt->dts != info[    ++i                           ].dts) && i < goal );
+        if( i == goal )
+            return 0;
+    }
+    else
+    {
+        if( oc )
+            while( (pkt->dts != info[ oc[--i].decoding_to_presentation ].dts) && i );
+        else
+            while( (pkt->dts != info[    --i                           ].dts) && i );
+        if( i == 0 )
+            return 0;
+    }
+    return i;
+}
+
 static int decode_video_sample
 (
     lwlibav_video_decode_handler_t *vdhp,
     AVFrame                        *picture,
     int                            *got_picture,
-    uint32_t                        frame_number
+    uint32_t                       *current,
+    uint32_t                        goal,
+    uint32_t                        rap_number
 )
 {
+    uint32_t frame_number = *current;
     AVPacket *pkt = &vdhp->packet;
     int ret = lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, frame_number, pkt );
-    if( ret )
+    if( ret > 0 )
         return ret;
+    /* Shift the current frame number in order to match DTS since libavformat might have sought wrong position. */
+    if( frame_number == rap_number && (vdhp->seek_base & SEEK_DTS_BASED) )
+    {
+        frame_number = shift_current_frame_number( vdhp->order_converter, vdhp->frame_list, pkt, frame_number, goal );
+        if( frame_number == 0 )
+            return -2;
+        *current = frame_number;
+    }
     if( pkt->flags & AV_PKT_FLAG_KEY )
-        vdhp->last_rap_number = frame_number;
+        vdhp->last_rap_number = *current;
     avcodec_get_frame_defaults( picture );
     int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
     ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, pkt );
@@ -302,9 +346,12 @@ static uint32_t seek_video
     int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( vdhp->ctx );
-    for( i = rap_number; i < presentation_sample_number + decoder_delay; i++ )
+    uint32_t goal = presentation_sample_number + decoder_delay;
+    for( i = rap_number; i < goal; i++ )
     {
-        int ret = decode_video_sample( vdhp, picture, &dummy, i );
+        int ret = decode_video_sample( vdhp, picture, &dummy, &i, goal, rap_number );
+        if( ret == -2 )
+            return 0;
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
         if( i == vdhp->last_rap_number && picture->pts != AV_NOPTS_VALUE )
@@ -331,14 +378,15 @@ static int get_picture
     AVFrame                        *picture,
     uint32_t                        current,
     uint32_t                        goal,
+    uint32_t                        rap_number,
     uint32_t                        video_sample_count
 )
 {
     int got_picture = 0;
     while( current <= goal )
     {
-        int ret = decode_video_sample( vdhp, picture, &got_picture, current );
-        if( ret == -1 )
+        int ret = decode_video_sample( vdhp, picture, &got_picture, &current, goal, rap_number );
+        if( ret < 0 )
             return -1;
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
@@ -403,7 +451,7 @@ int lwlibav_get_video_frame
     /* Get desired picture. */
     int error_count = 0;
     while( start_number == 0
-        || get_picture( vdhp, picture, start_number, frame_number + vdhp->exh.delay_count, frame_count ) < 0 )
+        || get_picture( vdhp, picture, start_number, frame_number + vdhp->exh.delay_count, rap_number, frame_count ) < 0 )
     {
         /* Failed to get desired picture. */
         if( vdhp->eh.error || seek_mode == SEEK_MODE_AGGRESSIVE )
