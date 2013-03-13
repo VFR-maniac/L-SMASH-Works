@@ -775,13 +775,13 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         lwindex_helper_t *helper = (lwindex_helper_t *)format_ctx->streams[stream_index]->codec->opaque;
+        if( !helper )
+            continue;
         if( helper->own_parser && helper->parser_ctx )
             av_parser_close( helper->parser_ctx );
         if( helper->picture )
             avcodec_free_frame( &helper->picture );
         lwlibav_extradata_handler_t *list = &helper->exh;
-        if( !list )
-            continue;
         if( list->entries )
         {
             for( int i = 0; i < list->entry_count; i++ )
@@ -1167,7 +1167,7 @@ static void create_index
         AVStream         *stream  = format_ctx->streams[stream_index];
         AVCodecContext   *pkt_ctx = stream->codec;
         lwindex_helper_t *helper  = (lwindex_helper_t *)pkt_ctx->opaque;
-        if( !helper->decode )
+        if( !helper || !helper->decode )
             continue;
         /* Flush if video decoding is delayed. */
         for( uint32_t i = 1; i <= helper->delay_count; i++ )
@@ -1339,7 +1339,10 @@ static void create_index
         AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO || stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
         {
-            lwlibav_extradata_handler_t *list = &((lwindex_helper_t *)stream->codec->opaque)->exh;
+            lwindex_helper_t *helper = (lwindex_helper_t *)stream->codec->opaque;
+            if( !helper )
+                continue;
+            lwlibav_extradata_handler_t *list = &helper->exh;
             void (*write_av_extradata)( FILE *, lwlibav_extradata_t * ) = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
                                                                         ? write_video_extradata
                                                                         : write_audio_extradata;
