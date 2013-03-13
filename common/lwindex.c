@@ -45,6 +45,13 @@ extern "C"
 
 typedef struct
 {
+    lwlibav_extradata_handler_t exh;
+    int                         own_parser;
+    AVCodecParserContext       *parser_ctx;
+} lwindex_helper_t;
+
+typedef struct
+{
     int64_t pts;
     int64_t dts;
 } video_timestamp_t;
@@ -125,7 +132,7 @@ static void mpeg12_vc1_video_genarate_pts
          *      I[1]P[2]B[4]B[5]P[3]P[6]...
          * PTS
          *        1   2   3   4   5   6 ...
-         * We assumes B-pictures always be present in the stream here. */
+         * We assume B-pictures always be present in the stream here. */
         if( ((enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B && !info[i].keyframe)
          || (info[i].pts != AV_NOPTS_VALUE && info[i].dts != AV_NOPTS_VALUE && info[i].pts == info[i].dts) )
         {
@@ -454,6 +461,33 @@ static lwlibav_extradata_t *alloc_extradata_entries( lwlibav_extradata_handler_t
     return temp;
 }
 
+static lwindex_helper_t *get_index_helper
+(
+    AVCodecContext    *ctx,
+    AVStream          *stream
+)
+{
+    lwindex_helper_t *helper = (lwindex_helper_t *)ctx->opaque;
+    if( !helper )
+    {
+        /* Allocate the index helper. */
+        helper = (lwindex_helper_t *)lw_malloc_zero( sizeof(lwindex_helper_t) );
+        if( !helper )
+            return NULL;
+        ctx->opaque = (void *)helper;
+        if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
+        {
+            helper->own_parser = 1;
+            helper->parser_ctx = av_parser_init( ctx->codec_id );
+            if( helper->parser_ctx )
+                helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+        }
+        else
+            helper->parser_ctx = stream->parser;
+    }
+    return helper;
+}
+
 static int append_extradata_if_new
 (
     AVStream *stream,
@@ -461,8 +495,8 @@ static int append_extradata_if_new
 )
 {
     AVCodecContext              *ctx  = stream->codec;
-    lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)ctx->opaque;
-    if( !(pkt->flags & AV_PKT_FLAG_KEY) && list )
+    lwlibav_extradata_handler_t *list = &((lwindex_helper_t *)ctx->opaque)->exh;
+    if( !(pkt->flags & AV_PKT_FLAG_KEY) && list->entry_count > 0 )
         /* Some decoders might not change AVCodecContext.extradata even if a new extradata occurs.
          * Here, we assume non-keyframes reference the latest extradata. */
         return list->current_index;
@@ -489,20 +523,15 @@ static int append_extradata_if_new
                 current.extradata      = pkt->data;
                 current.extradata_size = extradata_size;
             }
-            else if( list )
+            else if( list->entry_count > 0 )
                 /* Probably, this frame should not be marked as a keyframe.
                  * For instance, an IDR-picture which corresponding SPSs and PPSs
                  * do not precede immediately might not be decodable correctly. */
                 return list->current_index;
         }
     }
-    if( !list )
+    if( list->entry_count == 0 )
     {
-        /* Create and initialize extradata handler for this stream. */
-        list = (lwlibav_extradata_handler_t *)lw_malloc_zero( sizeof(lwlibav_extradata_handler_t) );
-        if( !list )
-            return -1;
-        ctx->opaque = (void *)list;
         lwlibav_extradata_t *entry = alloc_extradata_entries( list, 1 );
         if( !entry )
             return -1;
@@ -566,6 +595,26 @@ static void investigate_pix_fmt_by_decoding
     int got_picture;
     avcodec_get_frame_defaults( picture );
     avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
+}
+
+static int get_picture_type
+(
+    lwindex_helper_t *helper,
+    AVCodecContext   *video_ctx,
+    AVPacket         *pkt
+)
+{
+    if( !helper->parser_ctx )
+        return 0;
+    if( helper->own_parser )
+    {
+        uint8_t *dummy;
+        int      dummy_size;
+        av_parser_parse2( helper->parser_ctx, video_ctx,
+                          &dummy, &dummy_size, pkt->data, pkt->size,
+                          pkt->pts, pkt->dts, pkt->pos );
+    }
+    return helper->parser_ctx->pict_type;
 }
 
 static enum AVSampleFormat select_better_sample_format
@@ -683,11 +732,14 @@ static void disable_video_stream( lwlibav_video_decode_handler_t *vdhp )
     vdhp->frame_count         = 0;
 }
 
-static void cleanup_extradata_handlers( AVFormatContext *format_ctx )
+static void cleanup_index_helpers( AVFormatContext *format_ctx )
 {
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
-        lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)format_ctx->streams[stream_index]->codec->opaque;
+        lwindex_helper_t *helper = (lwindex_helper_t *)format_ctx->streams[stream_index]->codec->opaque;
+        if( helper->own_parser && helper->parser_ctx )
+            av_parser_close( helper->parser_ctx );
+        lwlibav_extradata_handler_t *list = &helper->exh;
         if( !list )
             continue;
         if( list->entries )
@@ -798,6 +850,12 @@ static void create_index
             continue;
         if( !av_codec_is_decoder( pkt_ctx->codec ) && open_decoder( pkt_ctx, pkt_ctx->codec_id, lwhp->threads ) )
             continue;
+        lwindex_helper_t *helper = get_index_helper( pkt_ctx, stream );
+        if( !helper )
+        {
+            av_free_packet( &pkt );
+            goto fail_index;
+        }
         int extradata_index = append_extradata_if_new( stream, &pkt );
         if( extradata_index < 0 )
         {
@@ -844,6 +902,9 @@ static void create_index
                 vdhp->initial_height     = pkt_ctx->height;
                 vdhp->initial_colorspace = pkt_ctx->colorspace;
             }
+            /* Get picture type. */
+            int pict_type = get_picture_type( helper, pkt_ctx, &pkt );
+            /* Set video frame info if this stream is active. */
             if( pkt.stream_index == vdhp->stream_index )
             {
                 ++video_sample_count;
@@ -852,7 +913,7 @@ static void create_index
                 video_info[video_sample_count].file_offset     = pkt.pos;
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
-                video_info[video_sample_count].pict_type       = stream->parser ? stream->parser->pict_type : 0;
+                video_info[video_sample_count].pict_type       = pict_type;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
@@ -881,7 +942,7 @@ static void create_index
             /* Set width, height and pixel_format for the current extradata. */
             if( extradata_index >= 0 )
             {
-                lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)pkt_ctx->opaque;
+                lwlibav_extradata_handler_t *list = &helper->exh;
                 lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
                 if( entry->width  == 0 )
                     entry->width  = pkt_ctx->width;
@@ -968,6 +1029,7 @@ static void create_index
                     ++ (*delay_count);
                 }
             }
+            /* Set audio frame info if this stream is active. */
             if( pkt.stream_index == adhp->stream_index )
             {
                 if( frame_length != -1 )
@@ -1015,7 +1077,7 @@ static void create_index
             /* Set channel_layout, sample_rate, sample_format and bits_per_sample for the current extradata. */
             if( extradata_index >= 0 )
             {
-                lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)pkt_ctx->opaque;
+                lwlibav_extradata_handler_t *list = &helper->exh;
                 lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
                 if( entry->channel_layout == 0 )
                     entry->channel_layout = pkt_ctx->channel_layout;
@@ -1209,7 +1271,7 @@ static void create_index
         AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO || stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
         {
-            lwlibav_extradata_handler_t *list = (lwlibav_extradata_handler_t *)stream->codec->opaque;
+            lwlibav_extradata_handler_t *list = &((lwindex_helper_t *)stream->codec->opaque)->exh;
             void (*write_av_extradata)( FILE *, lwlibav_extradata_t * ) = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
                                                                         ? write_video_extradata
                                                                         : write_audio_extradata;
@@ -1225,7 +1287,9 @@ static void create_index
                 exhp->current_index = stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
                                     ? video_info[1].extradata_index
                                     : audio_info[1].extradata_index;
-                stream->codec->opaque = NULL;
+                /* Avoid freeing entries. */
+                list->entry_count = 0;
+                list->entries     = NULL;
             }
             else
                 for( int i = 0; i < list->entry_count; i++ )
@@ -1234,7 +1298,7 @@ static void create_index
         }
     }
     print_index( index, "</LibavReaderIndexFile>\n" );
-    cleanup_extradata_handlers( format_ctx );
+    cleanup_index_helpers( format_ctx );
     if( index )
         fclose( index );
     if( indicator->close )
@@ -1243,7 +1307,7 @@ static void create_index
     adhp->format = NULL;
     return;
 fail_index:
-    cleanup_extradata_handlers( format_ctx );
+    cleanup_index_helpers( format_ctx );
     free( video_info );
     free( audio_info );
     if( audio_delay_count )
