@@ -168,6 +168,63 @@ static uint32_t get_audio_rap
     return rap_number;
 }
 
+static uint32_t shift_current_frame_number_pos
+(
+    audio_frame_info_t *info,
+    AVPacket           *pkt,
+    uint32_t            i,      /* frame_number */
+    uint32_t            goal
+)
+{
+    if( info[i].file_offset == pkt->pos )
+        return i;
+    if( pkt->pos > info[i].file_offset )
+    {
+        while( (pkt->pos != info[++i].file_offset) && i <= goal );
+        if( i > goal )
+            return 0;
+    }
+    else
+    {
+        while( (pkt->dts != info[--i].file_offset) && i );
+        if( i == 0 )
+            return 0;
+    }
+    return i;
+}
+
+/* Note: for PTS based seek, there is no assumption that future prediction like B-picture is present. */
+#define SHIFT_CURRENT_FRAME_NUMBER_TS( TS )                         \
+    static uint32_t shift_current_frame_number_##TS                 \
+    (                                                               \
+        audio_frame_info_t *info,                                   \
+        AVPacket           *pkt,                                    \
+        uint32_t            i,      /* frame_number */              \
+        uint32_t            goal                                    \
+    )                                                               \
+    {                                                               \
+        if( info[i].TS == AV_NOPTS_VALUE || info[i].TS == pkt->TS ) \
+            return i;                                               \
+        if( pkt->TS > info[i].TS )                                  \
+        {                                                           \
+            while( (pkt->TS != info[++i].TS) && i <= goal );        \
+            if( i > goal )                                          \
+                return 0;                                           \
+        }                                                           \
+        else                                                        \
+        {                                                           \
+            while( (pkt->TS != info[--i].TS) && i );                \
+            if( i == 0 )                                            \
+                return 0;                                           \
+        }                                                           \
+        return i;                                                   \
+    }
+
+SHIFT_CURRENT_FRAME_NUMBER_TS( pts )
+SHIFT_CURRENT_FRAME_NUMBER_TS( dts )
+
+#undef SHIFT_CURRENT_FRAME_NUMBER_TS
+
 /* This function seeks the requested frame and get it. */
 static void seek_audio
 (
@@ -176,6 +233,10 @@ static void seek_audio
     AVPacket                       *pkt
 )
 {
+#define MAX_ERROR_COUNT 3   /* arbitrary */
+    int      error_count = 0;
+    uint32_t goal        = frame_number;
+retry_seek:;
     uint32_t rap_number = get_audio_rap( adhp, frame_number );
     if( rap_number == 0 )
         return;
@@ -190,17 +251,45 @@ static void seek_audio
     if( av_seek_frame( adhp->format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD ) < 0 )
         av_seek_frame( adhp->format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
     /* Seek to the target audio frame and get it. */
-    for( uint32_t i = rap_number; i <= frame_number; )
+    int match = 0;
+    for( uint32_t i = rap_number; i <= goal; )
     {
         if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, i, pkt ) )
             break;
-        if( i == rap_number
-         && (((adhp->seek_base & SEEK_FILE_OFFSET_BASED) && (pkt->pos == -1 || adhp->frame_list[i].file_offset > pkt->pos))
-         ||  ((adhp->seek_base & SEEK_PTS_BASED)         && (pkt->pts == AV_NOPTS_VALUE || adhp->frame_list[i].pts > pkt->pts))
-         ||  ((adhp->seek_base & SEEK_DTS_BASED)         && (pkt->dts == AV_NOPTS_VALUE || adhp->frame_list[i].dts > pkt->dts))) )
-            continue;   /* Seeking was too backward. */
+        if( !match && error_count <= MAX_ERROR_COUNT )
+        {
+            /* Shift the current frame number in order to match file offset, PTS or DTS
+             * since libavformat might have sought wrong position. */
+            if( adhp->seek_base & SEEK_FILE_OFFSET_BASED )
+            {
+                if( pkt->pos == -1 || adhp->frame_list[i].file_offset == -1 )
+                    continue;
+                i = shift_current_frame_number_pos( adhp->frame_list, pkt, i, goal );
+            }
+            else if( adhp->seek_base & SEEK_PTS_BASED )
+            {
+                if( pkt->pts == AV_NOPTS_VALUE )
+                    continue;
+                i = shift_current_frame_number_pts( adhp->frame_list, pkt, i, goal );
+            }
+            else if( adhp->seek_base & SEEK_DTS_BASED )
+            {
+                if( pkt->dts == AV_NOPTS_VALUE )
+                    continue;
+                i = shift_current_frame_number_dts( adhp->frame_list, pkt, i, goal );
+            }
+            if( i == 0 )
+            {
+                /* Retry to seek from more past audio keyframe. */
+                frame_number = rap_number - 1;
+                ++error_count;
+                goto retry_seek;
+            }
+            match = 1;
+        }
         ++i;
     }
+#undef MAX_ERROR_COUNT
 }
 
 uint64_t lwlibav_get_pcm_audio_samples

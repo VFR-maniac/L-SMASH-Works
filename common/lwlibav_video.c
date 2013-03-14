@@ -217,7 +217,7 @@ static uint32_t shift_current_frame_number
     uint32_t p = oc ? oc[i].decoding_to_presentation : i;
     if( pkt->dts == AV_NOPTS_VALUE || info[p].dts == AV_NOPTS_VALUE || info[p].dts == pkt->dts )
         return i;
-    if( pkt->dts > info[ p ].dts )
+    if( pkt->dts > info[p].dts )
     {
         if( oc )
             while( (pkt->dts != info[ oc[++i].decoding_to_presentation ].dts) && i < goal );
