@@ -647,7 +647,13 @@ static int get_picture_type
         avcodec_get_frame_defaults( helper->picture );
         helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
         if( decode_complete )
+        {
+            /* It seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
+             * So, we treat only I-picture as a keyframe. */
+            if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
+                pkt->flags &= ~AV_PKT_FLAG_KEY;
             return helper->picture->pict_type;
+        }
         else
         {
             ++ helper->delay_count;
