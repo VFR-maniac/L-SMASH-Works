@@ -210,12 +210,13 @@ static int decide_video_seek_method
                 vdhp->seek_base &= ~SEEK_DTS_BASED;
                 break;
             }
+    int no_pts_loss = !!(vdhp->seek_base & SEEK_PTS_BASED);
     if( (vdhp->seek_base & SEEK_DTS_BASED) && !(vdhp->seek_base & SEEK_PTS_BASED)
      && (vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
       || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3) )
     {
         /* Generate PTS from DTS. */
-        vdhp->seek_base |= SEEK_PTS_BASED;
+        no_pts_loss = 1;
         mpeg12_video_vc1_genarate_pts( vdhp );
     }
     if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
@@ -231,7 +232,7 @@ static int decide_video_seek_method
                 vdhp->seek_base &= ~SEEK_FILE_OFFSET_BASED;
         }
     }
-    if( (vdhp->seek_base & SEEK_PTS_BASED) && check_frame_reordering( info, sample_count ) )
+    if( no_pts_loss && check_frame_reordering( info, sample_count ) )
     {
         /* Consider presentation order for keyframe detection.
          * Note: sample number is 1-origin. */
