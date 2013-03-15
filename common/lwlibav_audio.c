@@ -226,20 +226,20 @@ SHIFT_CURRENT_FRAME_NUMBER_TS( dts )
 #undef SHIFT_CURRENT_FRAME_NUMBER_TS
 
 /* This function seeks the requested frame and get it. */
-static void seek_audio
+static uint32_t seek_audio
 (
     lwlibav_audio_decode_handler_t *adhp,
     uint32_t                        frame_number,
+    uint32_t                        past_rap_number,
     AVPacket                       *pkt
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
-    int      error_count = 0;
-    uint32_t goal        = frame_number;
+    int error_count = 0;
 retry_seek:;
-    uint32_t rap_number = get_audio_rap( adhp, frame_number );
+    uint32_t rap_number = past_rap_number == 0 ? get_audio_rap( adhp, frame_number ) : past_rap_number;
     if( rap_number == 0 )
-        return;
+        return 0;
     int64_t rap_pos = (adhp->seek_base & SEEK_FILE_OFFSET_BASED) ? adhp->frame_list[rap_number].file_offset
                     : (adhp->seek_base & SEEK_PTS_BASED)         ? adhp->frame_list[rap_number].pts
                     : (adhp->seek_base & SEEK_DTS_BASED)         ? adhp->frame_list[rap_number].dts
@@ -252,7 +252,7 @@ retry_seek:;
         av_seek_frame( adhp->format, stream_index, rap_pos, flags | AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY );
     /* Seek to the target audio frame and get it. */
     int match = 0;
-    for( uint32_t i = rap_number; i <= goal; )
+    for( uint32_t i = rap_number; i <= frame_number; )
     {
         if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, i, pkt ) )
             break;
@@ -264,24 +264,24 @@ retry_seek:;
             {
                 if( pkt->pos == -1 || adhp->frame_list[i].file_offset == -1 )
                     continue;
-                i = shift_current_frame_number_pos( adhp->frame_list, pkt, i, goal );
+                i = shift_current_frame_number_pos( adhp->frame_list, pkt, i, frame_number );
             }
             else if( adhp->seek_base & SEEK_PTS_BASED )
             {
                 if( pkt->pts == AV_NOPTS_VALUE )
                     continue;
-                i = shift_current_frame_number_pts( adhp->frame_list, pkt, i, goal );
+                i = shift_current_frame_number_pts( adhp->frame_list, pkt, i, frame_number );
             }
             else if( adhp->seek_base & SEEK_DTS_BASED )
             {
                 if( pkt->dts == AV_NOPTS_VALUE )
                     continue;
-                i = shift_current_frame_number_dts( adhp->frame_list, pkt, i, goal );
+                i = shift_current_frame_number_dts( adhp->frame_list, pkt, i, frame_number );
             }
             if( i == 0 )
             {
                 /* Retry to seek from more past audio keyframe. */
-                frame_number = rap_number - 1;
+                past_rap_number = get_audio_rap( adhp, rap_number - 1 );
                 ++error_count;
                 goto retry_seek;
             }
@@ -289,6 +289,7 @@ retry_seek:;
         }
         ++i;
     }
+    return rap_number;
 #undef MAX_ERROR_COUNT
 }
 
@@ -304,6 +305,8 @@ uint64_t lwlibav_get_pcm_audio_samples
     if( adhp->eh.error )
         return 0;
     uint32_t               frame_number;
+    uint32_t               rap_number      = 0;
+    uint32_t               past_rap_number = 0;
     uint64_t               output_length = 0;
     enum audio_output_flag output_flags;
     AVPacket              *pkt       = &adhp->packet;
@@ -325,18 +328,6 @@ uint64_t lwlibav_get_pcm_audio_samples
     else
     {
         /* Seek audio stream. */
-        if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
-        {
-            adhp->eh.error = 1;
-            if( adhp->eh.error_message )
-                adhp->eh.error_message( adhp->eh.message_priv,
-                                        "Failed to flush resampler buffers.\n"
-                                        "It is recommended you reopen the file." );
-            return 0;
-        }
-        av_free_packet( pkt );
-        if( adhp->eh.error )
-            return 0;
         adhp->next_pcm_sample_number = 0;
         adhp->last_frame_number      = 0;
         /* Get frame_number. */
@@ -352,20 +343,34 @@ uint64_t lwlibav_get_pcm_audio_samples
             start_frame_pos = 0;
         }
         frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
+retry_seek:
+        av_free_packet( pkt );
+        /* Flush audio resampler buffers. */
+        if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
+        {
+            adhp->eh.error = 1;
+            if( adhp->eh.error_message )
+                adhp->eh.error_message( adhp->eh.message_priv,
+                                        "Failed to flush resampler buffers.\n"
+                                        "It is recommended you reopen the file." );
+            return 0;
+        }
         /* Flush audio decoder buffers. */
         lwlibav_extradata_handler_t *exhp = &adhp->exh;
         int extradata_index = adhp->frame_list[frame_number].extradata_index;
         if( extradata_index != exhp->current_index )
         {
             /* Update the extradata. */
-            uint32_t rap_number = get_audio_rap( adhp, frame_number );
+            rap_number = get_audio_rap( adhp, frame_number );
             assert( rap_number != 0 );
             lwlibav_update_configuration( (lwlibav_decode_handler_t *)adhp, rap_number, extradata_index, 0 );
         }
         else
             lwlibav_flush_buffers( (lwlibav_decode_handler_t *)adhp );
+        if( adhp->eh.error )
+            return 0;
         /* Seek and get a audio packet. */
-        seek_audio( adhp, frame_number, pkt );
+        rap_number = seek_audio( adhp, frame_number, past_rap_number, pkt );
         already_gotten = 1;
     }
     do
@@ -400,7 +405,20 @@ uint64_t lwlibav_get_pcm_audio_samples
         output_flags   = AUDIO_OUTPUT_NO_FLAGS;
         output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, alter_pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_DECODER_DELAY )
+        {
+            if( rap_number && (output_flags & AUDIO_DECODER_ERROR) )
+            {
+                /* Retry to seek from more past audio keyframe because libavformat might have failed seek.
+                 * This operation occurs only at the first decoding time after seek. */
+                past_rap_number = get_audio_rap( adhp, rap_number - 1 );
+                if( past_rap_number )
+                    goto retry_seek;
+            }
             ++ adhp->exh.delay_count;
+        }
+        else
+            /* Disable seek retry. */
+            rap_number = 0;
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
             adhp->eh.error = 1;
@@ -497,7 +515,7 @@ int try_decode_audio_frame
         if( extradata_index != adhp->exh.current_index )
             break;
         if( frame_number == start_frame )
-            seek_audio( adhp, frame_number, &pkt );
+            seek_audio( adhp, frame_number, 0, &pkt );
         else
         {
             int ret = lwlibav_get_av_frame( format_ctx, stream_index, frame_number, &pkt );

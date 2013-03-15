@@ -128,6 +128,7 @@ uint64_t output_pcm_samples_from_packet
         if( consumed_data_length < 0 )
         {
             /* Force to request the next sample. */
+            *output_flags |= AUDIO_DECODER_ERROR;
             pkt->size = 0;
             break;
         }
