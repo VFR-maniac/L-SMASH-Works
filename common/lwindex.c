@@ -486,11 +486,18 @@ static lwindex_helper_t *get_index_helper
         if( !helper )
             return NULL;
         ctx->opaque = (void *)helper;
-        /* VC-1 parser does not work to VC-1 in ASF. */
-        if( (ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3)
-         && !strcmp( format_name, "asf" ) )
+        /* For audio, prepare the decoder and the parser to get frame length.
+         * For VC-1 in ASF, prepare the decoder to get pict_type since VC-1 parser does not work at all. */
+        if( ctx->codec_type == AVMEDIA_TYPE_AUDIO
+         || ((ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3) && !strcmp( format_name, "asf" )) )
         {
-            helper->decode  = avcodec_decode_video2;
+            if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
+            {
+                helper->decode     = avcodec_decode_audio4;
+                helper->parser_ctx = stream->parser;
+            }
+            else
+                helper->decode = avcodec_decode_video2;
             helper->picture = avcodec_alloc_frame();
             if( !helper->picture )
             {
@@ -656,6 +663,48 @@ static int get_picture_type
                           pkt->pts, pkt->dts, pkt->pos );
     }
     return helper->parser_ctx->pict_type;
+}
+
+static int get_audio_frame_length
+(
+    lwindex_helper_t *helper,
+    AVCodecContext   *audio_ctx,
+    AVPacket         *pkt
+)
+{
+    int frame_length = helper->parser_ctx
+                     ? helper->parser_ctx->duration
+                     : helper->delay_count == 0 ? audio_ctx->frame_size : 0;
+    if( frame_length == 0 )
+    {
+        AVPacket temp = *pkt;
+        int output_audio = 0;
+        while( temp.size > 0 )
+        {
+            int decode_complete;
+            int consumed_bytes = helper->decode( audio_ctx, helper->picture, &decode_complete, &temp );
+            if( consumed_bytes < 0 )
+            {
+                audio_ctx->channels    = av_get_channel_layout_nb_channels( helper->picture->channel_layout );
+                audio_ctx->sample_rate = helper->picture->sample_rate;
+                break;
+            }
+            temp.size -= consumed_bytes;
+            temp.data += consumed_bytes;
+            if( decode_complete )
+            {
+                frame_length += helper->picture->nb_samples;
+                output_audio = 1;
+            }
+        }
+        if( !output_audio )
+        {
+            frame_length = -1;
+            helper->parser_ctx = NULL;  /* Don't use the parser anymore because of asynchronization. */
+            ++ helper->delay_count;
+        }
+    }
+    return frame_length;
 }
 
 static enum AVSampleFormat select_better_sample_format
@@ -874,11 +923,8 @@ static void create_index
     uint32_t  audio_sample_count    = 0;
     int       audio_sample_rate     = 0;
     int       constant_frame_length = 1;
-    int       frame_length          = 0;
     uint64_t  audio_duration        = 0;
     int64_t   first_dts             = AV_NOPTS_VALUE;
-    int       max_audio_index       = -1;
-    uint32_t *audio_delay_count     = NULL;
     if( indicator->open )
         indicator->open( php );
     /* Start to read frames and write the index file. */
@@ -1026,51 +1072,11 @@ static void create_index
                 adhp->codec_id     = pkt_ctx->codec_id;
                 adhp->stream_index = pkt.stream_index;
             }
-            if( pkt.stream_index > max_audio_index )
-            {
-                uint32_t *temp = (uint32_t *)realloc( audio_delay_count, (pkt.stream_index + 1) * sizeof(uint32_t) );
-                if( !temp )
-                    goto fail_index;
-                audio_delay_count = temp;
-                memset( audio_delay_count + max_audio_index + 1, 0, (pkt.stream_index - max_audio_index) * sizeof(uint32_t) );
-                max_audio_index = pkt.stream_index;
-            }
             int bits_per_sample = pkt_ctx->bits_per_raw_sample   > 0 ? pkt_ctx->bits_per_raw_sample
                                 : pkt_ctx->bits_per_coded_sample > 0 ? pkt_ctx->bits_per_coded_sample
                                 : av_get_bytes_per_sample( pkt_ctx->sample_fmt ) << 3;
-            uint32_t *delay_count = &audio_delay_count[ pkt.stream_index ];
-            /* Get frame_length. */
-            frame_length = stream->parser
-                         ? stream->parser->duration
-                         : pkt_ctx->frame_size;
-            if( frame_length == 0 )
-            {
-                AVPacket temp = pkt;
-                int output_audio = 0;
-                while( temp.size > 0 )
-                {
-                    int decode_complete;
-                    int wasted_data_length = avcodec_decode_audio4( pkt_ctx, adhp->frame_buffer, &decode_complete, &temp );
-                    if( wasted_data_length < 0 )
-                    {
-                        pkt_ctx->channels    = av_get_channel_layout_nb_channels( adhp->frame_buffer->channel_layout );
-                        pkt_ctx->sample_rate = adhp->frame_buffer->sample_rate;
-                        break;
-                    }
-                    temp.size -= wasted_data_length;
-                    temp.data += wasted_data_length;
-                    if( decode_complete )
-                    {
-                        frame_length += adhp->frame_buffer->nb_samples;
-                        output_audio = 1;
-                    }
-                }
-                if( !output_audio )
-                {
-                    frame_length = -1;
-                    ++ (*delay_count);
-                }
-            }
+            /* Get audio frame_length. */
+            int frame_length = get_audio_frame_length( helper, pkt_ctx, &pkt );
             /* Set audio frame info if this stream is active. */
             if( pkt.stream_index == adhp->stream_index )
             {
@@ -1086,9 +1092,9 @@ static void create_index
                     audio_info[audio_sample_count].sample_number   = audio_sample_count;
                     audio_info[audio_sample_count].extradata_index = extradata_index;
                     audio_info[audio_sample_count].sample_rate     = pkt_ctx->sample_rate;
-                    if( frame_length != -1 && audio_sample_count > *delay_count )
+                    if( frame_length != -1 && audio_sample_count > helper->delay_count )
                     {
-                        uint32_t audio_frame_number = audio_sample_count - *delay_count;
+                        uint32_t audio_frame_number = audio_sample_count - helper->delay_count;
                         audio_info[audio_frame_number].length = frame_length;
                         if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                             constant_frame_length = 0;
@@ -1172,7 +1178,7 @@ static void create_index
         lwindex_helper_t *helper  = (lwindex_helper_t *)pkt_ctx->opaque;
         if( !helper || !helper->decode )
             continue;
-        /* Flush if video decoding is delayed. */
+        /* Flush if decoding is delayed. */
         for( uint32_t i = 1; i <= helper->delay_count; i++ )
         {
             AVPacket null_pkt = { 0 };
@@ -1182,15 +1188,40 @@ static void create_index
             int decode_complete;
             if( helper->decode( pkt_ctx, helper->picture, &decode_complete, &null_pkt ) >= 0 )
             {
-                int pict_type = helper->picture->pict_type;
-                if( stream_index == vdhp->stream_index )
-                    video_info[ video_sample_count - helper->delay_count + i ].pict_type = pict_type;
-                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                             "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
-                             stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
-                             stream->time_base.num, stream->time_base.den,
-                             -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
-                             pict_type, 0, 0, 0, "none", AVCOL_SPC_NB );
+                if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
+                {
+                    int pict_type = helper->picture->pict_type;
+                    if( stream_index == vdhp->stream_index )
+                        video_info[ video_sample_count - helper->delay_count + i ].pict_type = pict_type;
+                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
+                                 "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                                 stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
+                                 stream->time_base.num, stream->time_base.den,
+                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
+                                 pict_type, 0, 0, 0, "none", AVCOL_SPC_NB );
+                }
+                else
+                {
+                    int frame_length = decode_complete ? helper->picture->nb_samples : 0;
+                    if( stream_index == adhp->stream_index )
+                    {
+                        audio_duration += frame_length;
+                        if( audio_duration > INT32_MAX )
+                            break;
+                        uint32_t audio_frame_number = audio_sample_count - helper->delay_count + i;
+                        audio_info[audio_frame_number].length = frame_length;
+                        if( audio_frame_number > 1
+                         && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
+                            constant_frame_length = 0;
+                    }
+                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
+                                 "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
+                                 stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
+                                 format_ctx->streams[stream_index]->time_base.num,
+                                 format_ctx->streams[stream_index]->time_base.den,
+                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
+                                 0, 0, 0, "none", 0, frame_length );
+                }
             }
         }
     }
@@ -1209,46 +1240,6 @@ static void create_index
     }
     else
         lw_freep( &video_info );
-    if( audio_delay_count )
-    {
-        /* Flush if audio decoding is delayed. */
-        for( int stream_index = 0; stream_index <= max_audio_index; stream_index++ )
-        {
-            AVCodecContext *pkt_ctx = format_ctx->streams[stream_index]->codec;
-            if( pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
-                continue;
-            for( uint32_t i = 1; i <= audio_delay_count[stream_index]; i++ )
-            {
-                AVPacket null_pkt = { 0 };
-                av_init_packet( &null_pkt );
-                null_pkt.data = NULL;
-                null_pkt.size = 0;
-                int decode_complete;
-                if( avcodec_decode_audio4( pkt_ctx, adhp->frame_buffer, &decode_complete, &null_pkt ) >= 0 )
-                {
-                    frame_length = decode_complete ? adhp->frame_buffer->nb_samples : 0;
-                    if( stream_index == adhp->stream_index )
-                    {
-                        audio_duration += frame_length;
-                        if( audio_duration > INT32_MAX )
-                            break;
-                        uint32_t audio_frame_number = audio_sample_count - audio_delay_count[stream_index] + i;
-                        audio_info[audio_frame_number].length = frame_length;
-                        if( audio_frame_number > 1 && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
-                            constant_frame_length = 0;
-                    }
-                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                                 "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
-                                 stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                                 format_ctx->streams[stream_index]->time_base.num,
-                                 format_ctx->streams[stream_index]->time_base.den,
-                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
-                                 0, 0, 0, "none", 0, frame_length );
-                }
-            }
-        }
-        free( audio_delay_count );
-    }
     if( adhp->stream_index >= 0 )
     {
         if( adhp->dv_in_avi == 1 && format_ctx->streams[ adhp->stream_index ]->nb_index_entries == 0 )
@@ -1277,7 +1268,7 @@ static void create_index
         }
         adhp->frame_list   = audio_info;
         adhp->frame_count  = audio_sample_count;
-        adhp->frame_length = constant_frame_length ? frame_length : 0;
+        adhp->frame_length = constant_frame_length ? adhp->frame_list[1].length : 0;
         decide_audio_seek_method( lwhp, adhp, audio_sample_count );
         if( opt->av_sync && vdhp->stream_index >= 0 )
             lwhp->av_gap = calculate_av_gap( vdhp,
@@ -1384,8 +1375,6 @@ fail_index:
     cleanup_index_helpers( format_ctx );
     free( video_info );
     free( audio_info );
-    if( audio_delay_count )
-        free( audio_delay_count );
     if( index )
         fclose( index );
     if( indicator->close )
