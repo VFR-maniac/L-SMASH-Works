@@ -1002,7 +1002,8 @@ static void create_index
                 video_info[video_sample_count].file_offset     = pkt.pos;
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
-                video_info[video_sample_count].pict_type       = pict_type;
+                if( pict_type != -1 && video_sample_count > helper->delay_count )
+                    video_info[ video_sample_count - helper->delay_count ].pict_type = pict_type;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
