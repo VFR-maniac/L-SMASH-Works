@@ -51,6 +51,8 @@ typedef struct
     AVFrame                    *picture;
     uint32_t                    delay_count;
     int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
+    int                         mpeg12_video;
+    int                         vc1_wmv3;
 } lwindex_helper_t;
 
 typedef struct
@@ -116,7 +118,7 @@ static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
          : SEEK_DTS_BASED | SEEK_PTS_BASED;
 }
 
-static void mpeg12_vc1_video_genarate_pts
+static void mpeg12_video_vc1_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp
 )
@@ -136,7 +138,7 @@ static void mpeg12_vc1_video_genarate_pts
          * PTS
          *        1   2   3   4   5   6 ...
          * We assume B-pictures always be present in the stream here. */
-        if( ((enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B && !info[i].keyframe)
+        if( ((enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B)
          || (info[i].pts != AV_NOPTS_VALUE && info[i].dts != AV_NOPTS_VALUE && info[i].pts == info[i].dts) )
         {
             /* B-pictures shall be output or displayed in the same order as they are encoded. */
@@ -214,7 +216,7 @@ static int decide_video_seek_method
     {
         /* Generate PTS from DTS. */
         vdhp->seek_base |= SEEK_PTS_BASED;
-        mpeg12_vc1_video_genarate_pts( vdhp );
+        mpeg12_video_vc1_genarate_pts( vdhp );
     }
     if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
     {
@@ -486,10 +488,22 @@ static lwindex_helper_t *get_index_helper
         if( !helper )
             return NULL;
         ctx->opaque = (void *)helper;
+        if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
+        {
+            helper->own_parser = 1;
+            helper->parser_ctx = av_parser_init( ctx->codec_id );
+            if( helper->parser_ctx )
+                helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+        }
+        else
+            helper->parser_ctx = stream->parser;
+        helper->mpeg12_video = (ctx->codec_id == AV_CODEC_ID_MPEG1VIDEO || ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO);
+        helper->vc1_wmv3     = (ctx->codec_id == AV_CODEC_ID_VC1        || ctx->codec_id == AV_CODEC_ID_WMV3);
         /* For audio, prepare the decoder and the parser to get frame length.
          * For VC-1 in ASF, prepare the decoder to get pict_type since VC-1 parser does not work at all. */
         if( ctx->codec_type == AVMEDIA_TYPE_AUDIO
-         || ((ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3) && !strcmp( format_name, "asf" )) )
+         || helper->mpeg12_video
+         || (helper->vc1_wmv3 && !strcmp( format_name, "asf" )) )
         {
             if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
             {
@@ -504,18 +518,6 @@ static lwindex_helper_t *get_index_helper
                 free( helper );
                 return NULL;
             }
-        }
-        else
-        {
-            if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
-            {
-                helper->own_parser = 1;
-                helper->parser_ctx = av_parser_init( ctx->codec_id );
-                if( helper->parser_ctx )
-                    helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
-            }
-            else
-                helper->parser_ctx = stream->parser;
         }
     }
     return helper;
@@ -637,13 +639,13 @@ static int get_picture_type
     AVPacket         *pkt
 )
 {
-    if( helper->decode )
+    if( helper->decode && helper->vc1_wmv3 )
     {
         /* Get by the decoder. */
-        int got_picture;
+        int decode_complete;
         avcodec_get_frame_defaults( helper->picture );
-        helper->decode( video_ctx, helper->picture, &got_picture, pkt );
-        if( got_picture )
+        helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
+        if( decode_complete )
             return helper->picture->pict_type;
         else
         {
@@ -661,6 +663,27 @@ static int get_picture_type
         av_parser_parse2( helper->parser_ctx, video_ctx,
                           &dummy, &dummy_size, pkt->data, pkt->size,
                           pkt->pts, pkt->dts, pkt->pos );
+    }
+    if( helper->mpeg12_video
+     && (pkt->flags & AV_PKT_FLAG_KEY)
+     && (enum AVPictureType)helper->parser_ctx->pict_type != AV_PICTURE_TYPE_I )
+    {
+        /* One frame decoding.
+         * Sometimes, the parser returns a picture type other than I-picture even if the frame is a keyframe.
+         * Actual decoding fixes this issue. */
+        int decode_complete;
+        helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
+        if( !decode_complete )
+        {
+            AVPacket null_pkt = { 0 };
+            av_init_packet( &null_pkt );
+            null_pkt.data = NULL;
+            null_pkt.size = 0;
+            helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
+        }
+        if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
+            pkt->flags &= ~AV_PKT_FLAG_KEY;
+        return helper->picture->pict_type;
     }
     return helper->parser_ctx->pict_type;
 }
