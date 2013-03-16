@@ -50,9 +50,13 @@ typedef struct
     AVCodecParserContext       *parser_ctx;
     AVFrame                    *picture;
     uint32_t                    delay_count;
-    int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
     int                         mpeg12_video;
     int                         vc1_wmv3;
+#if LIBAVCODEC_VERSION_MICRO < 100
+    int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
+#else
+    int (*decode)(AVCodecContext *, AVFrame *, int *, const AVPacket * );
+#endif
 } lwindex_helper_t;
 
 typedef struct
