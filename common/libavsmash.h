@@ -78,5 +78,5 @@ int get_summaries( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t
 int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config );
 int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, codec_configuration_t *config, AVPacket *pkt );
 void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config );
-void flush_buffers( codec_configuration_t *config );
+void libavsmash_flush_buffers( codec_configuration_t *config );
 void cleanup_configuration( codec_configuration_t *config );

@@ -39,14 +39,19 @@ void lwlibav_flush_buffers
     lwlibav_decode_handler_t *dhp
 )
 {
-    AVCodecContext  *ctx  = dhp->format->streams[ dhp->stream_index ]->codec;
-    error_handler_t *ehp  = &dhp->eh;
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
-    const AVCodec *codec = ctx->codec;
+    AVCodecContext *ctx   = dhp->format->streams[ dhp->stream_index ]->codec;
+    const AVCodec  *codec = ctx->codec;
     avcodec_close( ctx );
+    ctx->codec_id = AV_CODEC_ID_NONE;   /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
+                                         * This avoids avcodec_open2() failure by the difference of enum AVCodecID.
+                                         * For instance, when stream is encoded as AC-3,
+                                         * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
+                                         * while AVCodec.id is set to AV_CODEC_ID_AC3. */
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
+        error_handler_t *ehp = &dhp->eh;
         ehp->error = 1;
         if( ehp->error_message )
             ehp->error_message( ehp->message_priv,
@@ -64,11 +69,7 @@ void lwlibav_update_configuration
     int64_t                   rap_pos
 )
 {
-    AVFormatContext             *format_ctx   = dhp->format;
-    int                          stream_index = dhp->stream_index;
-    error_handler_t             *ehp          = &dhp->eh;
-    lwlibav_extradata_handler_t *exhp         = &dhp->exh;
-    AVCodecContext              *ctx          = format_ctx->streams[stream_index]->codec;
+    lwlibav_extradata_handler_t *exhp = &dhp->exh;
     if( exhp->entry_count == 0 || extradata_index < 0 )
     {
         /* No need to update the extradata. */
@@ -76,7 +77,7 @@ void lwlibav_update_configuration
         lwlibav_flush_buffers( dhp );
         return;
     }
-    const AVCodec *codec = ctx->codec;
+    AVCodecContext *ctx = dhp->format->streams[ dhp->stream_index ]->codec;
     avcodec_close( ctx );
     if( ctx->extradata )
     {
@@ -85,8 +86,8 @@ void lwlibav_update_configuration
     }
     /* Find an appropriate decoder. */
     char error_string[96] = { 0 };
-    lwlibav_extradata_t *entry = &exhp->entries[ extradata_index ];
-    codec = avcodec_find_decoder( entry->codec_id );
+    lwlibav_extradata_t *entry = &exhp->entries[extradata_index];
+    const AVCodec *codec = avcodec_find_decoder( entry->codec_id );
     if( !codec )
     {
         strcpy( error_string, "Failed to find the decoder.\n" );
@@ -117,6 +118,9 @@ void lwlibav_update_configuration
         memcpy( ctx->extradata, entry->extradata, ctx->extradata_size );
         memset( ctx->extradata + ctx->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
     }
+    /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
+     * See lwlibav_flush_buffers(), why this is needed. */
+    ctx->codec_id  = AV_CODEC_ID_NONE;
     /* This is needed by some CODECs such as UtVideo and raw video. */
     ctx->codec_tag = entry->codec_tag;
     /* Open an appropriate decoder.
@@ -140,9 +144,9 @@ void lwlibav_update_configuration
     return;
 fail:
     exhp->delay_count = 0;
-    ehp->error        = 1;
-    if( ehp->error_message )
-        ehp->error_message( ehp->message_priv, "%sIt is recommended you reopen the file.", error_string );
+    dhp->eh.error = 1;
+    if( dhp->eh.error_message )
+        dhp->eh.error_message( dhp->eh.message_priv, "%sIt is recommended you reopen the file.", error_string );
 }
 
 int lwlibav_get_av_frame

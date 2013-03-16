@@ -575,13 +575,18 @@ int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, 
     return 0;
 }
 
-void flush_buffers( codec_configuration_t *config )
+void libavsmash_flush_buffers( codec_configuration_t *config )
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
     AVCodecContext *ctx   = config->ctx;
     const AVCodec  *codec = ctx->codec;
     avcodec_close( ctx );
+    ctx->codec_id = AV_CODEC_ID_NONE;   /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
+                                         * This avoids avcodec_open2() failure by the difference of enum AVCodecID.
+                                         * For instance, when stream is encoded as AC-3,
+                                         * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
+                                         * while AVCodec.id is set to AV_CODEC_ID_AC3. */
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
         config->error = 1;
@@ -602,7 +607,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     {
         /* Don't update the decoder configuration if L-SMASH cannot recognize CODEC or extract its specific info correctly. */
         config->index = config->queue.index;
-        flush_buffers( config );
+        libavsmash_flush_buffers( config );
         return;
     }
     AVCodecContext *ctx   = config->ctx;
@@ -656,6 +661,9 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             ctx->request_sample_fmt    = config->queue.bits_per_sample == 16 ? AV_SAMPLE_FMT_S16 : AV_SAMPLE_FMT_FLT;
         }
     }
+    /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
+     * See libavsmash_flush_buffers(), why this is needed. */
+    ctx->codec_id = AV_CODEC_ID_NONE;
     /* This is needed by some CODECs such as UtVideo and raw video. */
     ctx->codec_tag = BYTE_SWAP_32( summary->sample_type.fourcc );
     /* Update extradata. */
@@ -758,7 +766,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     avcodec_free_frame( &picture );
     /* Reopen/flush with the requested number of threads. */
     ctx->thread_count = thread_count;
-    flush_buffers( config );
+    libavsmash_flush_buffers( config );
     if( current_sample_number == config->queue.sample_number )
         config->dequeue_packet = 1;
     return;

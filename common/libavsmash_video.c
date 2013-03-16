@@ -148,7 +148,7 @@ static uint32_t seek_video
         /* Update the decoder configuration. */
         update_configuration( vdhp->root, vdhp->track_ID, config );
     else
-        flush_buffers( config );
+        libavsmash_flush_buffers( config );
     if( config->error )
         return 0;
     int dummy;

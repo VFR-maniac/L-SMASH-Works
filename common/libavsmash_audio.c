@@ -287,7 +287,7 @@ uint64_t libavsmash_get_pcm_audio_samples
                                        "It is recommended you reopen the file." );
             return 0;
         }
-        flush_buffers( config );
+        libavsmash_flush_buffers( config );
         if( config->error )
             return 0;
         adhp->next_pcm_sample_number = 0;
