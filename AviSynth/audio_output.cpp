@@ -21,6 +21,8 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
+#include "lsmashsource.h"
+
 extern "C"
 {
 #include <libavcodec/avcodec.h>
@@ -28,7 +30,6 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "lsmashsource.h"
 #include "audio_output.h"
 
 static inline enum AVSampleFormat as_decide_audio_output_sample_format( enum AVSampleFormat input_sample_format )
