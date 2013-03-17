@@ -189,7 +189,8 @@ int make_frame
     if( !vohp->scaler.enabled )
     {
         /* Render a video frame from the decoder directly. */
-        as_frame = ((as_video_buffer_handler_t *)av_frame->opaque)->as_frame_buffer;
+        as_video_buffer_handler_t *as_vbhp = (as_video_buffer_handler_t *)av_frame->opaque;
+        as_frame = as_vbhp->as_frame_buffer;
         return 0;
     }
     /* Convert pixel format. We don't change the presentation resolution. */
@@ -245,6 +246,114 @@ static int as_check_dr_available
     return 0;
 }
 
+static void as_video_release_buffer_handler
+(
+    void    *opaque,
+    uint8_t *data
+)
+{
+    as_video_buffer_handler_t *as_vbhp = (as_video_buffer_handler_t *)opaque;
+    delete as_vbhp;
+}
+
+static void as_video_unref_buffer_handler
+(
+    void    *opaque,
+    uint8_t *data
+)
+{
+    /* Decrement the reference-counter to the video buffer handler by 1.
+     * Delete it by as_video_release_buffer_handler() if there are no reference to it i.e. the reference-counter equals zero. */
+    AVBufferRef *as_buffer_ref = (AVBufferRef *)opaque;
+    av_buffer_unref( &as_buffer_ref );
+}
+
+static int as_video_get_buffer
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame,
+    int             flags
+)
+{
+    lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
+    lw_vohp->scaler.enabled = 0;
+    enum AVPixelFormat pix_fmt = ctx->pix_fmt;
+    avoid_yuv_scale_conversion( &pix_fmt );
+    if( lw_vohp->scaler.input_pixel_format != pix_fmt
+     || !as_check_dr_available( ctx, pix_fmt ) )
+        lw_vohp->scaler.enabled = 1;
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
+    if( lw_vohp->scaler.enabled )
+        return avcodec_default_get_buffer2( ctx, av_frame, 0 );
+    /* New AviSynth video frame buffer. */
+    as_video_buffer_handler_t *as_vbhp = new as_video_buffer_handler_t;
+    if( !as_vbhp )
+    {
+        av_frame_unref( av_frame );
+        return AVERROR(ENOMEM);
+    }
+    av_frame->opaque = as_vbhp;
+    as_vbhp->as_frame_buffer = as_vohp->env->NewVideoFrame( *as_vohp->vi, 32 );
+    int aligned_width  = ctx->width;
+    int aligned_height = ctx->height;
+    avcodec_align_dimensions2( ctx, &aligned_width, &aligned_height, av_frame->linesize );
+    if( lw_vohp->output_width != aligned_width || lw_vohp->output_height != aligned_height )
+        as_vohp->make_black_background( as_vbhp->as_frame_buffer );
+    /* Create frame buffers for the decoder.
+     * The callback as_video_release_buffer_handler() shall be called when no reference to the video buffer handler is present.
+     * The callback as_video_unref_buffer_handler() decrements the reference-counter by 1. */
+    memset( av_frame->buf,      0, sizeof(av_frame->buf) );
+    memset( av_frame->data,     0, sizeof(av_frame->data) );
+    memset( av_frame->linesize, 0, sizeof(av_frame->linesize) );
+    AVBufferRef *as_buffer_handler = av_buffer_create( NULL, 0, as_video_release_buffer_handler, as_vbhp, 0 );
+    if( !as_buffer_handler )
+    {
+        delete as_vbhp;
+        av_frame_unref( av_frame );
+        return AVERROR(ENOMEM);
+    }
+#define CREATE_PLANE_BUFFER( PLANE, PLANE_ID )                                                      \
+    do                                                                                              \
+    {                                                                                               \
+        AVBufferRef *as_buffer_ref = av_buffer_ref( as_buffer_handler );                            \
+        if( !as_buffer_ref )                                                                        \
+        {                                                                                           \
+            av_buffer_unref( &as_buffer_handler );                                                  \
+            goto fail;                                                                              \
+        }                                                                                           \
+        av_frame->linesize[PLANE] = as_vbhp->as_frame_buffer->GetPitch( PLANE_ID );                 \
+        int as_plane_size = as_vbhp->as_frame_buffer->GetHeight( PLANE_ID )                         \
+                          * av_frame->linesize[PLANE];                                              \
+        av_frame->buf[PLANE] = av_buffer_create( as_vbhp->as_frame_buffer->GetWritePtr( PLANE_ID ), \
+                                                 as_plane_size,                                     \
+                                                 as_video_unref_buffer_handler,                     \
+                                                 as_buffer_ref,                                     \
+                                                 0 );                                               \
+        if( !av_frame->buf[PLANE] )                                                                 \
+            goto fail;                                                                              \
+        av_frame->data[PLANE] = av_frame->buf[PLANE]->data;                                         \
+    } while( 0 )
+    if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
+        CREATE_PLANE_BUFFER( 0, );
+    else
+        for( int i = 0; i < 3; i++ )
+        {
+            static const int as_plane[3] = { PLANAR_Y, PLANAR_U, PLANAR_V };
+            CREATE_PLANE_BUFFER( i, as_plane[i] );
+        }
+    /* Here, a variable 'as_buffer_handler' itself is not referenced by any pointer. */
+    av_buffer_unref( &as_buffer_handler );
+#undef CREATE_PLANE_BUFFER
+    av_frame->nb_extended_buf = 0;
+    av_frame->extended_data   = av_frame->data;
+    av_frame->type            = FF_BUFFER_TYPE_USER;
+    return 0;
+fail:
+    av_frame_unref( av_frame );
+    av_buffer_unref( &as_buffer_handler );
+    return AVERROR(ENOMEM);
+}
+
 void as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
@@ -276,104 +385,10 @@ void as_setup_video_rendering
         avcodec_align_dimensions2( ctx, &vi->width, &vi->height, linesize_align );
         ctx->pix_fmt = input_pixel_format;
         /* Set up custom get_buffer() for direct rendering if available. */
-        ctx->get_buffer     = as_video_get_buffer;
-        ctx->release_buffer = as_video_release_buffer;
-        ctx->opaque         = vohp;
-        ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+        ctx->get_buffer2 = as_video_get_buffer;
+        ctx->opaque      = vohp;
+        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
     vohp->output_width  = vi->width;
     vohp->output_height = vi->height;
-}
-
-int as_video_get_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-)
-{
-    lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
-    lw_vohp->scaler.enabled = 0;
-    enum AVPixelFormat pix_fmt = ctx->pix_fmt;
-    avoid_yuv_scale_conversion( &pix_fmt );
-    if( lw_vohp->scaler.input_pixel_format != pix_fmt
-     || !as_check_dr_available( ctx, pix_fmt ) )
-        lw_vohp->scaler.enabled = 1;
-    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
-    if( lw_vohp->scaler.enabled )
-        return avcodec_default_get_buffer( ctx, av_frame );
-    /* New AviSynth video frame buffer. */
-    as_video_buffer_handler_t *as_vbhp = new as_video_buffer_handler_t;
-    if( !as_vbhp )
-        return -1;
-    av_frame->opaque = as_vbhp;
-    as_vbhp->as_frame_buffer = as_vohp->env->NewVideoFrame( *as_vohp->vi, 32 );
-    int aligned_width  = ctx->width;
-    int aligned_height = ctx->height;
-    avcodec_align_dimensions2( ctx, &aligned_width, &aligned_height, av_frame->linesize );
-    if( lw_vohp->output_width != aligned_width || lw_vohp->output_height != aligned_height )
-        as_vohp->make_black_background( as_vbhp->as_frame_buffer );
-    /* Set data address and linesize. */
-    if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
-    {
-        av_frame->base    [0] = as_vbhp->as_frame_buffer->GetWritePtr();
-        av_frame->data    [0] = av_frame->base[0];
-        av_frame->linesize[0] = as_vbhp->as_frame_buffer->GetPitch   ();
-    }
-    else
-        for( int i = 0; i < 3; i++ )
-        {
-            static const int as_plane[3] = { PLANAR_Y, PLANAR_U, PLANAR_V };
-            av_frame->base    [i] = as_vbhp->as_frame_buffer->GetWritePtr( as_plane[i] );
-            av_frame->data    [i] = av_frame->base[i];
-            av_frame->linesize[i] = as_vbhp->as_frame_buffer->GetPitch   ( as_plane[i] );
-        }
-    /* Don't use extended_data. */
-    av_frame->extended_data       = av_frame->data;
-    /* Set fundamental fields. */
-    av_frame->type                = FF_BUFFER_TYPE_USER;
-    av_frame->pkt_pts             = ctx->pkt ? ctx->pkt->pts : AV_NOPTS_VALUE;
-    av_frame->width               = ctx->width;
-    av_frame->height              = ctx->height;
-    av_frame->format              = ctx->pix_fmt;
-    av_frame->sample_aspect_ratio = ctx->sample_aspect_ratio;
-    return 0;
-}
-
-void as_video_release_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-)
-{
-    /* Delete AviSynth video frame buffer. */
-    if( av_frame->type == FF_BUFFER_TYPE_USER )
-    {
-        as_video_buffer_handler_t *as_vbhp = (as_video_buffer_handler_t *)av_frame->opaque;
-        if( as_vbhp )
-        {
-            delete as_vbhp;
-            av_frame->opaque = NULL;
-        }
-        lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
-        if( !lw_vohp )
-            return;
-        as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
-        if( !as_vohp )
-            return;
-        if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
-        {
-            av_frame->base    [0] = NULL;
-            av_frame->data    [0] = NULL;
-            av_frame->linesize[0] = 0;
-        }
-        else
-            for( int i = 0; i < 3; i++ )
-            {
-                av_frame->base    [i] = NULL;
-                av_frame->data    [i] = NULL;
-                av_frame->linesize[i] = 0;
-            }
-        return;
-    }
-    avcodec_default_release_buffer( ctx, av_frame );
 }

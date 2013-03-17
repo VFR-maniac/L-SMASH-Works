@@ -64,15 +64,3 @@ void as_setup_video_rendering
     int                        output_width,
     int                        output_height
 );
-
-int as_video_get_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-);
-
-void as_video_release_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-);
