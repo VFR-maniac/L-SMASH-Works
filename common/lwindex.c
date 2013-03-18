@@ -512,8 +512,9 @@ static lwindex_helper_t *get_index_helper
         {
             if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
             {
-                helper->decode     = avcodec_decode_audio4;
-                helper->parser_ctx = stream->parser;
+                if( !helper->own_parser )
+                    helper->parser_ctx = stream->parser;
+                helper->decode = avcodec_decode_audio4;
             }
             else
                 helper->decode = avcodec_decode_video2;
