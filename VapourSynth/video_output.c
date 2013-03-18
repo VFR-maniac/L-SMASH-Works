@@ -516,6 +516,12 @@ static inline int convert_av_pixel_format
     return -1;
 }
 
+typedef struct
+{
+    VSFrameRef  *vs_frame_buffer;
+    const VSAPI *vsapi;
+} vs_video_buffer_handler_t;
+
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
@@ -530,8 +536,8 @@ VSFrameRef *make_frame
     if( vs_vohp->direct_rendering && !vohp->scaler.enabled )
     {
         /* Render from the decoder directly. */
-        VSFrameRef *vs_frame_buffer = (VSFrameRef *)av_frame->opaque;
-        return vs_frame_buffer;
+        vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)av_frame->opaque;
+        return vs_vbhp ? vs_vbhp->vs_frame_buffer : NULL;
     }
     if( !vs_vohp->make_frame )
         return NULL;
@@ -615,12 +621,69 @@ static int vs_check_dr_available
     return 0;
 }
 
+static void vs_video_release_buffer_handler
+(
+    void    *opaque,
+    uint8_t *data
+)
+{
+    vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)opaque;
+    if( !vs_vbhp )
+        return;
+    if( vs_vbhp->vsapi && vs_vbhp->vsapi->freeFrame )
+        vs_vbhp->vsapi->freeFrame( vs_vbhp->vs_frame_buffer );
+    free( vs_vbhp );
+}
+
+static void vs_video_unref_buffer_handler
+(
+    void    *opaque,
+    uint8_t *data
+)
+{
+    /* Decrement the reference-counter to the video buffer handler by 1.
+     * Delete it by vs_video_release_buffer_handler() if there are no reference to it i.e. the reference-counter equals zero. */
+    AVBufferRef *vs_buffer_ref = (AVBufferRef *)opaque;
+    av_buffer_unref( &vs_buffer_ref );
+}
+
+static inline int vs_create_plane_buffer
+(
+    vs_video_buffer_handler_t *vs_vbhp,
+    AVBufferRef               *vs_buffer_handler,
+    AVFrame                   *av_frame,
+    int                        av_plane,
+    int                        vs_plane
+)
+{
+    AVBufferRef *vs_buffer_ref = av_buffer_ref( vs_buffer_handler );
+    if( !vs_buffer_ref )
+    {
+        av_buffer_unref( &vs_buffer_handler );
+        return -1;
+    }
+    av_frame->linesize[av_plane] = vs_vbhp->vsapi->getStride( vs_vbhp->vs_frame_buffer, vs_plane );
+    int vs_plane_size = vs_vbhp->vsapi->getFrameHeight( vs_vbhp->vs_frame_buffer, vs_plane )
+                      * av_frame->linesize[av_plane];
+    av_frame->buf[av_plane] = av_buffer_create( vs_vbhp->vsapi->getWritePtr( vs_vbhp->vs_frame_buffer, vs_plane ),
+                                                vs_plane_size,
+                                                vs_video_unref_buffer_handler,
+                                                vs_buffer_ref,
+                                                0 );
+    if( !av_frame->buf[av_plane] )
+        return -1;
+    av_frame->data[av_plane] = av_frame->buf[av_plane]->data;
+    return 0;
+}
+
 static int vs_video_get_buffer
 (
     AVCodecContext *ctx,
-    AVFrame        *av_frame
+    AVFrame        *av_frame,
+    int             flags
 )
 {
+    av_frame->opaque = NULL;
     lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
@@ -629,69 +692,57 @@ static int vs_video_get_buffer
      || !vs_check_dr_available( ctx, pix_fmt ) )
     {
         lw_vohp->scaler.enabled = 1;
-        return avcodec_default_get_buffer( ctx, av_frame );
+        return avcodec_default_get_buffer2( ctx, av_frame, 0 );
     }
     else
         lw_vohp->scaler.enabled = 0;
     /* New VapourSynth video frame buffer. */
+    vs_video_buffer_handler_t *vs_vbhp = malloc( sizeof(vs_video_buffer_handler_t) );
+    if( !vs_vbhp )
+    {
+        av_frame_unref( av_frame );
+        return AVERROR( ENOMEM );
+    }
+    av_frame->opaque = vs_vbhp;
     av_frame->width  = ctx->width;
     av_frame->height = ctx->height;
     av_frame->format = ctx->pix_fmt;
     avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
     VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame, vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
     if( !vs_frame_buffer )
-        return -1;
-    av_frame->opaque = vs_frame_buffer;
-    /* Set data address and linesize. */
+    {
+        free( vs_vbhp );
+        av_frame_unref( av_frame );
+        return AVERROR( ENOMEM );
+    }
+    vs_vbhp->vs_frame_buffer = vs_frame_buffer;
+    vs_vbhp->vsapi           = vs_vohp->vsapi;
+    /* Create frame buffers for the decoder.
+     * The callback vs_video_release_buffer_handler() shall be called when no reference to the video buffer handler is present.
+     * The callback vs_video_unref_buffer_handler() decrements the reference-counter by 1. */
+    memset( av_frame->buf,      0, sizeof(av_frame->buf) );
+    memset( av_frame->data,     0, sizeof(av_frame->data) );
+    memset( av_frame->linesize, 0, sizeof(av_frame->linesize) );
+    AVBufferRef *vs_buffer_handler = av_buffer_create( NULL, 0, vs_video_release_buffer_handler, vs_vbhp, 0 );
+    if( !vs_buffer_handler )
+    {
+        vs_video_release_buffer_handler( vs_vbhp, NULL );
+        av_frame_unref( av_frame );
+        return AVERROR( ENOMEM );
+    }
     vs_vohp->component_reorder = get_component_reorder( pix_fmt );
     for( int i = 0; i < 3; i++ )
-    {
-        int plane = vs_vohp->component_reorder[i];
-        av_frame->base    [i] = vs_vohp->vsapi->getWritePtr( vs_frame_buffer, plane );
-        av_frame->data    [i] = av_frame->base[i];
-        av_frame->linesize[i] = vs_vohp->vsapi->getStride  ( vs_frame_buffer, plane );
-    }
-    /* Don't use extended_data. */
-    av_frame->extended_data       = av_frame->data;
-    /* Set fundamental fields. */
-    av_frame->type                = FF_BUFFER_TYPE_USER;
-    av_frame->pkt_pts             = ctx->pkt ? ctx->pkt->pts : AV_NOPTS_VALUE;
-    av_frame->width               = ctx->width;
-    av_frame->height              = ctx->height;
-    av_frame->format              = ctx->pix_fmt;
-    av_frame->sample_aspect_ratio = ctx->sample_aspect_ratio;
+        if( vs_create_plane_buffer( vs_vbhp, vs_buffer_handler, av_frame, i, vs_vohp->component_reorder[i] ) < 0 )
+            goto fail;
+    /* Here, a variable 'vs_buffer_handler' itself is not referenced by any pointer. */
+    av_buffer_unref( &vs_buffer_handler );
+    av_frame->nb_extended_buf = 0;
+    av_frame->extended_data   = av_frame->data;
     return 0;
-}
-
-static void vs_video_release_buffer
-(
-    AVCodecContext *ctx,
-    AVFrame        *av_frame
-)
-{
-    /* Delete VapourSynth video frame buffer. */
-    if( av_frame->type == FF_BUFFER_TYPE_USER )
-    {
-        for( int i = 0; i < 3; i++ )
-        {
-            av_frame->base    [i] = NULL;
-            av_frame->data    [i] = NULL;
-            av_frame->linesize[i] = 0;
-        }
-        if( av_frame->opaque )
-        {
-            lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
-            if( !lw_vohp )
-                return;
-            vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
-            if( !vs_vohp || !vs_vohp->vsapi )
-                return;
-            vs_vohp->vsapi->freeFrame( (VSFrameRef *)av_frame->opaque );
-            av_frame->opaque = NULL;
-        }
-        return;
-    }
-    avcodec_default_release_buffer( ctx, av_frame );
+fail:
+    av_frame_unref( av_frame );
+    av_buffer_unref( &vs_buffer_handler );
+    return AVERROR( ENOMEM );
 }
 
 int setup_video_rendering
@@ -736,10 +787,9 @@ int setup_video_rendering
     /* Set up custom get_buffer() for direct rendering if available. */
     if( vs_vohp->direct_rendering )
     {
-        ctx->get_buffer     = vs_video_get_buffer;
-        ctx->release_buffer = vs_video_release_buffer;
-        ctx->opaque         = lw_vohp;
-        ctx->flags         |= CODEC_FLAG_EMU_EDGE;
+        ctx->get_buffer2 = vs_video_get_buffer;
+        ctx->opaque      = lw_vohp;
+        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
     return 0;
 }

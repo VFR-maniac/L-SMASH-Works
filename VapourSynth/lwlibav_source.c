@@ -260,9 +260,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     }
     set_frame_properties( hp, av_frame, vs_frame, vsapi );
-    return vs_frame != av_frame->opaque
-         ? vs_frame
-         : vsapi->cloneFrameRef( vs_frame );
+    return av_frame->opaque ? vsapi->cloneFrameRef( vs_frame ) : vs_frame;
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )
