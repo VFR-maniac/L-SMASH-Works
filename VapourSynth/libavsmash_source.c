@@ -96,7 +96,8 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    if( setup_video_rendering( vohp, config->ctx, vi, config->prefer.width, config->prefer.height ) < 0 )
+    config->get_buffer = setup_video_rendering( vohp, config->ctx, vi, config->prefer.width, config->prefer.height );
+    if( !config->get_buffer )
     {
         set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;

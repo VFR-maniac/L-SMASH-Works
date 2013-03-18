@@ -251,7 +251,8 @@ void LSMASHVideoSource::prepare_video_decoding
     if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
-    as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource", direct_rendering, config->prefer.width, config->prefer.height );
+    config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
+                                                   direct_rendering, config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
     for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
     {

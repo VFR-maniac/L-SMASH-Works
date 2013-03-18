@@ -132,7 +132,8 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.ctx->height     = vdh.initial_height;
     vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
     vdh.ctx->colorspace = vdh.initial_colorspace;
-    as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource", direct_rendering, vdh.max_width, vdh.max_height );
+    vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
+                                                   direct_rendering, vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
     vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( vi.num_frames != 1 )

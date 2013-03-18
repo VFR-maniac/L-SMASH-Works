@@ -290,7 +290,7 @@ static int as_video_get_buffer
     if( !as_vbhp )
     {
         av_frame_unref( av_frame );
-        return AVERROR(ENOMEM);
+        return AVERROR( ENOMEM );
     }
     av_frame->opaque = as_vbhp;
     as_vbhp->as_frame_buffer = as_vohp->env->NewVideoFrame( *as_vohp->vi, 32 );
@@ -310,7 +310,7 @@ static int as_video_get_buffer
     {
         delete as_vbhp;
         av_frame_unref( av_frame );
-        return AVERROR(ENOMEM);
+        return AVERROR( ENOMEM );
     }
 #define CREATE_PLANE_BUFFER( PLANE, PLANE_ID )                                                      \
     do                                                                                              \
@@ -346,15 +346,14 @@ static int as_video_get_buffer
 #undef CREATE_PLANE_BUFFER
     av_frame->nb_extended_buf = 0;
     av_frame->extended_data   = av_frame->data;
-    av_frame->type            = FF_BUFFER_TYPE_USER;
     return 0;
 fail:
     av_frame_unref( av_frame );
     av_buffer_unref( &as_buffer_handler );
-    return AVERROR(ENOMEM);
+    return AVERROR( ENOMEM );
 }
 
-void as_setup_video_rendering
+func_get_buffer_t *as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,
@@ -391,4 +390,5 @@ void as_setup_video_rendering
     }
     vohp->output_width  = vi->width;
     vohp->output_height = vi->height;
+    return ctx->get_buffer2;
 }

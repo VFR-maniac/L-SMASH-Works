@@ -745,7 +745,7 @@ fail:
     return AVERROR( ENOMEM );
 }
 
-int setup_video_rendering
+func_get_buffer_t *setup_video_rendering
 (
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
@@ -779,7 +779,7 @@ int setup_video_rendering
         }
         vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, vs_vohp->core );
         if( !vs_vohp->background_frame )
-            return -1;
+            return NULL;
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     lw_vohp->output_width  = vi->width;
@@ -791,5 +791,5 @@ int setup_video_rendering
         ctx->opaque      = lw_vohp;
         ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
-    return 0;
+    return ctx->get_buffer2;
 }

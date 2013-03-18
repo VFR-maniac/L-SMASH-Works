@@ -612,6 +612,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     }
     AVCodecContext *ctx   = config->ctx;
     const AVCodec  *codec = ctx->codec;
+    void *app_specific = ctx->opaque;
     avcodec_close( ctx );
     if( ctx->extradata )
     {
@@ -769,6 +770,8 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     libavsmash_flush_buffers( config );
     if( current_sample_number == config->queue.sample_number )
         config->dequeue_packet = 1;
+    ctx->get_buffer2 = config->get_buffer;
+    ctx->opaque      = app_specific;
     return;
 fail:
     config->update_pending    = 0;

@@ -55,7 +55,7 @@ int make_frame
     IScriptEnvironment        *env
 );
 
-void as_setup_video_rendering
+func_get_buffer_t *as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,

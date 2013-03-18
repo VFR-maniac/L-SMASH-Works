@@ -132,7 +132,8 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    if( setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height ) < 0 )
+    vdhp->exh.get_buffer = setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height );
+    if( !vdhp->exh.get_buffer )
     {
         set_error( vsbhp, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;

@@ -78,6 +78,7 @@ void lwlibav_update_configuration
         return;
     }
     AVCodecContext *ctx = dhp->format->streams[ dhp->stream_index ]->codec;
+    void *app_specific = ctx->opaque;
     avcodec_close( ctx );
     if( ctx->extradata )
     {
@@ -141,6 +142,8 @@ void lwlibav_update_configuration
     /* Reopen/flush with the requested number of threads. */
     ctx->thread_count = thread_count;
     lwlibav_flush_buffers( dhp );
+    ctx->get_buffer2 = exhp->get_buffer;
+    ctx->opaque      = app_specific;
     return;
 fail:
     exhp->delay_count = 0;

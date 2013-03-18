@@ -56,6 +56,7 @@ typedef struct
     int                  entry_count;
     lwlibav_extradata_t *entries;
     uint32_t             delay_count;
+    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int );
 } lwlibav_extradata_handler_t;
 
 typedef struct

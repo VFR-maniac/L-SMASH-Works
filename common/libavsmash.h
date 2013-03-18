@@ -52,6 +52,7 @@ typedef struct
     extended_summary_t    prefer;
     void                 *message_priv;
     void (*error_message)( void *message_priv, const char *message, ... );
+    int  (*get_buffer)( struct AVCodecContext *, AVFrame *, int );
     struct
     {
         uint32_t       index;       /* index of the queued decoder configuration */

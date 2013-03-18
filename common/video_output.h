@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+typedef int func_get_buffer_t( struct AVCodecContext *, AVFrame *, int );
+
 typedef struct
 {
     int                enabled;
