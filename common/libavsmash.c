@@ -791,6 +791,7 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     config->input_buffer = (uint8_t *)av_mallocz( input_buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
     if( !config->input_buffer )
         return -1;
+    config->get_buffer = avcodec_default_get_buffer2;
     /* Initialize decoder configuration at the first valid sample. */
     AVPacket dummy = { 0 };
     for( uint32_t i = 1; get_sample( root, track_ID, i, config, &dummy ) < 0; i++ );
