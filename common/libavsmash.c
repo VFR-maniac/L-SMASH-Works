@@ -692,6 +692,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         goto fail;
     }
     uint32_t current_sample_number = config->queue.sample_number;
+    extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
     if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
     {
         uint32_t i = current_sample_number;
@@ -714,7 +715,6 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             int dummy;
             avcodec_decode_video2( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
-        extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
         extended->width  = ctx->width;
         extended->height = ctx->height;
     }
@@ -757,7 +757,6 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
                 }
             }
         } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
-        extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
         extended->channel_layout = ctx->channel_layout ? ctx->channel_layout : av_get_default_channel_layout( ctx->channels );
         extended->sample_rate    = ctx->sample_rate;
         extended->sample_format  = ctx->sample_fmt;
@@ -772,6 +771,12 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         config->dequeue_packet = 1;
     ctx->get_buffer2 = config->get_buffer;
     ctx->opaque      = app_specific;
+    if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
+    {
+        /* avcodec_open2() may have changed resolution unexpectedly. */
+        ctx->width  = extended->width;
+        ctx->height = extended->height;
+    }
     return;
 fail:
     config->update_pending    = 0;

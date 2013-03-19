@@ -141,9 +141,14 @@ void lwlibav_update_configuration
         goto fail;
     /* Reopen/flush with the requested number of threads. */
     ctx->thread_count = thread_count;
+    int width  = ctx->width;
+    int height = ctx->height;
     lwlibav_flush_buffers( dhp );
     ctx->get_buffer2 = exhp->get_buffer;
     ctx->opaque      = app_specific;
+    /* avcodec_open2() may have changed resolution unexpectedly. */
+    ctx->width       = width;
+    ctx->height      = height;
     return;
 fail:
     exhp->delay_count = 0;
