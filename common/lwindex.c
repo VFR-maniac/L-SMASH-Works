@@ -35,13 +35,13 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "audio_output.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
 #include "lwlibav_audio.h"
 #include "progress.h"
 #include "lwindex.h"
-#include "utils.h"
 
 typedef struct
 {
@@ -243,20 +243,16 @@ static int decide_video_seek_method
         vdhp->order_converter = (order_converter_t *)lw_malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
         if( !vdhp->order_converter )
         {
-#ifdef DEBUG_VIDEO
-            if( vdhp->eh.error_message )
-                vdhp->eh.error_message( vdhp->eh.message_priv, "Failed to allocate memory." );
-#endif
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory." );
             return -1;
         }
         sort_presentation_order( &info[1], sample_count );
         video_timestamp_t *timestamp = (video_timestamp_t *)lw_malloc_zero( (sample_count + 1) * sizeof(video_timestamp_t) );
         if( !timestamp )
         {
-#ifdef DEBUG_VIDEO
-            if( vdhp->eh.error_message )
-                vdhp->eh.error_message( vdhp->eh.message_priv, "Failed to allocate memory of video timestamps." );
-#endif
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory of video timestamps." );
             return -1;
         }
         for( uint32_t i = 1; i <= sample_count; i++ )
@@ -1896,7 +1892,7 @@ int lwlibav_construct_index
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
-    error_handler_t                *ehp,
+    lw_log_handler_t               *lhp,
     lwlibav_option_t               *opt,
     progress_indicator_t           *indicator,
     progress_handler_t             *php
@@ -1960,7 +1956,7 @@ int lwlibav_construct_index
     av_register_all();
     avcodec_register_all();
     AVFormatContext *format_ctx = NULL;
-    if( lavf_open_file( &format_ctx, opt->file_path, ehp ) )
+    if( lavf_open_file( &format_ctx, opt->file_path, lhp ) )
     {
         if( format_ctx )
             lavf_close_file( &format_ctx );

@@ -36,6 +36,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "audio_output.h"
 #include "resample.h"
 #include "libavsmash.h"
@@ -281,10 +282,10 @@ uint64_t libavsmash_get_pcm_audio_samples
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
             config->error = 1;
-            if( config->error_message )
-                config->error_message( config->message_priv,
-                                       "Failed to flush resampler buffers.\n"
-                                       "It is recommended you reopen the file." );
+            if( config->lh.show_log )
+                config->lh.show_log( &config->lh, LW_LOG_FATAL,
+                                     "Failed to flush resampler buffers.\n"
+                                     "It is recommended you reopen the file." );
             return 0;
         }
         libavsmash_flush_buffers( config );
@@ -336,10 +337,10 @@ uint64_t libavsmash_get_pcm_audio_samples
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
             config->error = 1;
-            if( config->error_message )
-                config->error_message( config->message_priv,
-                                       "Failed to reconfigure resampler.\n"
-                                       "It is recommended you reopen the file." );
+            if( config->lh.show_log )
+                config->lh.show_log( &config->lh, LW_LOG_FATAL,
+                                     "Failed to reconfigure resampler.\n"
+                                     "It is recommended you reopen the file." );
             goto audio_out;
         }
         if( output_flags & AUDIO_OUTPUT_ENOUGH )

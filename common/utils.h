@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <assert.h>
 
 #define MIN( a, b ) ((a) < (b) ? (a) : (b))
@@ -32,6 +33,23 @@
 #define _countof( _Array ) ( sizeof(_Array) / sizeof(_Array[0]) )
 #endif
 
+typedef enum
+{
+    LW_LOG_INFO = 0,
+    LW_LOG_WARNING,
+    LW_LOG_ERROR,
+    LW_LOG_FATAL,
+} lw_log_level;
+
+typedef struct lw_log_handler_tag lw_log_handler_t;
+
+struct lw_log_handler_tag
+{
+    lw_log_level level;
+    void        *priv;
+    void (*show_log)( lw_log_handler_t *, lw_log_level, const char *format, ... );
+};
+
 void *lw_malloc_zero( size_t size );
 
 void  lw_freep( void *pointer );
@@ -40,6 +58,15 @@ void *lw_memdup
 (
     void  *src,
     size_t size
+);
+
+int lw_log_write_message
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    char             *message,
+    const char       *format,
+    va_list           args
 );
 
 static inline uint64_t get_gcd

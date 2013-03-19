@@ -29,9 +29,6 @@
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
 
-#include "lsmashsource.h"
-#include "video_output.h"
-
 /* Dummy definitions.
  * Audio resampler/buffer is NOT used at all in this filter. */
 typedef void AVAudioResampleContext;
@@ -75,6 +72,9 @@ uint64_t output_pcm_samples_from_packet
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
 
+#include "lsmashsource.h"
+#include "video_output.h"
+
 typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
 typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
 
@@ -94,10 +94,10 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
 
 static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
 {
-    lwlibav_video_decode_handler_t *vdhp  = &hp->vdh;
-    lwlibav_video_output_handler_t *vohp  = &hp->voh;
-    VSVideoInfo                    *vi    = &hp->vi;
-    vs_basic_handler_t             *vsbhp = (vs_basic_handler_t *)vdhp->eh.message_priv;
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
+    VSVideoInfo                    *vi   = &hp->vi;
+    lw_log_handler_t               *lhp  = &vdhp->lh;
     /* Import AVIndexEntrys. */
     if( vdhp->index_entries )
     {
@@ -107,7 +107,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
             AVIndexEntry *ie = &vdhp->index_entries[i];
             if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
             {
-                set_error( vsbhp, "lsmas: failed to import AVIndexEntrys for video." );
+                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to import AVIndexEntrys for video." );
                 return -1;
             }
         }
@@ -120,12 +120,12 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vdhp->ctx->colorspace = vdhp->initial_colorspace;
     if( determine_colorspace_conversion( vohp, vdhp->ctx->pix_fmt ) )
     {
-        set_error( vsbhp, "lsmas: %s is not supported", av_get_pix_fmt_name( vdhp->ctx->pix_fmt ) );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( vdhp->ctx->pix_fmt ) );
         return -1;
     }
     if( initialize_scaler_handler( &vohp->scaler, vdhp->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
     {
-        set_error( vsbhp, "lsmas: failed to initialize scaler handler." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -135,7 +135,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vdhp->exh.get_buffer = setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height );
     if( !vdhp->exh.get_buffer )
     {
-        set_error( vsbhp, "lsmas: failed to allocate memory for the background black frame data." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;
     }
     /* Find the first valid video frame. */
@@ -163,7 +163,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
                 vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
                 if( !vohp->first_valid_frame )
                 {
-                    set_error( vsbhp, "lsmas: failed to allocate the first valid video frame." );
+                    set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
                     return -1;
                 }
             }
@@ -235,15 +235,15 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vdhp->last_frame_number = vi->numFrames + 1;    /* Force seeking at the next access for valid video sample. */
         return vsapi->cloneFrameRef( vohp->first_valid_frame );
     }
-    if( vdhp->eh.error )
+    if( vdhp->error )
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     /* Set up VapourSynth error handler. */
     vs_basic_handler_t vsbh = { 0 };
     vsbh.out       = NULL;
     vsbh.frame_ctx = frame_ctx;
     vsbh.vsapi     = vsapi;
-    vdhp->eh.message_priv  = &vsbh;
-    vdhp->eh.error_message = set_error;
+    vdhp->lh.priv     = &vsbh;
+    vdhp->lh.show_log = set_error;
     /* Get and decode the desired video frame. */
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     vs_vohp->frame_ctx = frame_ctx;
@@ -314,10 +314,11 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     vsbh.out       = out;
     vsbh.frame_ctx = NULL;
     vsbh.vsapi     = vsapi;
-    /* Set up LW-Libav error handler. */
-    error_handler_t eh = { 0 };
-    eh.message_priv  = &vsbh;
-    eh.error_message = set_error;
+    /* Set up log handler. */
+    lw_log_handler_t lh = { 0 };
+    lh.level    = LW_LOG_FATAL;
+    lh.priv     = &vsbh;
+    lh.show_log = set_error;
     /* Get options. */
     int64_t stream_index;
     int64_t threads;
@@ -358,17 +359,17 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     /* Construct index. */
     lwlibav_audio_decode_handler_t adh = { 0 };
     lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( lwhp, vdhp, &adh, &aoh, &eh, &opt, &indicator, NULL );
+    int ret = lwlibav_construct_index( lwhp, vdhp, &adh, &aoh, &lh, &opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( ret < 0 )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &vsbh, "lsmas: failed to construct index." );
+        set_error( &lh, LW_LOG_FATAL, "lsmas: failed to construct index." );
         return;
     }
     /* Get the desired video track. */
-    vdhp->eh = eh;
+    vdhp->lh = lh;
     if( lwlibav_get_desired_video_track( lwhp->file_path, vdhp, lwhp->threads ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );

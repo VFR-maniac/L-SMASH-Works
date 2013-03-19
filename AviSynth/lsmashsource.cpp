@@ -25,15 +25,24 @@
 
 #include "lsmashsource.h"
 
-void throw_error( void *message_priv, const char *message, ... )
+void throw_error
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+)
 {
-    IScriptEnvironment *env = (IScriptEnvironment *)message_priv;
-    char temp[256];
+    char message[256];
     va_list args;
-    va_start( args, message );
-    vsprintf( temp, message, args );
+    va_start( args, format );
+    int written = lw_log_write_message( lhp, level, message, format, args );
     va_end( args );
-    env->ThrowError( (const char *)temp );
+    if( written )
+    {
+        IScriptEnvironment *env = (IScriptEnvironment *)lhp->priv;
+        env->ThrowError( (const char *)message );
+    }
 }
 
 extern AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env );

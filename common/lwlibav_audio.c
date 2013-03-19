@@ -51,7 +51,7 @@ int lwlibav_get_desired_audio_track
 {
     int error = adhp->stream_index < 0
              || adhp->frame_count == 0
-             || lavf_open_file( &adhp->format, file_path, &adhp->eh );
+             || lavf_open_file( &adhp->format, file_path, &adhp->lh );
     AVCodecContext *ctx = !error ? adhp->format->streams[ adhp->stream_index ]->codec : NULL;
     if( error || open_decoder( ctx, adhp->codec_id, threads ) )
     {
@@ -302,7 +302,7 @@ uint64_t lwlibav_get_pcm_audio_samples
     int64_t                         wanted_length
 )
 {
-    if( adhp->eh.error )
+    if( adhp->error )
         return 0;
     uint32_t               frame_number;
     uint32_t               rap_number      = 0;
@@ -348,11 +348,11 @@ retry_seek:
         /* Flush audio resampler buffers. */
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
-            adhp->eh.error = 1;
-            if( adhp->eh.error_message )
-                adhp->eh.error_message( adhp->eh.message_priv,
-                                        "Failed to flush resampler buffers.\n"
-                                        "It is recommended you reopen the file." );
+            adhp->error = 1;
+            if( adhp->lh.show_log )
+                adhp->lh.show_log( &adhp->lh, LW_LOG_FATAL,
+                                   "Failed to flush resampler buffers.\n"
+                                   "It is recommended you reopen the file." );
             return 0;
         }
         /* Flush audio decoder buffers. */
@@ -367,7 +367,7 @@ retry_seek:
         }
         else
             lwlibav_flush_buffers( (lwlibav_decode_handler_t *)adhp );
-        if( adhp->eh.error )
+        if( adhp->error )
             return 0;
         /* Seek and get a audio packet. */
         rap_number = seek_audio( adhp, frame_number, past_rap_number, pkt );
@@ -421,11 +421,11 @@ retry_seek:
             rap_number = 0;
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
-            adhp->eh.error = 1;
-            if( adhp->eh.error_message )
-                adhp->eh.error_message( adhp->eh.message_priv,
-                                        "Failed to reconfigure resampler.\n"
-                                        "It is recommended you reopen the file." );
+            adhp->error = 1;
+            if( adhp->lh.show_log )
+                adhp->lh.show_log( &adhp->lh, LW_LOG_FATAL,
+                                   "Failed to reconfigure resampler.\n"
+                                   "It is recommended you reopen the file." );
             goto audio_out;
         }
         if( output_flags & AUDIO_OUTPUT_ENOUGH )

@@ -50,8 +50,7 @@ typedef struct
     AVCodecContext       *ctx;
     libavsmash_summary_t *entries;
     extended_summary_t    prefer;
-    void                 *message_priv;
-    void (*error_message)( void *message_priv, const char *message, ... );
+    lw_log_handler_t      lh;
     int  (*get_buffer)( struct AVCodecContext *, AVFrame *, int );
     struct
     {

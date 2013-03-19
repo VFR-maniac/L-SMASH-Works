@@ -81,25 +81,18 @@ typedef struct libavsmash_handler_tag
     int                               av_sync;
 } libavsmash_handler_t;
 
-static void message_box_desktop( void *message_priv, const char *message, ... )
-{
-    char temp[256];
-    va_list args;
-    va_start( args, message );
-    wvsprintf( temp, message, args );
-    va_end( args );
-    UINT uType = *(UINT *)message_priv;
-    MessageBox( HWND_DESKTOP, temp, "lsmashinput", uType );
-}
-
 static void *open_file( char *file_name, reader_option_t *opt )
 {
     libavsmash_handler_t *hp = lw_malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return NULL;
     hp->uType = MB_ICONERROR | MB_OK;
-    hp->vdh.config.message_priv = &hp->uType;
-    hp->adh.config.message_priv = &hp->uType;
+    hp->vdh.config.lh.priv     = &hp->uType;
+    hp->adh.config.lh.priv     = &hp->uType;
+    hp->vdh.config.lh.level    = LW_LOG_WARNING;
+    hp->adh.config.lh.level    = LW_LOG_WARNING;
+    hp->vdh.config.lh.show_log = au_message_box_desktop;
+    hp->adh.config.lh.show_log = au_message_box_desktop;
     /* L-SMASH */
     hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
     if( !hp->root )
@@ -292,7 +285,7 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         h->video_sample_count = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
         if( get_summaries( hp->root, track_ID, &hp->vdh.config ) )
             return -1;
-        hp->vdh.config.error_message = message_box_desktop;
+        hp->vdh.config.lh.show_log = au_message_box_desktop;
         if( setup_timestamp_info( h, track_ID ) )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to set up timestamp info." );
@@ -320,7 +313,7 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         h->audio_pcm_sample_count = lsmash_get_media_duration_from_media_timeline( hp->root, track_ID );
         if( get_summaries( hp->root, track_ID, &hp->adh.config ) )
             return -1;
-        hp->adh.config.error_message = message_box_desktop;
+        hp->adh.config.lh.show_log = au_message_box_desktop;
         if( hp->av_sync )
         {
             uint64_t min_cts;
@@ -447,6 +440,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     if( au_setup_video_rendering( vohp, config->ctx, opt, &h->video_format, config->prefer.width, config->prefer.height ) < 0 )
         return -1;
+#ifndef DEBUG_VIDEO
+    config->lh.level = LW_LOG_FATAL;
+#endif
     /* Find the first valid video frame. */
     for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
     {
@@ -522,6 +518,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         h->audio_pcm_sample_count += hp->av_gap;
     }
     adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
+#ifndef DEBUG_AUDIO
+    config->lh.level = LW_LOG_FATAL;
+#endif
     return au_setup_audio_rendering( aohp, config->ctx, opt, &h->audio_format.Format );
 }
 

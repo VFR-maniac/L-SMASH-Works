@@ -32,6 +32,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "lwlibav_dec.h"
 
 void lwlibav_flush_buffers
@@ -51,12 +52,11 @@ void lwlibav_flush_buffers
                                          * while AVCodec.id is set to AV_CODEC_ID_AC3. */
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
-        error_handler_t *ehp = &dhp->eh;
-        ehp->error = 1;
-        if( ehp->error_message )
-            ehp->error_message( ehp->message_priv,
-                                "Failed to flush buffers.\n"
-                                "It is recommended you reopen the file." );
+        dhp->error = 1;
+        if( dhp->lh.show_log )
+            dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL,
+                              "Failed to flush buffers.\n"
+                              "It is recommended you reopen the file." );
     }
     dhp->exh.delay_count = 0;
 }
@@ -147,9 +147,10 @@ void lwlibav_update_configuration
     return;
 fail:
     exhp->delay_count = 0;
-    dhp->eh.error = 1;
-    if( dhp->eh.error_message )
-        dhp->eh.error_message( dhp->eh.message_priv, "%sIt is recommended you reopen the file.", error_string );
+    dhp->error = 1;
+    if( dhp->lh.show_log )
+        dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL,
+                          "%sIt is recommended you reopen the file.", error_string );
 }
 
 int lwlibav_get_av_frame

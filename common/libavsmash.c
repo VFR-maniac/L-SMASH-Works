@@ -71,8 +71,8 @@ int get_summaries( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t
     return 0;
 fail:
     config->error = 1;
-    if( config->error_message )
-        config->error_message( config->message_priv, "%s", error_string );
+    if( config->lh.show_log )
+        config->lh.show_log( &config->lh, LW_LOG_FATAL, "%s", error_string );
     return -1;
 }
 
@@ -341,10 +341,10 @@ static int queue_extradata( codec_configuration_t *config, uint8_t *extradata, i
         if( !temp )
         {
             config->error = 1;
-            if( config->error_message )
-                config->error_message( config->message_priv,
-                                       "Failed to allocate memory for new extradata.\n"
-                                       "It is recommended you reopen the file." );
+            if( config->lh.show_log )
+                config->lh.show_log( &config->lh, LW_LOG_FATAL,
+                                     "Failed to allocate memory for new extradata.\n"
+                                     "It is recommended you reopen the file." );
             return -1;
         }
         memcpy( temp, extradata, extradata_size );
@@ -590,10 +590,10 @@ void libavsmash_flush_buffers( codec_configuration_t *config )
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
         config->error = 1;
-        if( config->error_message )
-            config->error_message( config->message_priv,
-                                   "Failed to flush buffers.\n"
-                                   "It is recommended you reopen the file." );
+        if( config->lh.show_log )
+            config->lh.show_log( &config->lh, LW_LOG_FATAL,
+                                 "Failed to flush buffers.\n"
+                                 "It is recommended you reopen the file." );
     }
     config->update_pending    = 0;
     config->delay_count       = 0;
@@ -778,8 +778,9 @@ fail:
     config->delay_count       = 0;
     config->queue.delay_count = 0;
     config->error             = 1;
-    if( config->error_message )
-        config->error_message( config->message_priv, "%sIt is recommended you reopen the file.", error_string );
+    if( config->lh.show_log )
+        config->lh.show_log( &config->lh, LW_LOG_FATAL,
+                             "%sIt is recommended you reopen the file.", error_string );
 }
 
 int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )

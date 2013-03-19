@@ -180,3 +180,11 @@ struct lsmash_handler_tag
 };
 
 typedef void func_get_output( uint8_t *out_data, int out_linesize, uint8_t **in_data, int in_linesize, int height, int full_range );
+
+void au_message_box_desktop
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+);

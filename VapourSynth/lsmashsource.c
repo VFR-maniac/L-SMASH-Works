@@ -22,26 +22,34 @@
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
 #include <stdio.h>
-#include <stdarg.h>
-
-#include "lsmashsource.h"
 
 #include "../common/utils.h"
 
-void set_error( void *message_priv, const char *message, ... )
+#include "lsmashsource.h"
+
+void set_error
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+)
 {
-    vs_basic_handler_t *eh = (vs_basic_handler_t *)message_priv;
+    vs_basic_handler_t *eh = (vs_basic_handler_t *)lhp->priv;
     if( !eh || !eh->vsapi )
         return;
-    char temp[256];
+    char message[256];
     va_list args;
-    va_start( args, message );
-    vsprintf( temp, message, args );
+    va_start( args, format );
+    int written = lw_log_write_message( lhp, level, message, format, args );
     va_end( args );
-    if( eh->out )
-        eh->vsapi->setError( eh->out, (const char *)temp );
-    else if( eh->frame_ctx )
-        eh->vsapi->setFilterError( (const char *)temp, eh->frame_ctx );
+    if( written )
+    {
+        if( eh->out )
+            eh->vsapi->setError( eh->out, (const char *)message );
+        else if( eh->frame_ctx )
+            eh->vsapi->setFilterError( (const char *)message, eh->frame_ctx );
+    }
 }
 
 extern void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi );

@@ -64,17 +64,6 @@ struct progress_handler_tag
     int            template_id;
 };
 
-static void message_box_desktop( void *message_priv, const char *message, ... )
-{
-    char temp[256];
-    va_list args;
-    va_start( args, message );
-    wvsprintf( temp, message, args );
-    va_end( args );
-    UINT uType = *(UINT *)message_priv;
-    MessageBox( HWND_DESKTOP, temp, "lsmashinput", uType );
-}
-
 static void open_indicator( progress_handler_t *php )
 {
     init_progress_dlg( &php->dlg, php->module_name, php->template_id );
@@ -96,9 +85,10 @@ static void *open_file( char *file_path, reader_option_t *opt )
     if( !hp )
         return NULL;
     /* Set up error handler. */
-    error_handler_t eh = { 0 };
-    eh.message_priv  = &hp->uType;
-    eh.error_message = NULL;
+    lw_log_handler_t lh = { 0 };
+    lh.level    = LW_LOG_FATAL;
+    lh.priv     = &hp->uType;
+    lh.show_log = NULL;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set options. */
     lwlibav_option_t lwlibav_opt;
@@ -119,7 +109,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     ph.module_name = "lsmashinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
     /* Construct index. */
-    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->adh, &hp->aoh, &eh, &lwlibav_opt, &indicator, &ph ) < 0 )
+    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->adh, &hp->aoh, &lh, &lwlibav_opt, &indicator, &ph ) < 0 )
     {
         free( hp );
         return NULL;
@@ -132,9 +122,10 @@ static int get_video_track( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( lwlibav_get_desired_video_track( hp->lwh.file_path, &hp->vdh, hp->lwh.threads ) < 0 )
         return -1;
-    error_handler_t *ehp = &hp->vdh.eh;
-    ehp->message_priv  = &hp->uType;
-    ehp->error_message = message_box_desktop;
+    lw_log_handler_t *lhp = &hp->vdh.lh;
+    lhp->level    = LW_LOG_WARNING;
+    lhp->priv     = &hp->uType;
+    lhp->show_log = au_message_box_desktop;
     return 0;
 }
 
@@ -143,9 +134,10 @@ static int get_audio_track( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( lwlibav_get_desired_audio_track( hp->lwh.file_path, &hp->adh, hp->lwh.threads ) < 0 )
         return -1;
-    error_handler_t *ehp = &hp->adh.eh;
-    ehp->message_priv  = &hp->uType;
-    ehp->error_message = message_box_desktop;
+    lw_log_handler_t *lhp = &hp->adh.lh;
+    lhp->level    = LW_LOG_WARNING;
+    lhp->priv     = &hp->uType;
+    lhp->show_log = au_message_box_desktop;
     return 0;
 }
 
@@ -183,6 +175,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     lwlibav_video_output_handler_t *vohp = &hp->voh;
     if( au_setup_video_rendering( vohp, vdhp->ctx, opt, &h->video_format, vdhp->max_width, vdhp->max_height ) < 0 )
         return -1;
+#ifndef DEBUG_VIDEO
+    vdhp->lh.level = LW_LOG_FATAL;
+#endif
     /* Find the first valid video frame. */
     vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( h->video_sample_count != 1 )
@@ -255,6 +250,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         av_freep( &adhp->index_entries );
     }
     avcodec_get_frame_defaults( adhp->frame_buffer );
+#ifndef DEBUG_AUDIO
+    adhp->lh.level = LW_LOG_FATAL;
+#endif
     return au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format );
 }
 
@@ -262,7 +260,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
-    if( vdhp->eh.error )
+    if( vdhp->error )
         return 0;
     lwlibav_video_output_handler_t *vohp = &hp->voh;
     ++frame_number;            /* frame_number is 1-origin. */

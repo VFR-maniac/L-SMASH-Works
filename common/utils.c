@@ -20,6 +20,7 @@
 
 /* This file is available under an ISC license. */
 
+#include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
 
@@ -54,4 +55,40 @@ void *lw_memdup
         return NULL;
     memcpy( dst, src, size );
     return dst;
+}
+
+int lw_log_write_message
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    char             *message,
+    const char       *format,
+    va_list           args
+)
+{
+    if( level < lhp->level )
+        return 0;
+    char *prefix;
+    switch( level )
+    {
+        case LW_LOG_FATAL:
+            prefix = "Fatal";
+            break;
+        case LW_LOG_ERROR:
+            prefix = "Error";
+            break;
+        case LW_LOG_WARNING:
+            prefix = "Warning";
+            break;
+        case LW_LOG_INFO:
+            prefix = "Info";
+            break;
+        default:
+            prefix = "Unknown";
+            break;
+    }
+    char temp[512];
+    vsprintf( temp, format, args );
+    sprintf( message, "[%s]: %s", prefix, temp );
+    return 1;
 }

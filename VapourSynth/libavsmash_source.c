@@ -31,12 +31,12 @@
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
 
-#include "lsmashsource.h"
-#include "video_output.h"
-
 #include "../common/utils.h"
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
+
+#include "lsmashsource.h"
+#include "video_output.h"
 
 typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
 typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
@@ -46,7 +46,6 @@ typedef struct
     VSVideoInfo                       vi;
     libavsmash_video_decode_handler_t vdh;
     libavsmash_video_output_handler_t voh;
-    vs_basic_handler_t                eh;
     AVFormatContext                  *format_ctx;
     uint32_t                          media_timescale;
 } lsmas_handler_t;
@@ -54,44 +53,39 @@ typedef struct
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
 {
     lsmas_handler_t *hp = (lsmas_handler_t *)*instance_data;
-    hp->eh.out   = out;
-    hp->eh.vsapi = vsapi;
     vsapi->setVideoInfo( &hp->vi, 1, node );
 }
 
-static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
+static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAPI *vsapi )
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     VSVideoInfo                       *vi   = &hp->vi;
-    vs_basic_handler_t eh = hp->eh;
+    lw_log_handler_t                  *lhp  = &vdhp->config.lh;
     vdhp->frame_buffer = avcodec_alloc_frame();
     if( !vdhp->frame_buffer )
     {
-        set_error( &eh, "lsmas: failed to allocate video frame buffer." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate video frame buffer." );
         return -1;
     }
     /* Initialize the video decoder configuration. */
     codec_configuration_t *config = &vdhp->config;
-    config->message_priv  = &hp->eh;
-    config->error_message = set_error;
     if( initialize_decoder_configuration( vdhp->root, vdhp->track_ID, config ) )
     {
-        set_error( &eh, "lsmas: failed to initialize the decoder configuration." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize the decoder configuration." );
         return -1;
     }
     /* Set up output format. */
     if( determine_colorspace_conversion( vohp, config->ctx->pix_fmt ) )
     {
-        set_error( &eh, "lsmas: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( config->ctx->pix_fmt ) );
         return -1;
     }
     if( initialize_scaler_handler( &vohp->scaler, config->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
     {
-        set_error( &eh, "lsmas: failed to initialize scaler handler." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
-    const VSAPI               *vsapi   = eh.vsapi;
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
@@ -99,7 +93,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
     config->get_buffer = setup_video_rendering( vohp, config->ctx, vi, config->prefer.width, config->prefer.height );
     if( !config->get_buffer )
     {
-        set_error( &eh, "lsmas: failed to allocate memory for the background black frame data." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;
     }
     /* Find the first valid video sample. */
@@ -118,7 +112,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core )
                 vohp->first_valid_frame = make_frame( vohp, av_frame, config->ctx->colorspace );
                 if( !vohp->first_valid_frame )
                 {
-                    set_error( &eh, "lsmas: failed to allocate the first valid video frame." );
+                    set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
                     return -1;
                 }
             }
@@ -227,10 +221,13 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     codec_configuration_t *config = &vdhp->config;
     if( config->error )
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
-    config->message_priv = &hp->eh;
-    hp->eh.out       = NULL;
-    hp->eh.frame_ctx = frame_ctx;
-    hp->eh.vsapi     = vsapi;
+    /* Set up VapourSynth error handler. */
+    vs_basic_handler_t vsbh = { 0 };
+    vsbh.out       = NULL;
+    vsbh.frame_ctx = frame_ctx;
+    vsbh.vsapi     = vsapi;
+    config->lh.priv     = &vsbh;
+    config->lh.show_log = set_error;
     /* Get and decode the desired video frame. */
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     vs_vohp->frame_ctx = frame_ctx;
@@ -274,10 +271,14 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     free( hp );
 }
 
-static uint32_t open_file( lsmas_handler_t *hp, const char *source )
+static uint32_t open_file
+(
+    lsmas_handler_t *hp,
+    const char      *source,
+    VSMap           *out,
+    const VSAPI     *vsapi
+)
 {
-    VSMap       *out   = hp->eh.out;
-    const VSAPI *vsapi = hp->eh.vsapi;
     /* L-SMASH */
     hp->vdh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
     if( !hp->vdh.root )
@@ -313,7 +314,7 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     VSVideoInfo                       *vi   = &hp->vi;
-    vs_basic_handler_t                 eh   = hp->eh;
+    lw_log_handler_t                  *lhp  = &vdhp->config.lh;
     if( vi->numFrames == 1 )
     {
         /* Calculate average framerate. */
@@ -328,19 +329,19 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
     lsmash_media_ts_list_t ts_list;
     if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_ID, &ts_list ) )
     {
-        set_error( &eh, "lsmas: failed to get timestamps." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get timestamps." );
         return -1;
     }
     if( ts_list.sample_count != vi->numFrames )
     {
-        set_error( &eh, "lsmas: failed to count number of video samples." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to count number of video samples." );
         return -1;
     }
     uint32_t composition_sample_delay;
     if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
     {
         lsmash_delete_media_timestamps( &ts_list );
-        set_error( &eh, "lsmas: failed to get composition delay." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get composition delay." );
         return -1;
     }
     if( composition_sample_delay )
@@ -351,7 +352,7 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
         if( !vdhp->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
-            set_error( &eh, "lsmas: failed to allocate memory." );
+            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory." );
             return -1;
         }
         for( uint32_t i = 0; i < ts_list.sample_count; i++ )
@@ -386,7 +387,7 @@ static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
 static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int threads, uint32_t number_of_tracks )
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
-    vs_basic_handler_t                 eh   = hp->eh;
+    lw_log_handler_t                  *lhp  = &vdhp->config.lh;
     /* L-SMASH */
     uint32_t i;
     lsmash_media_parameters_t media_param;
@@ -398,13 +399,13 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
             vdhp->track_ID = lsmash_get_track_ID( vdhp->root, i );
             if( vdhp->track_ID == 0 )
             {
-                set_error( &eh, "lsmas: failed to find video track." );
+                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track." );
                 return -1;
             }
             lsmash_initialize_media_parameters( &media_param );
             if( lsmash_get_media_parameters( vdhp->root, vdhp->track_ID, &media_param ) )
             {
-                set_error( &eh, "lsmas: failed to get media parameters." );
+                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get media parameters." );
                 return -1;
             }
             if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
@@ -412,7 +413,7 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
         }
         if( i > number_of_tracks )
         {
-            set_error( &eh, "lsmas: failed to find video track." );
+            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track." );
             return -1;
         }
     }
@@ -422,24 +423,24 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
         vdhp->track_ID = lsmash_get_track_ID( vdhp->root, track_number );
         if( vdhp->track_ID == 0 )
         {
-            set_error( &eh, "lsmas: failed to find video track %"PRIu32".", track_number );
+            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track %"PRIu32".", track_number );
             return -1;
         }
         lsmash_initialize_media_parameters( &media_param );
         if( lsmash_get_media_parameters( vdhp->root, vdhp->track_ID, &media_param ) )
         {
-            set_error( &eh, "lsmas: failed to get media parameters." );
+            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get media parameters." );
             return -1;
         }
         if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
         {
-            set_error( &eh, "lsmas: the track you specified is not a video track." );
+            set_error( lhp, LW_LOG_FATAL, "lsmas: the track you specified is not a video track." );
             return -1;
         }
     }
     if( lsmash_construct_timeline( vdhp->root, vdhp->track_ID ) )
     {
-        set_error( &eh, "lsmas: failed to get construct timeline." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get construct timeline." );
         return -1;
     }
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
@@ -452,7 +453,7 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == hp->format_ctx->nb_streams )
     {
-        set_error( &eh, "lsmas: failed to find stream by libavformat." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find stream by libavformat." );
         return -1;
     }
     /* libavcodec */
@@ -462,13 +463,13 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
     if( !codec )
     {
-        set_error( &eh, "lsmas: failed to find %s decoder.", codec->name );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find %s decoder.", codec->name );
         return -1;
     }
     ctx->thread_count = threads;
     if( avcodec_open2( ctx, codec, NULL ) < 0 )
     {
-        set_error( &eh, "lsmas: failed to avcodec_open2." );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to avcodec_open2." );
         return -1;
     }
     return 0;
@@ -501,13 +502,18 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     vohp->private_handler      = vs_vohp;
     vohp->free_private_handler = free;
-    /* */
-    hp->eh.out       = out;
-    hp->eh.frame_ctx = NULL;
-    hp->eh.vsapi     = vsapi;
-    vs_basic_handler_t eh = hp->eh;
+    /* Set up VapourSynth error handler. */
+    vs_basic_handler_t vsbh = { 0 };
+    vsbh.out       = out;
+    vsbh.frame_ctx = NULL;
+    vsbh.vsapi     = vsapi;
+    /* Set up log handler. */
+    lw_log_handler_t lh = { 0 };
+    lh.level    = LW_LOG_FATAL;
+    lh.priv     = &vsbh;
+    lh.show_log = set_error;
     /* Open source file. */
-    uint32_t number_of_tracks = open_file( hp, file_name );
+    uint32_t number_of_tracks = open_file( hp, file_name, out, vsapi );
     if( number_of_tracks == 0 )
     {
         vs_filter_free( hp, core, vsapi );
@@ -537,7 +543,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     if( track_number && track_number > number_of_tracks )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &eh, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
+        set_error( &lh, LW_LOG_FATAL, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
         return;
     }
     /* Get video track. */
@@ -548,7 +554,8 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     /* Set up decoders for this track. */
     lsmash_discard_boxes( vdhp->root );
-    if( prepare_video_decoding( hp, core ) < 0 )
+    vdhp->config.lh = lh;
+    if( prepare_video_decoding( hp, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

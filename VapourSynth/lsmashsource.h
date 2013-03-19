@@ -30,7 +30,13 @@ typedef struct
     const VSAPI    *vsapi;
 } vs_basic_handler_t;
 
-void set_error( void *message_priv, const char *message, ... );
+void set_error
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+);
 
 static inline void set_option_int64( int64_t *opt, int64_t default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
 {

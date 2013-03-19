@@ -32,10 +32,9 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
-
-#include "utils.h"
 
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
@@ -50,7 +49,7 @@ int lwlibav_get_desired_video_track
 {
     int error = vdhp->stream_index < 0
              || vdhp->frame_count == 0
-             || lavf_open_file( &vdhp->format, file_path, &vdhp->eh );
+             || lavf_open_file( &vdhp->format, file_path, &vdhp->lh );
     AVCodecContext *ctx = !error ? vdhp->format->streams[ vdhp->stream_index ]->codec : NULL;
     if( error || open_decoder( ctx, vdhp->codec_id, threads ) )
     {
@@ -155,10 +154,9 @@ void lwlibav_setup_timestamp_info
         {
             if( info[i].pts == info[i - 1].pts )
             {
-                if( vdhp->eh.error_message )
-                    vdhp->eh.error_message( vdhp->eh.message_priv,
-                                            "Detected PTS %"PRId64" duplication at frame %"PRIu32,
-                                            info[i].pts, i );
+                if( vdhp->lh.show_log )
+                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
+                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32, info[i].pts, i );
                 goto fail;
             }
             stream_timebase = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
@@ -176,10 +174,9 @@ void lwlibav_setup_timestamp_info
         {
             if( info[i].dts == info[i - 1].dts )
             {
-                if( vdhp->eh.error_message )
-                    vdhp->eh.error_message( vdhp->eh.message_priv,
-                                            "Detected DTS %"PRId64" duplication at frame %"PRIu32,
-                                            info[i].dts, i );
+                if( vdhp->lh.show_log )
+                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
+                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32, info[i].dts, i );
                 goto fail;
             }
             stream_timebase = get_gcd( stream_timebase, info[i].dts - info[i - 1].dts );
@@ -269,10 +266,8 @@ static int decode_video_sample
     picture->pts = pts;
     if( ret < 0 )
     {
-#ifdef DEBUG_VIDEO
-        if( vdhp->eh.error_message )
-            vdhp->eh.error_message( vdhp->eh.message_priv, "Failed to decode a video frame." );
-#endif
+        if( vdhp->lh.show_log )
+            vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
         return -1;
     }
     return 0;
@@ -338,7 +333,7 @@ static uint32_t seek_video
         lwlibav_update_configuration( (lwlibav_decode_handler_t *)vdhp, rap_number, extradata_index, rap_pos );
     else
         lwlibav_flush_buffers( (lwlibav_decode_handler_t *)vdhp );
-    if( vdhp->eh.error )
+    if( vdhp->error )
         return 0;
     if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
         av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
@@ -358,10 +353,8 @@ static uint32_t seek_video
             rap_pts = picture->pts;
         if( ret == -1 && (picture->pts == AV_NOPTS_VALUE || picture->pts >= rap_pts) && !error_ignorance )
         {
-#ifdef DEBUG_VIDEO
-            if( vdhp->eh.error_message )
-                vdhp->eh.error_message( vdhp->eh.message_priv, "Failed to decode a video frame." );
-#endif
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
             return 0;
         }
         else if( ret >= 1 )
@@ -405,10 +398,8 @@ static int get_picture
             avcodec_get_frame_defaults( picture );
             if( avcodec_decode_video2( vdhp->ctx, picture, &got_picture, &pkt ) < 0 )
             {
-#ifdef DEBUG_VIDEO
-                if( vdhp->eh.error_message )
-                    vdhp->eh.error_message( vdhp->eh.message_priv, "Failed to decode and flush a video frame." );
-#endif
+                if( vdhp->lh.show_log )
+                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode and flush a video frame." );
                 return -1;
             }
             ++current;
@@ -454,7 +445,7 @@ int lwlibav_get_video_frame
         || get_picture( vdhp, picture, start_number, frame_number + vdhp->exh.delay_count, rap_number, frame_count ) < 0 )
     {
         /* Failed to get desired picture. */
-        if( vdhp->eh.error || seek_mode == SEEK_MODE_AGGRESSIVE )
+        if( vdhp->error || seek_mode == SEEK_MODE_AGGRESSIVE )
             goto video_fail;
         if( ++error_count > MAX_ERROR_COUNT || rap_number <= 1 )
         {
@@ -476,10 +467,8 @@ int lwlibav_get_video_frame
     return 0;
 video_fail:
     /* fatal error of decoding */
-#ifdef DEBUG_VIDEO
-    if( vdhp->eh.error_message )
-        vdhp->eh.error_message( vdhp->eh.message_priv, "Couldn't read video frame." );
-#endif
+    if( vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Couldn't read video frame." );
     return -1;
 #undef MAX_ERROR_COUNT
 }

@@ -42,7 +42,8 @@ typedef struct
     /* common */
     AVFormatContext    *format;
     int                 stream_index;
-    error_handler_t     eh;
+    int                 error;
+    lw_log_handler_t    lh;
     lwlibav_extradata_handler_t exh;
     AVCodecContext     *ctx;
     AVIndexEntry       *index_entries;

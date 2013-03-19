@@ -111,7 +111,9 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
     if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to avformat_find_stream_info." );
     /* */
-    vdh.config.error_message = throw_error;
+    lw_log_handler_t *lhp = &vdh.config.lh;
+    lhp->level    = LW_LOG_FATAL;
+    lhp->show_log = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -247,7 +249,7 @@ void LSMASHVideoSource::prepare_video_decoding
         env->ThrowError( "LSMASHVideoSource: failed to allocate video frame buffer." );
     /* Initialize the video decoder configuration. */
     codec_configuration_t *config = &vdh.config;
-    config->message_priv = env;
+    config->lh.priv = env;
     if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
@@ -293,7 +295,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
         return *(PVideoFrame *)voh.first_valid_frame;
     }
     codec_configuration_t *config = &vdh.config;
-    config->message_priv = env;
+    config->lh.priv = env;
     if( config->error )
         return env->NewVideoFrame( vi );
     if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) )
@@ -355,7 +357,9 @@ uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *e
     if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avformat_find_stream_info." );
     /* */
-    adh.config.error_message = throw_error;
+    lw_log_handler_t *lhp = &adh.config.lh;
+    lhp->level    = LW_LOG_FATAL;
+    lhp->show_log = throw_error;
     return movie_param.number_of_tracks;
 }
 
@@ -511,7 +515,7 @@ void LSMASHAudioSource::prepare_audio_decoding
         env->ThrowError( "LSMASHAudioSource: failed to allocate audio frame buffer." );
     /* Initialize the audio decoder configuration. */
     codec_configuration_t *config = &adh.config;
-    config->message_priv = env;
+    config->lh.priv = env;
     if( initialize_decoder_configuration( adh.root, adh.track_ID, config ) )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
     aoh.output_channel_layout  = config->prefer.channel_layout;
@@ -528,6 +532,7 @@ void LSMASHAudioSource::prepare_audio_decoding
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
+    adh.config.lh.priv = env;
     return (void)libavsmash_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
 }
 

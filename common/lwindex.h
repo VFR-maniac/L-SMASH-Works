@@ -49,7 +49,7 @@ int lwlibav_construct_index
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
-    error_handler_t                *ehp,
+    lw_log_handler_t               *lhp,
     lwlibav_option_t               *opt,
     progress_indicator_t           *indicator,
     progress_handler_t             *php

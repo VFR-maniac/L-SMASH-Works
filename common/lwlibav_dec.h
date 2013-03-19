@@ -26,13 +26,6 @@
 
 typedef struct
 {
-    int    error;
-    void  *message_priv;
-    void (*error_message)( void *message_priv, const char *message, ... );
-} error_handler_t;
-
-typedef struct
-{
     uint8_t            *extradata;
     int                 extradata_size;
     /* Codec identifier */
@@ -64,7 +57,8 @@ typedef struct
     /* common */
     AVFormatContext            *format;
     int                         stream_index;
-    error_handler_t             eh;
+    int                         error;
+    lw_log_handler_t            lh;
     lwlibav_extradata_handler_t exh;
     AVCodecContext             *ctx;
     AVIndexEntry               *index_entries;
@@ -82,19 +76,19 @@ static inline int lavf_open_file
 (
     AVFormatContext **format_ctx,
     const char       *file_path,
-    error_handler_t  *ehp
+    lw_log_handler_t *lhp
 )
 {
     if( avformat_open_input( format_ctx, file_path, NULL, NULL ) )
     {
-        if( ehp->error_message )
-            ehp->error_message( ehp->message_priv, "Failed to avformat_open_input." );
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_FATAL, "Failed to avformat_open_input." );
         return -1;
     }
     if( avformat_find_stream_info( *format_ctx, NULL ) < 0 )
     {
-        if( ehp->error_message )
-            ehp->error_message( ehp->message_priv, "Failed to avformat_find_stream_info." );
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_FATAL, "Failed to avformat_find_stream_info." );
         return -1;
     }
     return 0;

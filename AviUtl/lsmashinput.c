@@ -74,6 +74,26 @@ static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
 static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
                                        "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
 
+void au_message_box_desktop
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+)
+{
+    char message[256];
+    va_list args;
+    va_start( args, format );
+    int written = lw_log_write_message( lhp, level, message, format, args );
+    va_end( args );
+    if( written )
+    {
+        UINT uType = *(UINT *)lhp->priv;
+        MessageBox( HWND_DESKTOP, message, "lsmashinput", uType );
+    }
+}
+
 static FILE *open_settings( void )
 {
     FILE *ini = NULL;
