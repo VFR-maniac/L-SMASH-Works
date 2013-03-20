@@ -173,7 +173,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->ctx->colorspace = vdhp->initial_colorspace;
     /* Set up video rendering. */
     lwlibav_video_output_handler_t *vohp = &hp->voh;
-    if( au_setup_video_rendering( vohp, vdhp->ctx, opt, &h->video_format, vdhp->max_width, vdhp->max_height ) < 0 )
+    vdhp->exh.get_buffer = au_setup_video_rendering( vohp, vdhp->ctx, opt, &h->video_format, vdhp->max_width, vdhp->max_height );
+    if( !vdhp->exh.get_buffer )
         return -1;
 #ifndef DEBUG_VIDEO
     vdhp->lh.level = LW_LOG_FATAL;

@@ -118,7 +118,7 @@ static void free_au_video_output_handler( void *private_handler )
     free( au_vohp );
 }
 
-int au_setup_video_rendering
+func_get_buffer_t *au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,
@@ -133,7 +133,7 @@ int au_setup_video_rendering
     if( !au_vohp )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the AviUtl video output handler." );
-        return -1;
+        return NULL;
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = free_au_video_output_handler;
@@ -142,7 +142,7 @@ int au_setup_video_rendering
     if( initialize_scaler_handler( &vohp->scaler, ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
-        return -1;
+        return NULL;
     }
     static const struct
     {
@@ -170,7 +170,7 @@ int au_setup_video_rendering
     vohp->output_frame_size = vohp->output_linesize * vohp->output_height;
     au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )
-        return -1;
+        return NULL;
     if( format->biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = au_vohp->back_ground;
@@ -184,7 +184,7 @@ int au_setup_video_rendering
             pic += vohp->output_linesize;
         }
     }
-    return 0;
+    return avcodec_default_get_buffer2;
 }
 
 int convert_colorspace
