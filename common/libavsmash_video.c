@@ -152,8 +152,9 @@ static int decode_video_sample
     uint32_t                           sample_number
 )
 {
+    codec_configuration_t *config = &vdhp->config;
     AVPacket pkt = { 0 };
-    int ret = get_sample( vdhp->root, vdhp->track_ID, sample_number, &vdhp->config, &pkt );
+    int ret = get_sample( vdhp->root, vdhp->track_ID, sample_number, config, &pkt );
     if( ret )
         return ret;
     if( pkt.flags != ISOM_SAMPLE_RANDOM_ACCESS_FLAG_NONE )
@@ -165,14 +166,12 @@ static int decode_video_sample
         pkt.flags = 0;
     av_frame_unref( picture );
     uint64_t cts = pkt.pts;
-    ret = avcodec_decode_video2( vdhp->config.ctx, picture, got_picture, &pkt );
+    ret = avcodec_decode_video2( config->ctx, picture, got_picture, &pkt );
     picture->pts = cts;
     if( ret < 0 )
     {
-#ifdef DEBUG_VIDEO
-        if( config->error_message )
-            config->error_message( config->message_priv, "Failed to decode a video frame." );
-#endif
+        if( config->lh.show_log )
+            config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
         return -1;
     }
     return 0;
@@ -273,10 +272,8 @@ static uint32_t seek_video
             rap_cts = picture->pts;
         if( ret == -1 && (uint64_t)picture->pts >= rap_cts && !error_ignorance )
         {
-#ifdef DEBUG_VIDEO
-            if( config->error_message )
-                config->error_message( config->message_priv, "Failed to decode a video frame." );
-#endif
+            if( config->lh.show_log )
+                config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
             return 0;
         }
         else if( ret >= 1 )
@@ -325,10 +322,8 @@ static int get_picture
             av_frame_unref( picture );
             if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
             {
-#ifdef DEBUG_VIDEO
-                if( config->error_message )
-                    config->error_message( config->message_priv, "Failed to decode and flush a video frame." );
-#endif
+                if( config->lh.show_log )
+                    config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode and flush a video frame." );
                 return -1;
             }
             ++current;
@@ -434,10 +429,8 @@ return_frame:;
     return 0;
 video_fail:
     /* fatal error of decoding */
-#ifdef DEBUG_VIDEO
-    if( config->error_message )
-        config->error_message( config->message_priv, "Couldn't read video frame." );
-#endif
+    if( config->lh.show_log )
+        config->lh.show_log( &config->lh, LW_LOG_WARNING, "Couldn't read video frame." );
     return -1;
 #undef MAX_ERROR_COUNT
 }
