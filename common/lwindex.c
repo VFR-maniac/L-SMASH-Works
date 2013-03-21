@@ -143,8 +143,7 @@ static void mpeg12_video_vc1_genarate_pts
          * PTS
          *        1   2   3   4   5   6 ...
          * We assume B-pictures always be present in the stream here. */
-        if( ((enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B)
-         || (info[i].pts != AV_NOPTS_VALUE && info[i].dts != AV_NOPTS_VALUE && info[i].pts == info[i].dts) )
+        if( (enum AVPictureType)info[i].pict_type == AV_PICTURE_TYPE_B )
         {
             /* B-pictures shall be output or displayed in the same order as they are encoded. */
             info[i].pts = info[i].dts;
