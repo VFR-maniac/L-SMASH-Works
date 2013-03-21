@@ -59,3 +59,11 @@ int libavsmash_get_video_frame
     uint32_t                           sample_number,
     uint32_t                           sample_count
 );
+
+int libavsmash_find_first_valid_video_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    lw_video_output_handler_t         *vohp,
+    uint32_t                           sample_count,
+    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, lw_video_output_handler_t * )
+);

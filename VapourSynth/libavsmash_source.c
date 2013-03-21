@@ -55,6 +55,16 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
     vsapi->setVideoInfo( &hp->vi, 1, node );
 }
 
+static int vs_make_first_valid_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp
+)
+{
+    vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->config.ctx->colorspace );
+    return vohp->first_valid_frame ? 0 : -1;
+}
+
 static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAPI *vsapi )
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
@@ -96,31 +106,13 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
         return -1;
     }
     /* Find the first valid video sample. */
-    for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( config->ctx ); i++ )
+    if( libavsmash_find_first_valid_video_frame( vdhp, vohp, vi->numFrames, vs_make_first_valid_frame ) < 0 )
     {
-        AVPacket pkt = { 0 };
-        get_sample( vdhp->root, vdhp->track_ID, i, config, &pkt );
-        AVFrame *av_frame = vdhp->frame_buffer;
-        avcodec_get_frame_defaults( av_frame );
-        int got_picture;
-        if( avcodec_decode_video2( config->ctx, av_frame, &got_picture, &pkt ) >= 0 && got_picture )
-        {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
-            {
-                vohp->first_valid_frame = make_frame( vohp, av_frame, config->ctx->colorspace );
-                if( !vohp->first_valid_frame )
-                {
-                    set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
-                    return -1;
-                }
-            }
-            break;
-        }
-        else if( pkt.data )
-            ++ config->delay_count;
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
+        return -1;
     }
-    vdhp->last_sample_number = vi->numFrames + 1;   /* Force seeking at the first reading. */
+    /* Force seeking at the first reading. */
+    vdhp->last_sample_number = vi->numFrames + 1;
     return 0;
 }
 

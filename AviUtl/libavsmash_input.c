@@ -410,6 +410,24 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
+static int au_make_first_valid_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp
+)
+{
+    if( !vohp->first_valid_frame )
+    {
+        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+        vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
+        if( !vohp->first_valid_frame )
+            return -1;
+    }
+    if( vohp->output_frame_size != convert_colorspace( vohp, vdhp->config.ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
+        return -2;
+    return 0;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
@@ -430,8 +448,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     }
     /* Initialize the video decoder configuration. */
+    vdhp->root = hp->root;
     codec_configuration_t *config = &vdhp->config;
-    if( initialize_decoder_configuration( hp->root, vdhp->track_ID, config ) )
+    if( initialize_decoder_configuration( vdhp->root, vdhp->track_ID, config ) )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
@@ -444,35 +463,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     config->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( config->ctx ); i++ )
-    {
-        AVPacket pkt = { 0 };
-        get_sample( hp->root, vdhp->track_ID, i, config, &pkt );
-        avcodec_get_frame_defaults( vdhp->frame_buffer );
-        int got_picture;
-        if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
-        {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( vohp->first_valid_frame_number > 1 || h->video_sample_count == 1 )
-            {
-                if( !vohp->first_valid_frame )
-                {
-                    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-                    vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
-                    if( !vohp->first_valid_frame )
-                        return -1;
-                }
-                if( vohp->output_frame_size
-                 != convert_colorspace( vohp, config->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
-                    continue;
-            }
-            break;
-        }
-        else if( pkt.data )
-            ++ config->delay_count;
-    }
-    vdhp->last_sample_number = h->video_sample_count + 1;   /* Force seeking at the first reading. */
-    vdhp->root = hp->root;
+    if( libavsmash_find_first_valid_video_frame( vdhp, vohp, h->video_sample_count, au_make_first_valid_frame ) < 0 )
+        return -1;
+    /* Force seeking at the first reading. */
+    vdhp->last_sample_number = h->video_sample_count + 1;
     return 0;
 }
 

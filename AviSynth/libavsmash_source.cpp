@@ -238,6 +238,25 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
+static int as_make_first_valid_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp
+)
+{
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    IScriptEnvironment *env = as_vohp->env;
+    PVideoFrame temp = env->NewVideoFrame( *as_vohp->vi );
+    if( !temp )
+        env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
+    if( make_frame( vohp, vdhp->frame_buffer, temp, vdhp->config.ctx->colorspace, env ) < 0 )
+        return -2;
+    vohp->first_valid_frame = new PVideoFrame( temp );
+    if( !vohp->first_valid_frame )
+        env->ThrowError( "LSMASHVideoSource: failed to allocate the first valid frame." );
+    return 0;
+}
+
 void LSMASHVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
@@ -256,33 +275,10 @@ void LSMASHVideoSource::prepare_video_decoding
     config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
                                                    direct_rendering, config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
-    for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( config->ctx ); i++ )
-    {
-        AVPacket pkt = { 0 };
-        get_sample( vdh.root, vdh.track_ID, i, &vdh.config, &pkt );
-        AVFrame *picture = vdh.frame_buffer;
-        avcodec_get_frame_defaults( picture );
-        int got_picture;
-        if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) >= 0 && got_picture )
-        {
-            voh.first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
-            {
-                PVideoFrame temp = env->NewVideoFrame( vi );
-                if( !temp )
-                    env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, picture, temp, config->ctx->colorspace, env ) < 0 )
-                    continue;
-                voh.first_valid_frame = new PVideoFrame( temp );
-                if( !voh.first_valid_frame )
-                    env->ThrowError( "LSMASHVideoSource: failed to allocate the first valid frame." );
-            }
-            break;
-        }
-        else if( pkt.data )
-            ++ config->delay_count;
-    }
-    vdh.last_sample_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
+    if( libavsmash_find_first_valid_video_frame( &vdh, &voh, vi.num_frames, as_make_first_valid_frame ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
+    /* Force seeking at the first reading. */
+    vdh.last_sample_number = vi.num_frames + 1;
 }
 
 PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *env )

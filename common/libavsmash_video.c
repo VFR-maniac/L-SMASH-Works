@@ -34,6 +34,7 @@ extern "C"
 #endif  /* __cplusplus */
 
 #include "utils.h"
+#include "video_output.h"
 #include "libavsmash.h"
 #include "libavsmash_video.h"
 
@@ -308,4 +309,38 @@ video_fail:
 #endif
     return -1;
 #undef MAX_ERROR_COUNT
+}
+
+int libavsmash_find_first_valid_video_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    lw_video_output_handler_t         *vohp,
+    uint32_t                           sample_count,
+    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, lw_video_output_handler_t * )
+)
+{
+    codec_configuration_t *config  = &vdhp->config;
+    for( uint32_t i = 1; i <= sample_count + get_decoder_delay( config->ctx ); i++ )
+    {
+        AVPacket pkt = { 0 };
+        get_sample( vdhp->root, vdhp->track_ID, i, config, &pkt );
+        avcodec_get_frame_defaults( vdhp->frame_buffer );
+        int got_picture;
+        if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
+        {
+            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
+            if( vohp->first_valid_frame_number > 1 || sample_count == 1 )
+            {
+                int ret = make_first_valid_frame( vdhp, vohp );
+                if( ret == -1 )
+                    return -1;
+                else if( ret == -2 )
+                    continue;
+            }
+            break;
+        }
+        else if( pkt.data )
+            ++ config->delay_count;
+    }
+    return 0;
 }
