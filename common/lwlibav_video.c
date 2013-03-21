@@ -33,6 +33,7 @@ extern "C"
 #endif  /* __cplusplus */
 
 #include "utils.h"
+#include "video_output.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
 
@@ -501,6 +502,49 @@ void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp 
     }
     if( vdhp->format )
         lavf_close_file( &vdhp->format );
+}
+
+int lwlibav_find_first_valid_video_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lw_video_output_handler_t      *vohp,
+    uint32_t                        frame_count,
+    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lw_video_output_handler_t * )
+)
+{
+    vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    if( frame_count != 1 )
+    {
+        vdhp->seek_flags |= AVSEEK_FLAG_BACKWARD;
+        uint32_t rap_number;
+        lwlibav_find_random_accessible_point( vdhp, 1, 0, &rap_number );
+        int64_t rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
+        if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
+            av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+    }
+    for( uint32_t i = 1; i <= frame_count + get_decoder_delay( vdhp->ctx ); i++ )
+    {
+        AVPacket *pkt = &vdhp->packet;
+        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, i, pkt );
+        avcodec_get_frame_defaults( vdhp->frame_buffer );
+        int got_picture;
+        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
+        {
+            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
+            if( vohp->first_valid_frame_number > 1 || frame_count == 1 )
+            {
+                int ret = make_first_valid_frame( vdhp, vohp );
+                if( ret == -1 )
+                    return -1;
+                else if( ret == -2 )
+                    continue;
+            }
+            break;
+        }
+        else if( pkt->data )
+            ++ vdhp->exh.delay_count;
+    }
+    return 0;
 }
 
 void set_video_basic_settings

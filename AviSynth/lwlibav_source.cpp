@@ -109,6 +109,25 @@ LWLibavVideoSource::~LWLibavVideoSource()
         free( lwh.file_path );
 }
 
+static int as_make_first_valid_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    IScriptEnvironment *env = as_vohp->env;
+    PVideoFrame temp = env->NewVideoFrame( *as_vohp->vi );
+    if( !temp )
+        env->ThrowError( "LWLibavVideoSource: failed to allocate memory for the first valid video frame data." );
+    if( make_frame( vohp, vdhp->frame_buffer, temp, vdhp->ctx->colorspace, env ) < 0 )
+        return -2;
+    vohp->first_valid_frame = new PVideoFrame( temp );
+    if( !vohp->first_valid_frame )
+        env->ThrowError( "LWLibavVideoSource: failed to allocate the first valid frame." );
+    return 0;
+}
+
 void LWLibavVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
@@ -136,42 +155,10 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
                                                    direct_rendering, vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
-    vdh.seek_flags = (vdh.seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdh.seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( vi.num_frames != 1 )
-    {
-        vdh.seek_flags |= AVSEEK_FLAG_BACKWARD;
-        uint32_t rap_number;
-        lwlibav_find_random_accessible_point( &vdh, 1, 0, &rap_number );
-        int64_t rap_pos = lwlibav_get_random_accessible_point_position( &vdh, rap_number );
-        if( av_seek_frame( vdh.format, vdh.stream_index, rap_pos, vdh.seek_flags ) < 0 )
-            av_seek_frame( vdh.format, vdh.stream_index, rap_pos, vdh.seek_flags | AVSEEK_FLAG_ANY );
-    }
-    for( uint32_t i = 1; i <= vi.num_frames + get_decoder_delay( vdh.ctx ); i++ )
-    {
-        AVPacket *pkt = &vdh.packet;
-        lwlibav_get_av_frame( vdh.format, vdh.stream_index, i, pkt );
-        avcodec_get_frame_defaults( vdh.frame_buffer );
-        int got_picture;
-        if( avcodec_decode_video2( vdh.ctx, vdh.frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
-        {
-            voh.first_valid_frame_number = i - MIN( get_decoder_delay( vdh.ctx ), vdh.exh.delay_count );
-            if( voh.first_valid_frame_number > 1 || vi.num_frames == 1 )
-            {
-                PVideoFrame temp = env->NewVideoFrame( vi );
-                if( !temp )
-                    env->ThrowError( "LWLibavVideoSource: failed to allocate memory for the first valid video frame data." );
-                if( make_frame( &voh, vdh.frame_buffer, temp, vdh.ctx->colorspace, env ) < 0 )
-                    continue;
-                voh.first_valid_frame = new PVideoFrame( temp );
-                if( !voh.first_valid_frame )
-                    env->ThrowError( "LWLibavVideoSource: failed to allocate the first valid frame." );
-            }
-            break;
-        }
-        else if( pkt->data )
-            ++ vdh.exh.delay_count;
-    }
-    vdh.last_frame_number = vi.num_frames + 1;  /* Force seeking at the first reading. */
+    if( lwlibav_find_first_valid_video_frame( &vdh, &voh, vi.num_frames, as_make_first_valid_frame ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
+    /* Force seeking at the first reading. */
+    vdh.last_frame_number = vi.num_frames + 1;
 }
 
 PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *env )

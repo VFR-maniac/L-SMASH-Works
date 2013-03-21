@@ -23,8 +23,6 @@
 
 #include <stdio.h>
 
-#include "../common/utils.h"
-
 #include "lsmashsource.h"
 
 void set_error

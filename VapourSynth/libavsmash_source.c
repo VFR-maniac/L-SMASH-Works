@@ -31,12 +31,11 @@
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavutil/imgutils.h>
 
-#include "../common/utils.h"
-#include "../common/libavsmash.h"
-#include "../common/libavsmash_video.h"
-
 #include "lsmashsource.h"
 #include "video_output.h"
+
+#include "../common/libavsmash.h"
+#include "../common/libavsmash_video.h"
 
 typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
 typedef lw_video_output_handler_t libavsmash_video_output_handler_t;

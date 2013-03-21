@@ -141,6 +141,24 @@ static int get_audio_track( lsmash_handler_t *h )
     return 0;
 }
 
+static int au_make_first_valid_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    if( !vohp->first_valid_frame )
+    {
+        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+        vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
+        if( !vohp->first_valid_frame )
+            return -1;
+    }
+    if( vohp->output_frame_size != convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
+        return -2;
+    return 0;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
@@ -180,44 +198,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( h->video_sample_count != 1 )
-    {
-        vdhp->seek_flags |= AVSEEK_FLAG_BACKWARD;
-        uint32_t rap_number;
-        lwlibav_find_random_accessible_point( vdhp, 1, 0, &rap_number );
-        int64_t rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
-        if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
-            av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
-    }
-    for( uint32_t i = 1; i <= h->video_sample_count + get_decoder_delay( vdhp->ctx ); i++ )
-    {
-        AVPacket *pkt = &vdhp->packet;
-        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, i, pkt );
-        avcodec_get_frame_defaults( vdhp->frame_buffer );
-        int got_picture;
-        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
-        {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
-            if( vohp->first_valid_frame_number > 1 || h->video_sample_count == 1 )
-            {
-                if( !vohp->first_valid_frame )
-                {
-                    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-                    vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
-                    if( !vohp->first_valid_frame )
-                        return -1;
-                }
-                if( vohp->output_frame_size
-                 != convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
-                    continue;
-            }
-            break;
-        }
-        else if( pkt->data )
-            ++ vdhp->exh.delay_count;
-    }
-    vdhp->last_frame_number = h->video_sample_count + 1;    /* Force seeking at the first reading. */
+    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, h->video_sample_count, au_make_first_valid_frame ) < 0 )
+        return -1;
+    /* Force seeking at the first reading. */
+    vdhp->last_frame_number = h->video_sample_count + 1;
     return 0;
 }
 

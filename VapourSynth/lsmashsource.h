@@ -23,6 +23,8 @@
 
 #include "VapourSynth.h"
 
+#include "../common/utils.h"
+
 typedef struct
 {
     VSMap          *out;

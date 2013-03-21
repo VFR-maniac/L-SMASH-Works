@@ -65,15 +65,14 @@ uint64_t output_pcm_samples_from_packet
     return 0;
 }
 
-#include "../common/utils.h"
+#include "lsmashsource.h"
+#include "video_output.h"
+
 #include "../common/progress.h"
 #include "../common/lwlibav_dec.h"
 #include "../common/lwlibav_video.h"
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
-
-#include "lsmashsource.h"
-#include "video_output.h"
 
 typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
 typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
@@ -90,6 +89,16 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
 {
     lwlibav_handler_t *hp = (lwlibav_handler_t *)*instance_data;
     vsapi->setVideoInfo( &hp->vi, 1, node );
+}
+
+static int vs_make_first_valid_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
+    return vohp->first_valid_frame ? 0 : -1;
 }
 
 static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
@@ -139,40 +148,13 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         return -1;
     }
     /* Find the first valid video frame. */
-    vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
-    if( vi->numFrames != 1 )
+    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, vi->numFrames, vs_make_first_valid_frame ) < 0 )
     {
-        vdhp->seek_flags |= AVSEEK_FLAG_BACKWARD;
-        uint32_t rap_number;
-        lwlibav_find_random_accessible_point( vdhp, 1, 0, &rap_number );
-        int64_t rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
-        if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
-            av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
+        return -1;
     }
-    for( uint32_t i = 1; i <= vi->numFrames + get_decoder_delay( vdhp->ctx ); i++ )
-    {
-        AVPacket *pkt = &vdhp->packet;
-        lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, i, pkt );
-        avcodec_get_frame_defaults( vdhp->frame_buffer );
-        int got_picture;
-        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
-        {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
-            if( vohp->first_valid_frame_number > 1 || vi->numFrames == 1 )
-            {
-                vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
-                if( !vohp->first_valid_frame )
-                {
-                    set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
-                    return -1;
-                }
-            }
-            break;
-        }
-        else if( pkt->data )
-            ++ vdhp->exh.delay_count;
-    }
-    vdhp->last_frame_number = vi->numFrames + 1;    /* Force seeking at the first reading. */
+    /* Force seeking at the first reading. */
+    vdhp->last_frame_number = vi->numFrames + 1;
     return 0;
 }
 
