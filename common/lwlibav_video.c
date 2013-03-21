@@ -205,35 +205,48 @@ fail:
 
 static uint32_t shift_current_frame_number
 (
-    order_converter_t  *oc,
-    video_frame_info_t *info,
-    AVPacket           *pkt,
-    uint32_t            i,      /* frame_number */
-    uint32_t            goal
+    lwlibav_video_decode_handler_t *vdhp,
+    AVPacket                       *pkt,
+    uint32_t                        i,      /* frame_number */
+    uint32_t                        goal
 )
 {
+#define MATCH_DTS( j ) (info[j].dts == pkt->dts)
+#define MATCH_POS( j ) ((vdhp->seek_base & SEEK_POS_CORRECTION) && info[j].file_offset == pkt->pos)
+    order_converter_t  *oc   = vdhp->order_converter;
+    video_frame_info_t *info = vdhp->frame_list;
     uint32_t p = oc ? oc[i].decoding_to_presentation : i;
-    if( pkt->dts == AV_NOPTS_VALUE || info[p].dts == AV_NOPTS_VALUE || info[p].dts == pkt->dts )
+    if( pkt->dts == AV_NOPTS_VALUE || MATCH_DTS( p ) || MATCH_POS( p ) )
         return i;
     if( pkt->dts > info[p].dts )
     {
         if( oc )
-            while( (pkt->dts != info[ oc[++i].decoding_to_presentation ].dts) && i < goal );
+            while( !MATCH_DTS( oc[++i].decoding_to_presentation )
+                && !MATCH_POS( oc[  i].decoding_to_presentation )
+                && i < goal );
         else
-            while( (pkt->dts != info[    ++i                           ].dts) && i < goal );
+            while( !MATCH_DTS( ++i )
+                && !MATCH_POS(   i )
+                && i < goal );
         if( i == goal )
             return 0;
     }
     else
     {
         if( oc )
-            while( (pkt->dts != info[ oc[--i].decoding_to_presentation ].dts) && i );
+            while( !MATCH_DTS( oc[--i].decoding_to_presentation )
+                && !MATCH_POS( oc[  i].decoding_to_presentation )
+                && i );
         else
-            while( (pkt->dts != info[    --i                           ].dts) && i );
+            while( !MATCH_DTS( --i )
+                && !MATCH_POS(   i )
+                && i );
         if( i == 0 )
             return 0;
     }
     return i;
+#undef MATCH_DTS
+#undef MATCH_POS
 }
 
 static int decode_video_sample
@@ -254,7 +267,7 @@ static int decode_video_sample
     /* Shift the current frame number in order to match DTS since libavformat might have sought wrong position. */
     if( frame_number == rap_number && (vdhp->seek_base & SEEK_DTS_BASED) )
     {
-        frame_number = shift_current_frame_number( vdhp->order_converter, vdhp->frame_list, pkt, frame_number, goal );
+        frame_number = shift_current_frame_number( vdhp, pkt, frame_number, goal );
         if( frame_number == 0 )
             return -2;
         *current = frame_number;
@@ -310,10 +323,10 @@ int64_t lwlibav_get_random_accessible_point_position
     uint32_t presentation_rap_number = vdhp->order_converter
                                      ? vdhp->order_converter[rap_number].decoding_to_presentation
                                      : rap_number;
-    return (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? vdhp->frame_list[presentation_rap_number].file_offset
-         : (vdhp->seek_base & SEEK_PTS_BASED)         ? vdhp->frame_list[presentation_rap_number].pts
-         : (vdhp->seek_base & SEEK_DTS_BASED)         ? vdhp->frame_list[presentation_rap_number].dts
-         :                                              vdhp->frame_list[presentation_rap_number].sample_number;
+    return (vdhp->seek_base & SEEK_POS_BASED) ? vdhp->frame_list[presentation_rap_number].file_offset
+         : (vdhp->seek_base & SEEK_PTS_BASED) ? vdhp->frame_list[presentation_rap_number].pts
+         : (vdhp->seek_base & SEEK_DTS_BASED) ? vdhp->frame_list[presentation_rap_number].dts
+         :                                      vdhp->frame_list[presentation_rap_number].sample_number;
 }
 
 static uint32_t seek_video
@@ -512,7 +525,7 @@ int lwlibav_find_first_valid_video_frame
     int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lw_video_output_handler_t * )
 )
 {
-    vdhp->seek_flags = (vdhp->seek_base & SEEK_FILE_OFFSET_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    vdhp->seek_flags = (vdhp->seek_base & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
     if( frame_count != 1 )
     {
         vdhp->seek_flags |= AVSEEK_FLAG_BACKWARD;

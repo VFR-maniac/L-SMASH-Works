@@ -119,8 +119,8 @@ static inline void sort_decoding_order
 static inline int lineup_seek_base_candidates( lwlibav_file_handler_t *lwhp )
 {
     return !strcmp( lwhp->format_name, "mpeg" ) || !strcmp( lwhp->format_name, "mpegts" )
-         ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_FILE_OFFSET_BASED
-         : SEEK_DTS_BASED | SEEK_PTS_BASED;
+         ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_BASED | SEEK_POS_CORRECTION
+         : SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_CORRECTION;
 }
 
 static void mpeg12_video_vc1_genarate_pts
@@ -199,6 +199,7 @@ static int decide_video_seek_method
 {
     vdhp->seek_base = lineup_seek_base_candidates( lwhp );
     video_frame_info_t *info = vdhp->frame_list;
+    /* Decide seek base. */
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
         {
@@ -214,6 +215,29 @@ static int decide_video_seek_method
                 vdhp->seek_base &= ~SEEK_DTS_BASED;
                 break;
             }
+    if( info[1].file_offset == -1 )
+        vdhp->seek_base &= ~SEEK_POS_CORRECTION;
+    else
+        for( uint32_t i = 1; i <= sample_count; i++ )
+            if( info[i].file_offset == -1 || info[i].file_offset <= info[i - 1].file_offset )
+            {
+                vdhp->seek_base &= ~SEEK_POS_CORRECTION;
+                break;
+            }
+    if( vdhp->seek_base & SEEK_POS_BASED )
+    {
+        if( lwhp->format_flags & AVFMT_NO_BYTE_SEEK )
+            vdhp->seek_base &= ~SEEK_POS_BASED;
+        else
+        {
+            uint32_t error_count = 0;
+            for( uint32_t i = 1; i <= sample_count; i++ )
+                error_count += (info[i].file_offset == -1);
+            if( error_count == sample_count )
+                vdhp->seek_base &= ~SEEK_POS_BASED;
+        }
+    }
+    /* Construct frame info about timestamp. */
     int no_pts_loss = !!(vdhp->seek_base & SEEK_PTS_BASED);
     if( (vdhp->seek_base & SEEK_DTS_BASED) && !(vdhp->seek_base & SEEK_PTS_BASED)
      && (vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
@@ -222,19 +246,6 @@ static int decide_video_seek_method
         /* Generate PTS from DTS. */
         no_pts_loss = 1;
         mpeg12_video_vc1_genarate_pts( vdhp );
-    }
-    if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
-    {
-        if( lwhp->format_flags & AVFMT_NO_BYTE_SEEK )
-            vdhp->seek_base &= ~SEEK_FILE_OFFSET_BASED;
-        else
-        {
-            uint32_t error_count = 0;
-            for( uint32_t i = 1; i <= sample_count; i++ )
-                error_count += (info[i].file_offset == -1);
-            if( error_count == sample_count )
-                vdhp->seek_base &= ~SEEK_FILE_OFFSET_BASED;
-        }
     }
     if( no_pts_loss && check_frame_reordering( info, sample_count ) )
     {
@@ -269,7 +280,7 @@ static int decide_video_seek_method
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
     /* Treat video frames with unique value as keyframe. */
-    if( vdhp->seek_base & SEEK_FILE_OFFSET_BASED )
+    if( vdhp->seek_base & SEEK_POS_BASED )
     {
         info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].file_offset != -1);
         for( uint32_t i = 2; i <= sample_count; i++ )
@@ -335,24 +346,24 @@ static void decide_audio_seek_method
             adhp->seek_base &= ~SEEK_DTS_BASED;
             break;
         }
-    if( adhp->seek_base & SEEK_FILE_OFFSET_BASED )
+    if( adhp->seek_base & SEEK_POS_BASED )
     {
         if( lwhp->format_flags & AVFMT_NO_BYTE_SEEK )
-            adhp->seek_base &= ~SEEK_FILE_OFFSET_BASED;
+            adhp->seek_base &= ~SEEK_POS_BASED;
         else
         {
             uint32_t error_count = 0;
             for( uint32_t i = 1; i <= sample_count; i++ )
                 error_count += (info[i].file_offset == -1);
             if( error_count == sample_count )
-                adhp->seek_base &= ~SEEK_FILE_OFFSET_BASED;
+                adhp->seek_base &= ~SEEK_POS_BASED;
         }
     }
     if( !(adhp->seek_base & SEEK_PTS_BASED) && (adhp->seek_base & SEEK_DTS_BASED) )
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
     /* Treat audio frames with unique value as a keyframe. */
-    if( adhp->seek_base & SEEK_FILE_OFFSET_BASED )
+    if( adhp->seek_base & SEEK_POS_BASED )
     {
         info[1].keyframe = (info[1].file_offset != -1);
         for( uint32_t i = 2; i <= sample_count; i++ )

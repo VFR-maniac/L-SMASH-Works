@@ -20,9 +20,10 @@
 
 /* This file is available under an ISC license. */
 
-#define SEEK_DTS_BASED         0x00000001
-#define SEEK_PTS_BASED         0x00000002
-#define SEEK_FILE_OFFSET_BASED 0x00000004
+#define SEEK_DTS_BASED      0x00000001
+#define SEEK_PTS_BASED      0x00000002
+#define SEEK_POS_BASED      0x00000004
+#define SEEK_POS_CORRECTION 0x00000008
 
 typedef struct
 {
