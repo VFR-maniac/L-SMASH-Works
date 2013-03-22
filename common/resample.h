@@ -25,7 +25,6 @@
 typedef struct
 {
     uint64_t            channel_layout;
-    int                 sample_rate;
     int                 sample_count;
     enum AVSampleFormat sample_format;
     uint8_t           **data;
