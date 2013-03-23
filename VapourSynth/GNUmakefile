@@ -17,16 +17,16 @@ endif
 
 .PHONY: all clean distclean dep
 
-all: vslsmashsource.dll
+all: $(SONAME)
 
-vslsmashsource.dll: $(OBJ_SOURCE)
+$(SONAME): $(OBJ_SOURCE)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 %.o: %.c .depend
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	$(RM) *.dll *.o .depend
+	$(RM) $(SONAME) *.o .depend
 
 distclean: clean
 	$(RM) config.*

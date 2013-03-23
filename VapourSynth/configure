@@ -11,7 +11,7 @@ Usage: [PKG_CONFIG_PATH=/foo/bar/lib/pkgconfig] ./configure [options]
 options:
   -h, --help               print help (this)
 
-  --prefix=PREFIX          set dir for headers and lids [NONE]
+  --prefix=PREFIX          set dir for headers and libs [NONE]
   --libdir=DIR             set dir for libs    [NONE]
   --includedir=DIR         set dir for headers [NONE]
 
@@ -19,6 +19,7 @@ options:
   --extra-ldflags=XLDFLAGS add XLDFLAGS to LDFLAGS
   --extra-libs=XLIBS       add XLIBS to LIBS
 
+  --target-os=TARGET_OS    select target operating system
   --cross-prefix=PREFIX    use PREFIX for compilation tools
   --sysroot=SYSROOT        root of cross-build tree
 
@@ -65,6 +66,16 @@ test "$SRCDIR" = "$(pwd)" && SRCDIR=.
 test -n "$(echo $SRCDIR | grep ' ')" && \
     error_exit "out-of-tree builds are impossible with whitespace in source path"
 
+# -- output config.h --------------------------------------------------------------------------
+pushd $SRCDIR
+REV="$(git rev-list HEAD 2> /dev/null | wc -l | sed 's/ //g')"
+HASH="$(git describe --always 2> /dev/null)"
+popd
+cat >> config.h << EOF
+#define LSMASHWORKS_REV "$REV"
+#define LSMASHWORKS_GIT_HASH "$HASH"
+EOF
+
 # -- init -------------------------------------------------------------------------------------
 CC="gcc"
 LD="gcc"
@@ -108,6 +119,9 @@ for opt; do
         --extra-libs=*)
             XLIBS="$optarg"
             ;;
+        --target-os=*)
+            TARGET_OS="$optarg"
+            ;;
         --cross-prefix=*)
             CROSS="$optarg"
             ;;
@@ -120,6 +134,35 @@ for opt; do
             ;;
     esac
 done
+
+BASENAME="vslsmashsource"
+
+if test -n "$TARGET_OS"; then
+    TARGET_OS=$(echo $TARGET_OS | tr '[A-Z]' '[a-z]')
+else
+    TARGET_OS=$($CC -dumpmachine | tr '[A-Z]' '[a-z]')
+fi
+case "$TARGET_OS" in
+    *mingw*|*cygwin*)
+        SYS="WIN32"
+        SOSUFFIX="dll"
+        SONAME="$BASENAME.$SOSUFFIX"
+        SOFLAGS="-Wl,--enable-auto-image-base -Wl,--export-all-symbols"
+        ;;
+    *darwin*)
+        SYS="MACOSX"
+        SOSUFFIX="dylib"
+        SONAME="$BASENAME.$REV.$SOSUFFIX"
+        SONAME_LN="$BASENAME.$SOSUFFIX"
+        SOFLAGS="-dynamiclib -Wl,-single_module -Wl,-read_only_relocs,suppress -install_name $(DESTDIR)$(libdir)/$(SONAME)"
+        ;;
+    *)
+        SOSUFFIX="so"
+        SONAME="$BASENAME.$SOSUFFIX.$REV"
+        SONAME_LN="$BASENAME.$SOSUFFIX"
+        SOFLAGS="-Wl,-soname,$SONAME"
+        ;;
+esac
 
 # -- add extra --------------------------------------------------------------------------------
 if test -n "$prefix"; then
@@ -193,18 +236,14 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getC
     error_exit "libswscale/swscale.h might not be installed or some libs missing."
 fi
 
-LDFLAGS="$LDFLAGS -shared -Wl,--dll,--add-stdcall-alias"
-LIBS="-lwinmm $LIBS $XLIBS"
-
-# -- output config.h --------------------------------------------------------------------------
-pushd $SRCDIR
-REV="$(git rev-list HEAD 2> /dev/null | wc -l)"
-HASH="$(git describe --always 2> /dev/null)"
-popd
-cat >> config.h << EOF
-#define LSMASHWORKS_REV "$REV"
-#define LSMASHWORKS_GIT_HASH "$HASH"
-EOF
+# -- LDFLAGS settings --------------------------------------------------------------------------
+if [ "$SYS" = "MINGW" ]; then
+    LDFLAGS="$LDFLAGS -shared -Wl,--dll,--add-stdcall-alias"
+    LIBS="-lwinmm $LIBS $XLIBS"
+else
+    LDFLAGS="$LDFLAGS -shared"
+    LIBS="$LIBS $XLIBS"
+fi
 
 # -- output config.mak ------------------------------------------------------------------------
 rm -f config.mak
@@ -217,6 +256,11 @@ LDFLAGS = $LDFLAGS
 LIBS = $LIBS
 SRCDIR = $SRCDIR
 SRC_SOURCE = $SRC_SOURCE
+BASENAME=$BASENAME
+SONAME=$SONAME
+SONAME_LN=$SONAME_LN
+SOSUFFIX=$SOSUFFIX
+SOFLAGS=$SOFLAGS
 EOF
 
 cat >> config.log << EOF
@@ -235,6 +279,8 @@ STRIP       = $STRIP
 CFLAGS      = $CFLAGS
 LDFLAGS     = $LDFLAGS
 LIBS        = $LIBS
+SONAME      = $SONAME
+SOFLAGS     = $SOFLAGS
 EOF
 
 test "$SRCDIR" = "." || cp -f $SRCDIR/GNUmakefile .
@@ -244,5 +290,5 @@ test "$SRCDIR" = "." || cp -f $SRCDIR/GNUmakefile .
 cat << EOF
 
 configure finished.
-type 'make' : compile vslsmashsource.dll
+type 'make' : compile $SONAME
 EOF
