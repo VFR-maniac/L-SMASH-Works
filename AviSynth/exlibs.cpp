@@ -21,6 +21,7 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
+#pragma comment( lib, "libmingwex.a" )
 #pragma comment( lib, "libgcc.a" )
 #pragma comment( lib, "libz.a" )
 #pragma comment( lib, "libbz2.a" )
