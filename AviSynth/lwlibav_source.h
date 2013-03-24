@@ -71,6 +71,7 @@ private:
     void prepare_audio_decoding
     (
         uint64_t            channel_layout,
+        int                 sample_rate,
         IScriptEnvironment *env
     );
     int delay_audio( int64_t *start, int64_t wanted_length );
@@ -79,6 +80,7 @@ public:
     (
         lwlibav_option_t   *opt,
         uint64_t            channel_layout,
+        int                 sample_rate,
         IScriptEnvironment *env
     );
     ~LWLibavAudioSource();

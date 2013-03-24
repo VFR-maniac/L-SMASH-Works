@@ -185,6 +185,7 @@ LWLibavAudioSource::LWLibavAudioSource
 (
     lwlibav_option_t   *opt,
     uint64_t            channel_layout,
+    int                 sample_rate,
     IScriptEnvironment *env
 )
 {
@@ -211,7 +212,7 @@ LWLibavAudioSource::LWLibavAudioSource
     if( lwlibav_get_desired_audio_track( lwh.file_path, &adh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get the audio track." );
     adh.lh = lh;
-    prepare_audio_decoding( channel_layout, env );
+    prepare_audio_decoding( channel_layout, sample_rate, env );
 }
 
 LWLibavAudioSource::~LWLibavAudioSource()
@@ -225,18 +226,11 @@ LWLibavAudioSource::~LWLibavAudioSource()
 void LWLibavAudioSource::prepare_audio_decoding
 (
     uint64_t            channel_layout,
+    int                 sample_rate,
     IScriptEnvironment *env
 )
 {
     adh.lh.priv = env;
-    /* Count the number of PCM audio samples. */
-    vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
-    if( vi.num_audio_samples == 0 )
-        env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
-    if( lwh.av_gap && aoh.output_sample_rate != adh.ctx->sample_rate )
-        lwh.av_gap = ((int64_t)lwh.av_gap * aoh.output_sample_rate - 1) / adh.ctx->sample_rate + 1;
-    vi.num_audio_samples += lwh.av_gap;
-    adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
     /* Import AVIndexEntrys. */
     if( adh.index_entries )
     {
@@ -251,7 +245,16 @@ void LWLibavAudioSource::prepare_audio_decoding
     }
     /* */
     avcodec_get_frame_defaults( adh.frame_buffer );
-    as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout );
+    as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout, sample_rate );
+    /* Count the number of PCM audio samples. */
+    vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
+    if( vi.num_audio_samples == 0 )
+        env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
+    if( lwh.av_gap && aoh.output_sample_rate != adh.ctx->sample_rate )
+        lwh.av_gap = ((int64_t)lwh.av_gap * aoh.output_sample_rate - 1) / adh.ctx->sample_rate + 1;
+    vi.num_audio_samples += lwh.av_gap;
+    /* Force seeking at the first reading. */
+    adh.next_pcm_sample_number = vi.num_audio_samples + 1;
 }
 
 int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )
@@ -314,6 +317,7 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     int         no_create_index = args[2].AsBool( true  ) ? 0 : 1;
     int         av_sync         = args[3].AsBool( false ) ? 1 : 0;
     const char *layout_string   = args[4].AsString( NULL );
+    uint32_t    sample_rate     = args[5].AsInt( 0 );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -325,5 +329,5 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.force_audio       = (stream_index >= 0);
     opt.force_audio_index = stream_index >= 0 ? stream_index : -1;
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
-    return new LWLibavAudioSource( &opt, channel_layout, env );
+    return new LWLibavAudioSource( &opt, channel_layout, sample_rate, env );
 }

@@ -93,6 +93,7 @@ private:
     void prepare_audio_decoding
     (
         uint64_t            channel_layout,
+        int                 sample_rate,
         IScriptEnvironment *env
     );
 public:
@@ -102,6 +103,7 @@ public:
         uint32_t            track_number,
         bool                skip_priming,
         uint64_t            channel_layout,
+        int                 sample_rate,
         IScriptEnvironment *env
     );
     ~LSMASHAudioSource();

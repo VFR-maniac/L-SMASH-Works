@@ -308,6 +308,7 @@ LSMASHAudioSource::LSMASHAudioSource
     uint32_t            track_number,
     bool                skip_priming,
     uint64_t            channel_layout,
+    int                 sample_rate,
     IScriptEnvironment *env
 )
 {
@@ -317,7 +318,7 @@ LSMASHAudioSource::LSMASHAudioSource
     format_ctx = NULL;
     get_audio_track( source, track_number, skip_priming, env );
     lsmash_discard_boxes( adh.root );
-    prepare_audio_decoding( channel_layout, env );
+    prepare_audio_decoding( channel_layout, sample_rate, env );
 }
 
 LSMASHAudioSource::~LSMASHAudioSource()
@@ -503,6 +504,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
 void LSMASHAudioSource::prepare_audio_decoding
 (
     uint64_t            channel_layout,
+    int                 sample_rate,
     IScriptEnvironment *env
 )
 {
@@ -518,12 +520,13 @@ void LSMASHAudioSource::prepare_audio_decoding
     aoh.output_sample_format   = config->prefer.sample_format;
     aoh.output_sample_rate     = config->prefer.sample_rate;
     aoh.output_bits_per_sample = config->prefer.bits_per_sample;
-    /* */
+    as_setup_audio_rendering( &aoh, config->ctx, &vi, env, "LSMASHAudioSource", channel_layout, sample_rate );
+    /* Count the number of PCM audio samples. */
     vi.num_audio_samples = libavsmash_count_overall_pcm_samples( &adh, aoh.output_sample_rate, &aoh.skip_decoded_samples );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
-    adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the first reading. */
-    as_setup_audio_rendering( &aoh, config->ctx, &vi, env, "LSMASHAudioSource", channel_layout );
+    /* Force seeking at the first reading. */
+    adh.next_pcm_sample_number = vi.num_audio_samples + 1;
 }
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
@@ -558,6 +561,7 @@ AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScrip
     uint32_t    track_number  = args[1].AsInt( 0 );
     bool        skip_priming  = args[2].AsBool( true );
     const char *layout_string = args[3].AsString( NULL );
+    int         sample_rate   = args[4].AsInt( 0 );
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
-    return new LSMASHAudioSource( source, track_number, skip_priming, channel_layout, env );
+    return new LSMASHAudioSource( source, track_number, skip_priming, channel_layout, sample_rate, env );
 }

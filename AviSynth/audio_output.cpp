@@ -58,7 +58,8 @@ void as_setup_audio_rendering
     VideoInfo                 *vi,
     IScriptEnvironment        *env,
     const char                *filter_name,
-    uint64_t                   channel_layout
+    uint64_t                   channel_layout,
+    int                        sample_rate
 )
 {
     /* Channel layout. */
@@ -66,6 +67,9 @@ void as_setup_audio_rendering
         ctx->channel_layout = av_get_default_channel_layout( ctx->channels );
     if( channel_layout != 0 )
         aohp->output_channel_layout = channel_layout;
+    /* Sample rate. */
+    if( sample_rate > 0 )
+        aohp->output_sample_rate = sample_rate;
     /* Decide output Bits Per Sample. */
     aohp->output_sample_format = as_decide_audio_output_sample_format( aohp->output_sample_format );
     if( aohp->output_sample_format == AV_SAMPLE_FMT_S32
