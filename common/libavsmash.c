@@ -545,7 +545,11 @@ int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, 
     pkt->data  = config->input_buffer;
     pkt->pts   = sample->cts;               /* Set composition timestamp to presentation timestamp field. */
     pkt->dts   = sample->dts;
+    /* Copy sample data from L-SMASH.
+     * Set 0 to the end of the additional FF_INPUT_BUFFER_PADDING_SIZE bytes.
+     * Without this, some decoders could cause wrong results. */
     memcpy( pkt->data, sample->data, sample->length );
+    memset( pkt->data + sample->length, 0, FF_INPUT_BUFFER_PADDING_SIZE );
     /* TODO: add handling invalid indexes. */
     if( sample->index != config->index )
     {
