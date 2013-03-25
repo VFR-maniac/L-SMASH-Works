@@ -42,23 +42,51 @@ extern "C"
 #include "libavsmash.h"
 #include "libavsmash_audio.h"
 
+static uint64_t count_sequence_output_pcm_samples
+(
+    uint64_t upsampled_sequence_pcm_count,
+    uint64_t skip_decoded_samples,
+    int      current_sample_rate,
+    int      output_sample_rate
+)
+{
+    uint64_t resampled_sample_count;
+    uint64_t skip_output_samples;
+    if( output_sample_rate == current_sample_rate )
+    {
+        resampled_sample_count = upsampled_sequence_pcm_count;
+        skip_output_samples    = skip_decoded_samples;
+    }
+    else
+    {
+        if( skip_decoded_samples )
+            skip_output_samples = (skip_decoded_samples * output_sample_rate - 1) / current_sample_rate + 1;
+        if( upsampled_sequence_pcm_count )
+            resampled_sample_count = (upsampled_sequence_pcm_count * output_sample_rate - 1) / current_sample_rate + 1;
+    }
+    return resampled_sample_count > skip_output_samples ? resampled_sample_count - skip_output_samples : 0;
+}
+
 uint64_t libavsmash_count_overall_pcm_samples
 (
     libavsmash_audio_decode_handler_t *adhp,
     int                                output_sample_rate,
-    uint64_t                          *skip_decoded_samples
+    uint64_t                          *skip_decoded_samples     /* converted to upsampled in this function */
 )
 {
     codec_configuration_t *config = &adhp->config;
-    libavsmash_summary_t  *s      = NULL;
-    int      current_sample_rate          = 0;
-    uint32_t current_index                = 0;
-    uint32_t current_frame_length         = 0;
-    uint32_t audio_frame_count            = 0;
-    uint64_t pcm_sample_count             = 0;
-    uint64_t overall_pcm_sample_count     = 0;
-    uint64_t skip_samples                 = 0;
-    uint64_t prior_sequences_sample_count = 0;
+    extended_summary_t    *es     = NULL;
+    /* Here, the decoder upsampling is defined only when libavcodec doesn't return upsampled length as AVCodecContext.frame_size. */
+    int      current_sample_rate       = 0;     /* after the decoder upsampling */
+    uint32_t current_index             = 0;
+    uint32_t current_frame_length      = 0;     /* before the decoder upsampling */
+    uint32_t audio_frame_count         = 0;
+    uint64_t sequence_pcm_count        = 0;     /* before the decoder upsampling */
+    uint64_t prior_sequences_pcm_count = 0;     /* before the decoder upsampling */
+    uint64_t overall_pcm_count         = 0;     /* after the decoder and the resampler upsampling */
+    uint64_t orig_skip_decoded_samples = *skip_decoded_samples; /* before the decoder upsampling */
+    /* Count the number of output PCM audio samples in each sequence. */
+    *skip_decoded_samples = 0;
     for( uint32_t i = 1; i <= adhp->frame_count; i++ )
     {
         /* Get configuration index. */
@@ -67,62 +95,62 @@ uint64_t libavsmash_count_overall_pcm_samples
             continue;
         if( current_index != sample.index )
         {
-            s = &config->entries[ sample.index - 1 ];
+            es = &config->entries[ sample.index - 1 ].extended;
             current_index = sample.index;
         }
-        else if( !s )
+        else if( !es )
             continue;
         /* Get audio frame length. */
         uint32_t frame_length;
-        if( s->extended.frame_length )
-            frame_length = s->extended.frame_length;
+        if( es->frame_length )
+            frame_length = es->frame_length;
         else if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_ID, i, &frame_length ) )
             continue;
         /* */
-        if( (current_sample_rate != s->extended.sample_rate && s->extended.sample_rate > 0)
+        if( (current_sample_rate != es->sample_rate && es->sample_rate > 0)
          || current_frame_length != frame_length )
         {
+            /* Encountered a new sequence. */
             if( current_sample_rate > 0 )
             {
-                if( *skip_decoded_samples > pcm_sample_count )
-                    skip_samples += pcm_sample_count * s->extended.upsampling;
-                else if( *skip_decoded_samples > prior_sequences_sample_count )
-                    skip_samples += (*skip_decoded_samples - prior_sequences_sample_count) * s->extended.upsampling;
-                prior_sequences_sample_count += pcm_sample_count;
-                pcm_sample_count *= s->extended.upsampling;
-                uint64_t resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
-                                                ? pcm_sample_count
-                                                : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
-                overall_pcm_sample_count += resampled_sample_count;
-                audio_frame_count = 0;
-                pcm_sample_count  = 0;
+                /* Add the number of decoded PCM audio samples which shall be skipped. */
+                if( orig_skip_decoded_samples > prior_sequences_pcm_count )
+                {
+                    if( orig_skip_decoded_samples >= prior_sequences_pcm_count + sequence_pcm_count )
+                        /* All decoded PCM audio samples in the previous sequence shall be skipped. */
+                        *skip_decoded_samples += sequence_pcm_count * es->upsampling;
+                    else
+                        /* 0 < orig_skip_decoded_samples - prior_sequences_pcm_count < sequence_pcm_count
+                         * Partial decoded PCM audio samples in the previous sequence are not skipped. */
+                        *skip_decoded_samples += (orig_skip_decoded_samples - prior_sequences_pcm_count) * es->upsampling;
+                }
+                prior_sequences_pcm_count += sequence_pcm_count;
+                /* Add the number of output PCM audio samples in the previous sequence. */
+                overall_pcm_count += count_sequence_output_pcm_samples( sequence_pcm_count * es->upsampling,
+                                                                        *skip_decoded_samples,
+                                                                        current_sample_rate,
+                                                                        output_sample_rate );
+                audio_frame_count  = 0;
+                sequence_pcm_count = 0;
             }
-            current_sample_rate  = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
+            current_sample_rate  = es->sample_rate > 0 ? es->sample_rate : config->ctx->sample_rate;
             current_frame_length = frame_length;
         }
-        pcm_sample_count += frame_length;
+        sequence_pcm_count += frame_length;
         ++audio_frame_count;
     }
-    if( !s || (pcm_sample_count == 0 && overall_pcm_sample_count == 0) )
+    if( !es || (sequence_pcm_count == 0 && overall_pcm_count == 0) )
         return 0;
-    if( *skip_decoded_samples > prior_sequences_sample_count )
-        skip_samples += (*skip_decoded_samples - prior_sequences_sample_count) * s->extended.upsampling;
-    pcm_sample_count *= s->extended.upsampling;
-    current_sample_rate = s->extended.sample_rate > 0 ? s->extended.sample_rate : config->ctx->sample_rate;
-    if( current_sample_rate == output_sample_rate )
-    {
-        *skip_decoded_samples = skip_samples;
-        if( pcm_sample_count )
-            overall_pcm_sample_count += pcm_sample_count;
-    }
-    else
-    {
-        if( skip_samples )
-            *skip_decoded_samples = ((uint64_t)skip_samples * output_sample_rate - 1) / current_sample_rate + 1;
-        if( pcm_sample_count )
-            overall_pcm_sample_count += (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
-    }
-    return overall_pcm_sample_count - *skip_decoded_samples;
+    /* Count the number of output PCM audio samples in the last sequence. */
+    if( orig_skip_decoded_samples > prior_sequences_pcm_count )
+        *skip_decoded_samples += (orig_skip_decoded_samples - prior_sequences_pcm_count) * es->upsampling;
+    current_sample_rate = es->sample_rate > 0 ? es->sample_rate : config->ctx->sample_rate;
+    overall_pcm_count += count_sequence_output_pcm_samples( sequence_pcm_count * es->upsampling,
+                                                            *skip_decoded_samples,
+                                                            current_sample_rate,
+                                                            output_sample_rate );
+    /* Return the number of output PCM audio samples. */
+    return overall_pcm_count;
 }
 
 static inline int get_frame_length
