@@ -172,6 +172,9 @@ static void get_settings( void )
         /* channel_layout */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "channel_layout=0x%"SCNx64, &audio_opt->channel_layout ) != 1 )
             audio_opt->channel_layout = 0;
+        /* sample_rate */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "sample_rate=%d", &audio_opt->sample_rate ) != 1 )
+            audio_opt->sample_rate = 0;
         /* mix_level */
         if( !fgets( buf, sizeof(buf), ini )
          || sscanf( buf, "mix_level=%d:%d:%d",
@@ -246,6 +249,7 @@ static void get_settings( void )
         video_opt->framerate_den          = 1;
         video_opt->colorspace             = OUTPUT_YUY2;
         audio_opt->channel_layout         = 0;
+        audio_opt->sample_rate            = 0;
         audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
         audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] = 71;
         audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] = 0;
@@ -549,6 +553,15 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             else
                 memcpy( edit_buf, "Unspecified", 12 );
             SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
+            /* sample_rate */
+            if( audio_opt->sample_rate > 0 )
+                sprintf( edit_buf, "%d", audio_opt->sample_rate );
+            else
+            {
+                audio_opt->sample_rate = 0;
+                memcpy( edit_buf, "0 (Auto)", 12 );
+            }
+            SetDlgItemText( hwnd, IDC_EDIT_SAMPLE_RATE, (LPCTSTR)edit_buf );
             /* mix_level */
             send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], edit_buf );
             send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, 0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], edit_buf );
@@ -666,6 +679,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     GetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_opt->channel_layout = av_get_channel_layout( edit_buf );
                     fprintf( ini, "channel_layout=0x%"PRIx64"\n", audio_opt->channel_layout );
+                    /* sample_rate */
+                    GetDlgItemText( hwnd, IDC_EDIT_SAMPLE_RATE, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    audio_opt->sample_rate = atoi( edit_buf );
+                    fprintf( ini, "sample_rate=%d\n", audio_opt->sample_rate );
                     /* mix_level */
                     fprintf( ini, "mix_level=%d:%d:%d\n",
                              audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ],

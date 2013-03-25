@@ -496,6 +496,12 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     aohp->output_bits_per_sample = config->prefer.bits_per_sample;
     /* */
     adhp->root = hp->root;
+#ifndef DEBUG_AUDIO
+    config->lh.level = LW_LOG_FATAL;
+#endif
+    if( au_setup_audio_rendering( aohp, config->ctx, opt, &h->audio_format.Format ) < 0 )
+        return -1;
+    /* Count the number of PCM audio samples. */
     h->audio_pcm_sample_count = libavsmash_count_overall_pcm_samples( adhp, aohp->output_sample_rate, &aohp->skip_decoded_samples );
     if( h->audio_pcm_sample_count == 0 )
     {
@@ -511,11 +517,9 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
                                    (AVRational){ 1, hp->vih.media_timescale }, audio_sample_base );
         h->audio_pcm_sample_count += hp->av_gap;
     }
-    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the first reading. */
-#ifndef DEBUG_AUDIO
-    config->lh.level = LW_LOG_FATAL;
-#endif
-    return au_setup_audio_rendering( aohp, config->ctx, opt, &h->audio_format.Format );
+    /* Force seeking at the first reading. */
+    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;
+    return 0;
 }
 
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )

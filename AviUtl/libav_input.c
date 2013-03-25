@@ -212,16 +212,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     if( !adhp->ctx )
         return 0;
     lwlibav_audio_output_handler_t *aohp = &hp->aoh;
-    h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
-    if( h->audio_pcm_sample_count == 0 )
-    {
-        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
-        return -1;
-    }
-    if( hp->lwh.av_gap && aohp->output_sample_rate != adhp->ctx->sample_rate )
-        hp->lwh.av_gap = ((int64_t)hp->lwh.av_gap * aohp->output_sample_rate - 1) / adhp->ctx->sample_rate + 1;
-    h->audio_pcm_sample_count += hp->lwh.av_gap;
-    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;     /* Force seeking at the first reading. */
     /* Import AVIndexEntrys. */
     if( adhp->index_entries )
     {
@@ -238,7 +228,21 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 #ifndef DEBUG_AUDIO
     adhp->lh.level = LW_LOG_FATAL;
 #endif
-    return au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format );
+    if( au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format ) < 0 )
+        return -1;
+    /* Count the number of PCM audio samples. */
+    h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
+    if( h->audio_pcm_sample_count == 0 )
+    {
+        DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
+        return -1;
+    }
+    if( hp->lwh.av_gap && aohp->output_sample_rate != adhp->ctx->sample_rate )
+        hp->lwh.av_gap = ((int64_t)hp->lwh.av_gap * aohp->output_sample_rate - 1) / adhp->ctx->sample_rate + 1;
+    h->audio_pcm_sample_count += hp->lwh.av_gap;
+    /* Force seeking at the first reading. */
+    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;
+    return 0;
 }
 
 static int read_video( lsmash_handler_t *h, int frame_number, void *buf )

@@ -84,6 +84,9 @@ int au_setup_audio_rendering
         ctx->channel_layout = av_get_default_channel_layout( ctx->channels );
     if( opt->channel_layout != 0 )
         aohp->output_channel_layout = opt->channel_layout;
+    /* Sample rate. */
+    if( opt->sample_rate > 0 )
+        aohp->output_sample_rate = opt->sample_rate;
     /* Decide output sample format. */
     aohp->output_sample_format = au_decide_audio_output_sample_format( aohp->output_sample_format, aohp->output_bits_per_sample );
     if( aohp->output_sample_format == AV_SAMPLE_FMT_S32

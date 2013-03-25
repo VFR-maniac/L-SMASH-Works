@@ -114,6 +114,7 @@ enum
 typedef struct
 {
     uint64_t channel_layout;
+    int      sample_rate;
     int      mix_level[3];      /* { Center, Surround, LFE } */
 } audio_option_t;
 

@@ -61,6 +61,7 @@
 #define IDC_TEXT_MIX_LEVEL_CENTER     1125
 #define IDC_TEXT_MIX_LEVEL_SURROUND   1126
 #define IDC_TEXT_MIX_LEVEL_LFE        1127
+#define IDC_EDIT_SAMPLE_RATE          1128
 
 /* Muxer dialog */
 #define IDD_MUXER_OPTIONS              103
