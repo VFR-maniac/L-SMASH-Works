@@ -34,18 +34,18 @@
 #define MAX_AUTO_NUM_THREADS 16
 
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v;*.ismv;*.isma"
-#define INDEX_FILE_EXT      "*.index"
+#define INDEX_FILE_EXT      "*.lwi"
 #define ANY_FILE_EXT        "*.*"
 
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
     INPUT_PLUGIN_FLAG_VIDEO | INPUT_PLUGIN_FLAG_AUDIO,              /* INPUT_PLUGIN_FLAG_VIDEO : support images
                                                                      * INPUT_PLUGIN_FLAG_AUDIO : support audio */
-    "Libav-SMASH File Reader",                                      /* Name of plugin */
+    "L-SMASH Works File Reader",                                    /* Name of plugin */
     "MPEG-4 File (" MPEG4_FILE_EXT ")\0" MPEG4_FILE_EXT "\0"        /* Filter for Input file */
-    "Libav Index File (" INDEX_FILE_EXT ")\0" INDEX_FILE_EXT "\0"
+    "LW-Libav Index File (" INDEX_FILE_EXT ")\0" INDEX_FILE_EXT "\0"
     "Any File (" ANY_FILE_EXT ")\0" ANY_FILE_EXT "\0",
-    "Libav-SMASH File Reader r" LSMASHWORKS_REV "\0",               /* Information of plugin */
+    "L-SMASH Works File Reader r" LSMASHWORKS_REV "\0",             /* Information of plugin */
     NULL,                                                           /* Pointer to function called when opening DLL (If NULL, won't be called.) */
     NULL,                                                           /* Pointer to function called when closing DLL (If NULL, won't be called.) */
     func_open,                                                      /* Pointer to function to open input file */
