@@ -54,7 +54,7 @@ FILTER_DLL filter =
 {
     FILTER_FLAG_EXPORT|FILTER_FLAG_NO_CONFIG|FILTER_FLAG_ALWAYS_ACTIVE|FILTER_FLAG_PRIORITY_LOWEST|FILTER_FLAG_EX_INFORMATION,
     0,0,                                            /* Size of configuration window */
-    "L-SMASH Dumper",                               /* Name of filter plugin */
+    "L-SMASH Works Dumper",                         /* Name of filter plugin */
     0,                                              /* Number of trackbars */
     NULL,                                           /* Pointer to group of names of trackbar */
     NULL,                                           /* Pointer to group of initial values of trackbar */
