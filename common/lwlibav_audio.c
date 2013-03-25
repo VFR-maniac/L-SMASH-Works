@@ -120,7 +120,7 @@ static int find_start_audio_frame
     uint64_t current_frame_pos               = 0;
     uint64_t next_frame_pos                  = 0;
     int      current_sample_rate             = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : adhp->ctx->sample_rate;
-    uint32_t current_frame_length            = frame_list[frame_number].length;
+    int      current_frame_length            = frame_list[frame_number].length;
     uint64_t resampled_sample_count          = 0;   /* the number of accumulated PCM samples after resampling per sequence */
     uint64_t pcm_sample_count                = 0;   /* the number of accumulated PCM samples before resampling per sequence */
     uint64_t prior_sequences_resampled_count = 0;   /* the number of accumulated PCM samples of all prior sequences */
@@ -136,7 +136,7 @@ static int find_start_audio_frame
             current_sample_rate  = frame_list[frame_number].sample_rate > 0 ? frame_list[frame_number].sample_rate : adhp->ctx->sample_rate;
             current_frame_length = frame_list[frame_number].length;
         }
-        pcm_sample_count += current_frame_length;
+        pcm_sample_count += (uint64_t)current_frame_length;
         resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                ? pcm_sample_count
                                : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
@@ -148,6 +148,16 @@ static int find_start_audio_frame
     *start_offset = start_frame_pos - current_frame_pos;
     if( *start_offset && current_sample_rate != output_sample_rate )
         *start_offset = (*start_offset * current_sample_rate - 1) / output_sample_rate + 1;
+    if( frame_number > 1 )
+    {
+        /* Add pre-roll samples if needed.
+         * The condition is irresponsible. Patches welcome. */
+        enum AVCodecID codec_id = adhp->exh.entries[ frame_list[frame_number].extradata_index ].codec_id;
+        const AVCodecDescriptor *desc = avcodec_descriptor_get( codec_id );
+        if( (desc->props & AV_CODEC_PROP_LOSSY)
+         && frame_list[frame_number].extradata_index == frame_list[frame_number - 1].extradata_index )
+            *start_offset += (uint64_t)frame_list[--frame_number].length;
+    }
     return frame_number;
 }
 
