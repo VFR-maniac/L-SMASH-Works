@@ -42,6 +42,8 @@ extern "C"
 #include "libavsmash.h"
 #include "libavsmash_audio.h"
 
+#define RESAMPLE_PCM_COUNT( SAMPLES ) (((SAMPLES) * output_sample_rate - 1) / current_sample_rate + 1)
+
 static uint64_t count_sequence_output_pcm_samples
 (
     uint64_t upsampled_sequence_pcm_count,
@@ -59,10 +61,8 @@ static uint64_t count_sequence_output_pcm_samples
     }
     else
     {
-        if( skip_decoded_samples )
-            skip_output_samples = (skip_decoded_samples * output_sample_rate - 1) / current_sample_rate + 1;
-        if( upsampled_sequence_pcm_count )
-            resampled_sample_count = (upsampled_sequence_pcm_count * output_sample_rate - 1) / current_sample_rate + 1;
+        resampled_sample_count = upsampled_sequence_pcm_count ? RESAMPLE_PCM_COUNT( upsampled_sequence_pcm_count ) : 0;
+        skip_output_samples    = skip_decoded_samples         ? RESAMPLE_PCM_COUNT( skip_decoded_samples )         : 0;
     }
     return resampled_sample_count > skip_output_samples ? resampled_sample_count - skip_output_samples : 0;
 }
@@ -264,7 +264,7 @@ static int find_start_audio_frame
         pcm_sample_count += frame_length;
         resampled_sample_count = output_sample_rate == current_sample_rate || pcm_sample_count == 0
                                ? pcm_sample_count
-                               : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
+                               : RESAMPLE_PCM_COUNT( pcm_sample_count );
         next_frame_pos = prior_sequences_resampled_count + resampled_sample_count;
         if( start_frame_pos < next_frame_pos )
             break;
@@ -272,6 +272,7 @@ static int find_start_audio_frame
     } while( frame_number <= adhp->frame_count );
     *start_offset = start_frame_pos - current_frame_pos;
     if( *start_offset && current_sample_rate != output_sample_rate )
+        /* start_offset is applied at the decoder sampling rate. */
         *start_offset = (*start_offset * current_sample_rate - 1) / output_sample_rate + 1;
     *start_offset += get_preroll_samples( adhp, skip_decoded_samples, &frame_number );
     return frame_number;
