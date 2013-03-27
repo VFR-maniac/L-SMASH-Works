@@ -24,6 +24,7 @@
 #define SEEK_PTS_BASED      0x00000002
 #define SEEK_POS_BASED      0x00000004
 #define SEEK_POS_CORRECTION 0x00000008
+#define SEEK_PTS_GENERATED  0x00000010
 
 typedef struct
 {
@@ -64,8 +65,8 @@ typedef struct
     AVCodecContext             *ctx;
     AVIndexEntry               *index_entries;
     int                         index_entries_count;
-    int                         seek_base;
-    int                         seek_flags;
+    int                         lw_seek_flags;
+    int                         av_seek_flags;
     int                         dv_in_avi;
     enum AVCodecID              codec_id;
     uint32_t                    frame_count;

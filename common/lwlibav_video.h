@@ -48,8 +48,8 @@ typedef struct
     AVCodecContext     *ctx;
     AVIndexEntry       *index_entries;
     int                 index_entries_count;
-    int                 seek_base;
-    int                 seek_flags;
+    int                 lw_seek_flags;
+    int                 av_seek_flags;
     int                 dv_in_avi;          /* unused */
     enum AVCodecID      codec_id;
     uint32_t            frame_count;

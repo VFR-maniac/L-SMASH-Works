@@ -134,7 +134,7 @@ void lwlibav_setup_timestamp_info
 )
 {
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
-    if( vdhp->frame_count == 1 || !(vdhp->seek_base & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
+    if( vdhp->frame_count == 1 || !(vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
     {
         *framerate_num = video_stream->avg_frame_rate.num;
         *framerate_den = video_stream->avg_frame_rate.den;
@@ -145,7 +145,7 @@ void lwlibav_setup_timestamp_info
     int64_t  largest_ts;
     int64_t  second_largest_ts;
     uint64_t stream_timebase;
-    if( vdhp->seek_base & SEEK_PTS_BASED )
+    if( vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED) )
     {
         first_ts          = info[1].pts;
         largest_ts        = info[2].pts;
@@ -212,7 +212,7 @@ static uint32_t shift_current_frame_number
 )
 {
 #define MATCH_DTS( j ) (info[j].dts == pkt->dts)
-#define MATCH_POS( j ) ((vdhp->seek_base & SEEK_POS_CORRECTION) && info[j].file_offset == pkt->pos)
+#define MATCH_POS( j ) ((vdhp->lw_seek_flags & SEEK_POS_CORRECTION) && info[j].file_offset == pkt->pos)
     order_converter_t  *oc   = vdhp->order_converter;
     video_frame_info_t *info = vdhp->frame_list;
     uint32_t p = oc ? oc[i].decoding_to_presentation : i;
@@ -265,7 +265,7 @@ static int decode_video_sample
     if( ret > 0 )
         return ret;
     /* Shift the current frame number in order to match DTS since libavformat might have sought wrong position. */
-    if( frame_number == rap_number && (vdhp->seek_base & SEEK_DTS_BASED) )
+    if( frame_number == rap_number && (vdhp->lw_seek_flags & SEEK_DTS_BASED) )
     {
         frame_number = shift_current_frame_number( vdhp, pkt, frame_number, goal );
         if( frame_number == 0 )
@@ -323,10 +323,10 @@ int64_t lwlibav_get_random_accessible_point_position
     uint32_t presentation_rap_number = vdhp->order_converter
                                      ? vdhp->order_converter[rap_number].decoding_to_presentation
                                      : rap_number;
-    return (vdhp->seek_base & SEEK_POS_BASED) ? vdhp->frame_list[presentation_rap_number].file_offset
-         : (vdhp->seek_base & SEEK_PTS_BASED) ? vdhp->frame_list[presentation_rap_number].pts
-         : (vdhp->seek_base & SEEK_DTS_BASED) ? vdhp->frame_list[presentation_rap_number].dts
-         :                                      vdhp->frame_list[presentation_rap_number].sample_number;
+    return (vdhp->lw_seek_flags & SEEK_POS_BASED) ? vdhp->frame_list[presentation_rap_number].file_offset
+         : (vdhp->lw_seek_flags & SEEK_PTS_BASED) ? vdhp->frame_list[presentation_rap_number].pts
+         : (vdhp->lw_seek_flags & SEEK_DTS_BASED) ? vdhp->frame_list[presentation_rap_number].dts
+         :                                          vdhp->frame_list[presentation_rap_number].sample_number;
 }
 
 static uint32_t seek_video
@@ -349,8 +349,8 @@ static uint32_t seek_video
         lwlibav_flush_buffers( (lwlibav_decode_handler_t *)vdhp );
     if( vdhp->error )
         return 0;
-    if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
-        av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+    if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
+        av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
     int dummy;
     int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t i;
@@ -525,15 +525,17 @@ int lwlibav_find_first_valid_video_frame
     int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lw_video_output_handler_t * )
 )
 {
-    vdhp->seek_flags = (vdhp->seek_base & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE : vdhp->seek_base == 0 ? AVSEEK_FLAG_FRAME : 0;
+    vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
+                        : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
+                        : 0;
     if( frame_count != 1 )
     {
-        vdhp->seek_flags |= AVSEEK_FLAG_BACKWARD;
+        vdhp->av_seek_flags |= AVSEEK_FLAG_BACKWARD;
         uint32_t rap_number;
         lwlibav_find_random_accessible_point( vdhp, 1, 0, &rap_number );
         int64_t rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
-        if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags ) < 0 )
-            av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+        if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
+            av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
     }
     for( uint32_t i = 1; i <= frame_count + get_decoder_delay( vdhp->ctx ); i++ )
     {
@@ -593,8 +595,8 @@ int try_decode_video_frame
     AVFormatContext *format_ctx   = vdhp->format;
     int              stream_index = vdhp->stream_index;
     AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
-    if( av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->seek_flags ) < 0 )
-        av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->seek_flags | AVSEEK_FLAG_ANY );
+    if( av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
+        av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
     do
     {
         if( frame_number > vdhp->frame_count )
