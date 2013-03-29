@@ -491,29 +491,53 @@ static lwlibav_extradata_t *alloc_extradata_entries
     return temp;
 }
 
-static uint8_t *append_ebdu_start_code
+static uint8_t *make_vc1_ebdu
 (
     lwindex_helper_t *helper,
     AVPacket         *pkt,
     int              *size,
-    uint8_t           ebdu_type
+    uint8_t           bdu_type,
+    int               is_vc1
 )
 {
     uint8_t *data = helper->buffer;
-    *size = pkt->size + 4;
-    if( helper->buffer_size < *size + FF_INPUT_BUFFER_PADDING_SIZE )
+    int buffer_size = (1 + !is_vc1) * (pkt->size + 4);
+    if( helper->buffer_size < buffer_size + FF_INPUT_BUFFER_PADDING_SIZE )
     {
-        data = (uint8_t *)av_realloc( helper->buffer, *size + FF_INPUT_BUFFER_PADDING_SIZE );
+        data = (uint8_t *)av_realloc( helper->buffer, buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
         if( !data )
             return NULL;
         helper->buffer      = data;
-        helper->buffer_size = *size + FF_INPUT_BUFFER_PADDING_SIZE;
+        helper->buffer_size = buffer_size + FF_INPUT_BUFFER_PADDING_SIZE;
     }
+    /* start code */
     data[0] = 0x00;
     data[1] = 0x00;
     data[2] = 0x01;
-    data[3] = ebdu_type;
-    memcpy( data + 4, pkt->data, pkt->size );
+    data[3] = bdu_type;
+    if( is_vc1 )
+    {
+        *size = pkt->size + 4;
+        memcpy( data + 4, pkt->data, pkt->size );
+    }
+    else
+    {
+        /* RBDU to EBDU */
+        uint8_t *pos = pkt->data;
+        uint8_t *end = pkt->data + pkt->size;
+        *size = 4;
+        if( pos < end )
+            data[ (*size)++ ] = *(pos++);
+        if( pos < end )
+            data[ (*size)++ ] = *(pos++);   /* No need to check emulation since bdu_type == 0 is reserved. */
+        while( pos < end )
+        {
+            if( pos[-2] == 0x00 && pos[-1] == 0x00 && pos[0] <= 0x03 )
+                data[ (*size)++ ] = 0x03;
+            data[ (*size)++ ] = (pos++)[0];
+        }
+    }
+    memset( data + *size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
     return data;
 }
 
@@ -533,7 +557,8 @@ static lwindex_helper_t *get_index_helper
             return NULL;
         ctx->opaque = (void *)helper;
         helper->mpeg12_video = (ctx->codec_id == AV_CODEC_ID_MPEG1VIDEO || ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO);
-        helper->vc1_wmv3     = (ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE);
+        helper->vc1_wmv3     = (ctx->codec_id == AV_CODEC_ID_VC1  || ctx->codec_id == AV_CODEC_ID_VC1IMAGE
+                             || ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE);
         if( helper->vc1_wmv3 && !strcmp( format_name, "asf" ) )
             helper->vc1_wmv3 = 2;
         /* Set up the parser. */
@@ -568,11 +593,11 @@ static lwindex_helper_t *get_index_helper
             int      size;
             if( ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE )
             {
-                /* Append a sequence header start code (0x0000010F). */
+                /* Make a sequence header EBDU (0x0000010F). */
                 AVPacket packet = { 0 };
                 packet.data = ctx->extradata;
                 packet.size = ctx->extradata_size;
-                data = append_ebdu_start_code( helper, &packet, &size, 0x0F );
+                data = make_vc1_ebdu( helper, &packet, &size, 0x0F, 0 );
                 if( !data )
                     return NULL;
             }
@@ -704,7 +729,7 @@ static void investigate_pix_fmt_by_decoding
 static int get_picture_type
 (
     lwindex_helper_t *helper,
-    AVCodecContext   *video_ctx,
+    AVCodecContext   *ctx,
     AVPacket         *pkt
 )
 {
@@ -717,8 +742,8 @@ static int get_picture_type
         int      size;
         if( helper->vc1_wmv3 == 2 )
         {
-            /* Append a frame start code (0x0000010D). */
-            data = append_ebdu_start_code( helper, pkt, &size, 0x0D );
+            /* Make a frame EBDU (0x0000010D). */
+            data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
             if( !data )
                 return -1;
         }
@@ -729,7 +754,7 @@ static int get_picture_type
         }
         uint8_t *dummy;
         int      dummy_size;
-        av_parser_parse2( helper->parser_ctx, video_ctx,
+        av_parser_parse2( helper->parser_ctx, ctx,
                           &dummy, &dummy_size, data, size,
                           pkt->pts, pkt->dts, pkt->pos );
     }
@@ -744,14 +769,14 @@ static int get_picture_type
          * So, we treat only I-picture as a keyframe. */
         int decode_complete;
         avcodec_get_frame_defaults( helper->picture );
-        helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
+        helper->decode( ctx, helper->picture, &decode_complete, pkt );
         if( !decode_complete )
         {
             AVPacket null_pkt = { 0 };
             av_init_packet( &null_pkt );
             null_pkt.data = NULL;
             null_pkt.size = 0;
-            helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
+            helper->decode( ctx, helper->picture, &decode_complete, pkt );
         }
         if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
             pkt->flags &= ~AV_PKT_FLAG_KEY;
