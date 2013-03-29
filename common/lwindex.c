@@ -51,8 +51,13 @@ typedef struct
     AVCodecParserContext       *parser_ctx;
     AVFrame                    *picture;
     uint32_t                    delay_count;
-    int                         mpeg12_video;
-    int                         vc1_wmv3;
+    int                         mpeg12_video;   /* 0: neither MPEG-1 Video nor MPEG-2 Video
+                                                 * 1: either MPEG-1 Video or MPEG-2 Video */
+    int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
+                                                 * 1: either VC-1 or WMV3
+                                                 * 2: either VC-1 or WMV3 encapsulated in ASF */
+    int                         buffer_size;
+    uint8_t                    *buffer;
 #if LIBAVCODEC_VERSION_MICRO < 100
     int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
 #else
@@ -486,6 +491,32 @@ static lwlibav_extradata_t *alloc_extradata_entries
     return temp;
 }
 
+static uint8_t *append_ebdu_start_code
+(
+    lwindex_helper_t *helper,
+    AVPacket         *pkt,
+    int              *size,
+    uint8_t           ebdu_type
+)
+{
+    uint8_t *data = helper->buffer;
+    *size = pkt->size + 4;
+    if( helper->buffer_size < *size + FF_INPUT_BUFFER_PADDING_SIZE )
+    {
+        data = (uint8_t *)av_realloc( helper->buffer, *size + FF_INPUT_BUFFER_PADDING_SIZE );
+        if( !data )
+            return NULL;
+        helper->buffer      = data;
+        helper->buffer_size = *size + FF_INPUT_BUFFER_PADDING_SIZE;
+    }
+    data[0] = 0x00;
+    data[1] = 0x00;
+    data[2] = 0x01;
+    data[3] = ebdu_type;
+    memcpy( data + 4, pkt->data, pkt->size );
+    return data;
+}
+
 static lwindex_helper_t *get_index_helper
 (
     const char     *format_name,
@@ -501,37 +532,61 @@ static lwindex_helper_t *get_index_helper
         if( !helper )
             return NULL;
         ctx->opaque = (void *)helper;
+        helper->mpeg12_video = (ctx->codec_id == AV_CODEC_ID_MPEG1VIDEO || ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO);
+        helper->vc1_wmv3     = (ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE);
+        if( helper->vc1_wmv3 && !strcmp( format_name, "asf" ) )
+            helper->vc1_wmv3 = 2;
+        /* Set up the parser. */
         if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
         {
             helper->own_parser = 1;
-            helper->parser_ctx = av_parser_init( ctx->codec_id );
+            helper->parser_ctx = av_parser_init( helper->vc1_wmv3 ? AV_CODEC_ID_VC1 : ctx->codec_id );
             if( helper->parser_ctx )
                 helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
         }
         else
-            helper->parser_ctx = stream->parser;
-        helper->mpeg12_video = (ctx->codec_id == AV_CODEC_ID_MPEG1VIDEO || ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO);
-        helper->vc1_wmv3     = (ctx->codec_id == AV_CODEC_ID_VC1        || ctx->codec_id == AV_CODEC_ID_WMV3);
-        /* For audio, prepare the decoder and the parser to get frame length.
-         * For VC-1 in ASF, prepare the decoder to get pict_type since VC-1 parser does not work at all. */
-        if( ctx->codec_type == AVMEDIA_TYPE_AUDIO
-         || helper->mpeg12_video
-         || (helper->vc1_wmv3 && !strcmp( format_name, "asf" )) )
         {
-            if( ctx->codec_type == AVMEDIA_TYPE_AUDIO )
-            {
-                if( !helper->own_parser )
-                    helper->parser_ctx = stream->parser;
-                helper->decode = avcodec_decode_audio4;
-            }
-            else
-                helper->decode = avcodec_decode_video2;
+            helper->own_parser = 0;
+            helper->parser_ctx = stream->parser;
+        }
+        /* For audio, prepare the decoder and the parser to get frame length.
+         * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
+        if( ctx->codec_type == AVMEDIA_TYPE_AUDIO || helper->mpeg12_video || helper->vc1_wmv3 )
+        {
+            helper->decode  = ctx->codec_type == AVMEDIA_TYPE_AUDIO ? avcodec_decode_audio4 : avcodec_decode_video2;
             helper->picture = avcodec_alloc_frame();
             if( !helper->picture )
             {
                 free( helper );
                 return NULL;
             }
+        }
+        if( helper->parser_ctx && helper->vc1_wmv3 == 2 )
+        {
+            /* Initialize the VC-1/WMV3 parser by extradata. */
+            uint8_t *data;
+            int      size;
+            if( ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE )
+            {
+                /* Append a sequence header start code (0x0000010F). */
+                AVPacket packet = { 0 };
+                packet.data = ctx->extradata;
+                packet.size = ctx->extradata_size;
+                data = append_ebdu_start_code( helper, &packet, &size, 0x0F );
+                if( !data )
+                    return NULL;
+            }
+            else
+            {
+                /* For WVC1, the first byte is its size. */
+                data = ctx->extradata      + 1;
+                size = ctx->extradata_size - 1;
+            }
+            uint8_t *dummy;
+            int      dummy_size;
+            av_parser_parse2( helper->parser_ctx, ctx,
+                              &dummy, &dummy_size, data, size,
+                              AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1 );
         }
     }
     return helper;
@@ -653,45 +708,42 @@ static int get_picture_type
     AVPacket         *pkt
 )
 {
-    if( helper->decode && helper->vc1_wmv3 )
-    {
-        /* Get by the decoder. */
-        int decode_complete;
-        avcodec_get_frame_defaults( helper->picture );
-        helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
-        if( decode_complete )
-        {
-            /* It seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
-             * So, we treat only I-picture as a keyframe. */
-            if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
-                pkt->flags &= ~AV_PKT_FLAG_KEY;
-            return helper->picture->pict_type;
-        }
-        else
-        {
-            ++ helper->delay_count;
-            return -1;
-        }
-    }
-    else if( !helper->parser_ctx )
+    if( !helper->parser_ctx )
         return 0;
     /* Get by the parser. */
     if( helper->own_parser )
     {
+        uint8_t *data;
+        int      size;
+        if( helper->vc1_wmv3 == 2 )
+        {
+            /* Append a frame start code (0x0000010D). */
+            data = append_ebdu_start_code( helper, pkt, &size, 0x0D );
+            if( !data )
+                return -1;
+        }
+        else
+        {
+            data = pkt->data;
+            size = pkt->size;
+        }
         uint8_t *dummy;
         int      dummy_size;
         av_parser_parse2( helper->parser_ctx, video_ctx,
-                          &dummy, &dummy_size, pkt->data, pkt->size,
+                          &dummy, &dummy_size, data, size,
                           pkt->pts, pkt->dts, pkt->pos );
     }
-    if( helper->mpeg12_video
+    if( (helper->mpeg12_video || helper->vc1_wmv3)
      && (pkt->flags & AV_PKT_FLAG_KEY)
      && (enum AVPictureType)helper->parser_ctx->pict_type != AV_PICTURE_TYPE_I )
     {
         /* One frame decoding.
-         * Sometimes, the parser returns a picture type other than I-picture even if the frame is a keyframe.
-         * Actual decoding fixes this issue. */
+         * Sometimes, the parser returns a picture type other than I-picture and BI-picture even if the frame is a keyframe.
+         * Actual decoding fixes this issue.
+         * In addition, it seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
+         * So, we treat only I-picture as a keyframe. */
         int decode_complete;
+        avcodec_get_frame_defaults( helper->picture );
         helper->decode( video_ctx, helper->picture, &decode_complete, pkt );
         if( !decode_complete )
         {
@@ -876,6 +928,8 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
             av_parser_close( helper->parser_ctx );
         if( helper->picture )
             avcodec_free_frame( &helper->picture );
+        if( helper->buffer )
+            av_free( helper->buffer );
         lwlibav_extradata_handler_t *list = &helper->exh;
         if( list->entries )
         {
@@ -884,6 +938,7 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
                     av_free( list->entries[i].extradata );
             free( list->entries );
         }
+        /* Free an index helper. */
         lw_freep( &format_ctx->streams[stream_index]->codec->opaque );
     }
 }
@@ -1036,6 +1091,11 @@ static void create_index
             }
             /* Get picture type. */
             int pict_type = get_picture_type( helper, pkt_ctx, &pkt );
+            if( pict_type < 0 )
+            {
+                av_free_packet( &pkt );
+                goto fail_index;
+            }
             /* Set video frame info if this stream is active. */
             if( pkt.stream_index == vdhp->stream_index )
             {
@@ -1045,8 +1105,7 @@ static void create_index
                 video_info[video_sample_count].file_offset     = pkt.pos;
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
-                if( pict_type != -1 && video_sample_count > helper->delay_count )
-                    video_info[ video_sample_count - helper->delay_count ].pict_type = pict_type;
+                video_info[video_sample_count].pict_type       = pict_type;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
@@ -1220,7 +1279,7 @@ static void create_index
         AVStream         *stream  = format_ctx->streams[stream_index];
         AVCodecContext   *pkt_ctx = stream->codec;
         lwindex_helper_t *helper  = (lwindex_helper_t *)pkt_ctx->opaque;
-        if( !helper || !helper->decode )
+        if( !helper || !helper->decode || pkt_ctx->codec_type != AVMEDIA_TYPE_AUDIO )
             continue;
         /* Flush if decoding is delayed. */
         for( uint32_t i = 1; i <= helper->delay_count; i++ )
@@ -1232,40 +1291,25 @@ static void create_index
             int decode_complete;
             if( helper->decode( pkt_ctx, helper->picture, &decode_complete, &null_pkt ) >= 0 )
             {
-                if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
+                int frame_length = decode_complete ? helper->picture->nb_samples : 0;
+                if( stream_index == adhp->stream_index )
                 {
-                    int pict_type = helper->picture->pict_type;
-                    if( stream_index == vdhp->stream_index )
-                        video_info[ video_sample_count - helper->delay_count + i ].pict_type = pict_type;
-                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                                 "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
-                                 stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
-                                 stream->time_base.num, stream->time_base.den,
-                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
-                                 pict_type, 0, 0, 0, "none", AVCOL_SPC_NB );
+                    audio_duration += frame_length;
+                    if( audio_duration > INT32_MAX )
+                        break;
+                    uint32_t audio_frame_number = audio_sample_count - helper->delay_count + i;
+                    audio_info[audio_frame_number].length = frame_length;
+                    if( audio_frame_number > 1
+                     && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
+                        constant_frame_length = 0;
                 }
-                else
-                {
-                    int frame_length = decode_complete ? helper->picture->nb_samples : 0;
-                    if( stream_index == adhp->stream_index )
-                    {
-                        audio_duration += frame_length;
-                        if( audio_duration > INT32_MAX )
-                            break;
-                        uint32_t audio_frame_number = audio_sample_count - helper->delay_count + i;
-                        audio_info[audio_frame_number].length = frame_length;
-                        if( audio_frame_number > 1
-                         && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
-                            constant_frame_length = 0;
-                    }
-                    print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                                 "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
-                                 stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
-                                 format_ctx->streams[stream_index]->time_base.num,
-                                 format_ctx->streams[stream_index]->time_base.den,
-                                 -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
-                                 0, 0, 0, "none", 0, frame_length );
-                }
+                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
+                             "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
+                             stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
+                             format_ctx->streams[stream_index]->time_base.num,
+                             format_ctx->streams[stream_index]->time_base.den,
+                             -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
+                             0, 0, 0, "none", 0, frame_length );
             }
         }
     }
@@ -1569,6 +1613,7 @@ static int parse_index
                     video_info[video_sample_count].file_offset     = pos;
                     video_info[video_sample_count].sample_number   = video_sample_count;
                     video_info[video_sample_count].extradata_index = extradata_index;
+                    video_info[video_sample_count].pict_type       = pict_type;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                         video_info[video_sample_count].is_leading = 1;
                     if( key )
@@ -1576,13 +1621,6 @@ static int parse_index
                         video_info[video_sample_count].keyframe = 1;
                         last_keyframe_pts = pts;
                     }
-                }
-                else if( vdhp->exh.delay_count )
-                {
-                    uint32_t video_frame_number = video_sample_count - (-- vdhp->exh.delay_count);
-                    if( video_frame_number > video_sample_count )
-                        goto fail_parsing;
-                    video_info[video_frame_number].pict_type = pict_type;
                 }
                 if( video_sample_count + 1 == video_info_count )
                 {
@@ -1592,10 +1630,6 @@ static int parse_index
                         goto fail_parsing;
                     video_info = temp;
                 }
-                if( pict_type == -1 )
-                    ++ vdhp->exh.delay_count;
-                else if( video_sample_count > vdhp->exh.delay_count )
-                    video_info[ video_sample_count - vdhp->exh.delay_count ].pict_type = pict_type;
             }
         }
         else if( codec_type == AVMEDIA_TYPE_AUDIO )
