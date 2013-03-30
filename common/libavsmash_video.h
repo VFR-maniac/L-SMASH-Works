@@ -24,6 +24,9 @@
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
 
+typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
+typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
+
 typedef struct
 {
     uint32_t composition_to_decoding;
@@ -63,7 +66,7 @@ int libavsmash_get_video_frame
 int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
-    lw_video_output_handler_t         *vohp,
+    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_count,
-    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, lw_video_output_handler_t * )
+    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
 );

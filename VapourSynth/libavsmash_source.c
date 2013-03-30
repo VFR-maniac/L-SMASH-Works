@@ -37,9 +37,6 @@
 #include "../common/libavsmash.h"
 #include "../common/libavsmash_video.h"
 
-typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
-typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
-
 typedef struct
 {
     VSVideoInfo                       vi;

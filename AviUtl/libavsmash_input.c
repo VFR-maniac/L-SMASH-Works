@@ -43,9 +43,6 @@
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
 
-typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
-typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
-
 typedef struct
 {
     uint8_t *keyframe_list;

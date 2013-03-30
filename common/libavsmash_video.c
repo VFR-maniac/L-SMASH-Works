@@ -314,9 +314,9 @@ video_fail:
 int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
-    lw_video_output_handler_t         *vohp,
+    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_count,
-    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, lw_video_output_handler_t * )
+    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
 )
 {
     codec_configuration_t *config  = &vdhp->config;
