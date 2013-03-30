@@ -54,3 +54,8 @@ int lwlibav_construct_index
     progress_indicator_t           *indicator,
     progress_handler_t             *php
 );
+
+int lwlibav_import_av_index_entry
+(
+    lwlibav_decode_handler_t *dhp
+);

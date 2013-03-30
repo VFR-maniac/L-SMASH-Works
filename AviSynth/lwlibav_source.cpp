@@ -136,17 +136,8 @@ void LWLibavVideoSource::prepare_video_decoding
 {
     vdh.lh.priv = env;
     /* Import AVIndexEntrys. */
-    if( vdh.index_entries )
-    {
-        AVStream *video_stream = vdh.format->streams[ vdh.stream_index ];
-        for( int i = 0; i < vdh.index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &vdh.index_entries[i];
-            if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-                env->ThrowError( "LWLibavVideoSource: failed to import AVIndexEntrys for video." );
-        }
-        av_freep( &vdh.index_entries );
-    }
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)&vdh ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to import AVIndexEntrys for video." );
     /* Set up output format. */
     vdh.ctx->width      = vdh.initial_width;
     vdh.ctx->height     = vdh.initial_height;
@@ -232,17 +223,8 @@ void LWLibavAudioSource::prepare_audio_decoding
 {
     adh.lh.priv = env;
     /* Import AVIndexEntrys. */
-    if( adh.index_entries )
-    {
-        AVStream *audio_stream = adh.format->streams[ adh.stream_index ];
-        for( int i = 0; i < adh.index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &adh.index_entries[i];
-            if( av_add_index_entry( audio_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-                env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
-        }
-        av_freep( &adh.index_entries );
-    }
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)&adh ) < 0 )
+        env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
     /* */
     avcodec_get_frame_defaults( adh.frame_buffer );
     as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout, sample_rate );

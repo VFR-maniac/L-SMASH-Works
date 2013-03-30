@@ -105,20 +105,8 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     VSVideoInfo                    *vi   = &hp->vi;
     lw_log_handler_t               *lhp  = &vdhp->lh;
     /* Import AVIndexEntrys. */
-    if( vdhp->index_entries )
-    {
-        AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
-        for( int i = 0; i < vdhp->index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &vdhp->index_entries[i];
-            if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-            {
-                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to import AVIndexEntrys for video." );
-                return -1;
-            }
-        }
-        av_freep( &vdhp->index_entries );
-    }
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
+        return -1;
     /* Set up output format. */
     vdhp->ctx->width      = vdhp->initial_width;
     vdhp->ctx->height     = vdhp->initial_height;

@@ -166,17 +166,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->forward_seek_threshold = opt->forward_seek_threshold;
     h->video_sample_count = vdhp->frame_count;
     /* Import AVIndexEntrys. */
-    if( vdhp->index_entries )
-    {
-        AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
-        for( int i = 0; i < vdhp->index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &vdhp->index_entries[i];
-            if( av_add_index_entry( video_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-                return -1;
-        }
-        av_freep( &vdhp->index_entries );
-    }
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
+        return -1;
     /* Set up timestamp info. */
     hp->uType = MB_OK;
     lwlibav_setup_timestamp_info( vdhp, &h->framerate_num, &h->framerate_den );
@@ -208,23 +199,14 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     lwlibav_audio_decode_handler_t *adhp = &hp->adh;
     if( !adhp->ctx )
         return 0;
-    lwlibav_audio_output_handler_t *aohp = &hp->aoh;
     /* Import AVIndexEntrys. */
-    if( adhp->index_entries )
-    {
-        AVStream *audio_stream = adhp->format->streams[ adhp->stream_index ];
-        for( int i = 0; i < adhp->index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &adhp->index_entries[i];
-            if( av_add_index_entry( audio_stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-                return -1;
-        }
-        av_freep( &adhp->index_entries );
-    }
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)adhp ) < 0 )
+        return -1;
     avcodec_get_frame_defaults( adhp->frame_buffer );
 #ifndef DEBUG_AUDIO
     adhp->lh.level = LW_LOG_FATAL;
 #endif
+    lwlibav_audio_output_handler_t *aohp = &hp->aoh;
     if( au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format ) < 0 )
         return -1;
     /* Count the number of PCM audio samples. */

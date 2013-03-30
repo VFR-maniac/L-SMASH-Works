@@ -2053,3 +2053,26 @@ fail:
         lw_freep( &lwhp->file_path );
     return -1;
 }
+
+int lwlibav_import_av_index_entry
+(
+    lwlibav_decode_handler_t *dhp
+)
+{
+    if( dhp->index_entries )
+    {
+        AVStream *stream = dhp->format->streams[ dhp->stream_index ];
+        for( int i = 0; i < dhp->index_entries_count; i++ )
+        {
+            AVIndexEntry *ie = &dhp->index_entries[i];
+            if( av_add_index_entry( stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
+            {
+                if( dhp->lh.show_log )
+                    dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL, "Failed to import AVIndexEntrys." );
+                return -1;
+            }
+        }
+        av_freep( &dhp->index_entries );
+    }
+    return 0;
+}
