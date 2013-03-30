@@ -74,9 +74,6 @@ uint64_t output_pcm_samples_from_packet
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
 
-typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
-typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
-
 typedef struct
 {
     VSVideoInfo                    vi;

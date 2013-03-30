@@ -520,9 +520,9 @@ void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp 
 int lwlibav_find_first_valid_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lw_video_output_handler_t      *vohp,
+    lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_count,
-    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lw_video_output_handler_t * )
+    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lwlibav_video_output_handler_t * )
 )
 {
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE

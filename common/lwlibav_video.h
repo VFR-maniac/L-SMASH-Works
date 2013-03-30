@@ -20,6 +20,9 @@
 
 /* This file is available under an ISC license. */
 
+typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
+typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
+
 typedef struct
 {
     int64_t  pts;
@@ -114,7 +117,7 @@ void lwlibav_cleanup_video_decode_handler
 int lwlibav_find_first_valid_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lw_video_output_handler_t      *vohp,
+    lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_count,
-    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lw_video_output_handler_t * )
+    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lwlibav_video_output_handler_t * )
 );
