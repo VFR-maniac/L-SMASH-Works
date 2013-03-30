@@ -242,17 +242,12 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     lsmas_handler_t *hp = (lsmas_handler_t *)instance_data;
     if( !hp )
         return;
-    if( hp->voh.first_valid_frame )
-        vsapi->freeFrame( hp->voh.first_valid_frame );
     if( hp->vdh.order_converter )
         free( hp->vdh.order_converter );
     if( hp->vdh.frame_buffer )
         avcodec_free_frame( &hp->vdh.frame_buffer );
-    if( hp->voh.scaler.sws_ctx )
-        sws_freeContext( hp->voh.scaler.sws_ctx );
-    if( hp->voh.free_private_handler && hp->voh.private_handler )
-        hp->voh.free_private_handler( hp->voh.private_handler );
     cleanup_configuration( &hp->vdh.config );
+    libavsmash_cleanup_video_output_handler( &hp->voh );
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );
     lsmash_destroy_root( hp->vdh.root );

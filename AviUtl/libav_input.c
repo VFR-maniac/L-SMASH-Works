@@ -281,13 +281,8 @@ static void video_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp )
         return;
-    if( hp->voh.first_valid_frame )
-        free( hp->voh.first_valid_frame );
-    if( hp->voh.scaler.sws_ctx )
-        sws_freeContext( hp->voh.scaler.sws_ctx );
-    if( hp->voh.free_private_handler && hp->voh.private_handler )
-        hp->voh.free_private_handler( hp->voh.private_handler );
     lwlibav_cleanup_video_decode_handler( &hp->vdh );
+    lwlibav_cleanup_video_output_handler( &hp->voh );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )

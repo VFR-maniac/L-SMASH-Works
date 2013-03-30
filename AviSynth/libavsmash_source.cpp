@@ -76,17 +76,12 @@ LSMASHVideoSource::LSMASHVideoSource
 
 LSMASHVideoSource::~LSMASHVideoSource()
 {
-    if( voh.first_valid_frame )
-        delete voh.first_valid_frame;
-    if( voh.scaler.sws_ctx )
-        sws_freeContext( voh.scaler.sws_ctx );
-    if( voh.free_private_handler && voh.private_handler )
-        voh.free_private_handler( &voh.private_handler );
     if( vdh.order_converter )
         delete [] vdh.order_converter;
     if( vdh.frame_buffer )
         avcodec_free_frame( &vdh.frame_buffer );
     cleanup_configuration( &vdh.config );
+    libavsmash_cleanup_video_output_handler( &voh );
     if( format_ctx )
         avformat_close_input( &format_ctx );
     lsmash_destroy_root( vdh.root );

@@ -578,15 +578,12 @@ static void video_cleanup( lsmash_handler_t *h )
         return;
     if( hp->vih.keyframe_list )
         free( hp->vih.keyframe_list );
-    if( hp->voh.scaler.sws_ctx )
-        sws_freeContext( hp->voh.scaler.sws_ctx );
-    if( hp->voh.free_private_handler && hp->voh.private_handler )
-        hp->voh.free_private_handler( hp->voh.private_handler );
     if( hp->vdh.order_converter )
         free( hp->vdh.order_converter );
     if( hp->vdh.frame_buffer )
         avcodec_free_frame( &hp->vdh.frame_buffer );
     cleanup_configuration( &hp->vdh.config );
+    libavsmash_cleanup_video_output_handler( &hp->voh );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )

@@ -70,3 +70,11 @@ int libavsmash_find_first_valid_video_frame
     uint32_t                           sample_count,
     int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
 );
+
+static inline void libavsmash_cleanup_video_output_handler
+(
+    libavsmash_video_output_handler_t *vohp
+)
+{
+    lw_cleanup_video_output_handler( vohp );
+};

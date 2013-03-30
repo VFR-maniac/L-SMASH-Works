@@ -237,12 +237,7 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     if( !hp )
         return;
     lwlibav_cleanup_video_decode_handler( &hp->vdh );
-    if( hp->voh.first_valid_frame )
-        vsapi->freeFrame( hp->voh.first_valid_frame );
-    if( hp->voh.scaler.sws_ctx )
-        sws_freeContext( hp->voh.scaler.sws_ctx );
-    if( hp->voh.free_private_handler && hp->voh.private_handler )
-        hp->voh.free_private_handler( hp->voh.private_handler );
+    lwlibav_cleanup_video_output_handler( &hp->voh );
     if( hp->lwh.file_path )
         free( hp->lwh.file_path );
     free( hp );

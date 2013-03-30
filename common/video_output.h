@@ -38,14 +38,15 @@ typedef struct
 typedef struct
 {
     lw_video_scaler_handler_t scaler;
-    uint32_t                  first_valid_frame_number;
-    void                     *first_valid_frame;
     int                       output_width;
     int                       output_height;
     int                       output_linesize;
     uint32_t                  output_frame_size;
+    uint32_t                  first_valid_frame_number;
+    void                     *first_valid_frame;
     void                     *private_handler;
-    void (*free_private_handler)( void *private_handler );
+    void (*free_first_valid_frame)( void *first_valid_frame, void *private_handler );
+    void (*free_private_handler)  ( void *private_handler );
 } lw_video_output_handler_t;
 
 int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format );
@@ -69,4 +70,9 @@ struct SwsContext *update_scaler_configuration
     enum AVPixelFormat output_pixel_format,
     enum AVColorSpace  colorspace,
     int                yuv_range
+);
+
+void lw_cleanup_video_output_handler
+(
+    lw_video_output_handler_t *vohp
 );

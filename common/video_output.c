@@ -126,3 +126,21 @@ struct SwsContext *update_scaler_configuration
     }
     return sws_ctx;
 }
+
+void lw_cleanup_video_output_handler
+(
+    lw_video_output_handler_t *vohp
+)
+{
+    if( vohp->free_first_valid_frame )
+        vohp->free_first_valid_frame( vohp->first_valid_frame, vohp->private_handler );
+    vohp->first_valid_frame = NULL;
+    if( vohp->free_private_handler )
+        vohp->free_private_handler( vohp->private_handler );
+    vohp->private_handler = NULL;
+    if( vohp->scaler.sws_ctx )
+    {
+        sws_freeContext( vohp->scaler.sws_ctx );
+        vohp->scaler.sws_ctx = NULL;
+    }
+}

@@ -98,13 +98,8 @@ LWLibavVideoSource::LWLibavVideoSource
 
 LWLibavVideoSource::~LWLibavVideoSource()
 {
-    if( voh.first_valid_frame )
-        delete voh.first_valid_frame;
-    if( voh.scaler.sws_ctx )
-        sws_freeContext( voh.scaler.sws_ctx );
-    if( voh.free_private_handler && voh.private_handler )
-        voh.free_private_handler( &voh.private_handler );
     lwlibav_cleanup_video_decode_handler( &vdh );
+    lwlibav_cleanup_video_output_handler( &voh );
     if( lwh.file_path )
         free( lwh.file_path );
 }

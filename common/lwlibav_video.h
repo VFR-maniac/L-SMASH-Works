@@ -114,6 +114,14 @@ void lwlibav_cleanup_video_decode_handler
     lwlibav_video_decode_handler_t *vdhp
 );
 
+static inline void lwlibav_cleanup_video_output_handler
+(
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    lw_cleanup_video_output_handler( vohp );
+};
+
 int lwlibav_find_first_valid_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
