@@ -780,9 +780,9 @@ static int get_picture_type
         }
         if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
             pkt->flags &= ~AV_PKT_FLAG_KEY;
-        return helper->picture->pict_type;
+        return helper->picture->pict_type > 0 ? helper->picture->pict_type : 0;
     }
-    return helper->parser_ctx->pict_type;
+    return helper->parser_ctx->pict_type > 0 ? helper->parser_ctx->pict_type : 0;
 }
 
 static int get_audio_frame_length
