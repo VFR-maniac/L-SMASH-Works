@@ -537,7 +537,7 @@ VSFrameRef *make_frame
     {
         /* Render from the decoder directly. */
         vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)av_frame->opaque;
-        return vs_vbhp ? vs_vbhp->vs_frame_buffer : NULL;
+        return vs_vbhp ? (VSFrameRef *)vs_vbhp->vsapi->cloneFrameRef( vs_vbhp->vs_frame_buffer ) : NULL;
     }
     if( !vs_vohp->make_frame )
         return NULL;

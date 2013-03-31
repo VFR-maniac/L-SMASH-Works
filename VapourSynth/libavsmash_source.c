@@ -52,6 +52,98 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
     vsapi->setVideoInfo( &hp->vi, 1, node );
 }
 
+static int get_composition_duration
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           composition_sample_number,
+    uint32_t                           last_sample_number
+)
+{
+    uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number );
+    if( composition_sample_number == last_sample_number )
+        goto no_composition_duration;
+    uint32_t next_decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number + 1 );
+    uint64_t      cts;
+    uint64_t next_cts;
+    if( lsmash_get_cts_from_media_timeline( vdhp->root, vdhp->track_ID,      decoding_sample_number,      &cts )
+     || lsmash_get_cts_from_media_timeline( vdhp->root, vdhp->track_ID, next_decoding_sample_number, &next_cts ) )
+        goto no_composition_duration;
+    if( next_cts <= cts || (next_cts - cts) > INT_MAX )
+        return 0;
+    return (int)(next_cts - cts);
+no_composition_duration:;
+    uint32_t sample_delta;
+    if( lsmash_get_sample_delta_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample_delta ) )
+        return 0;
+    return sample_delta <= INT_MAX ? sample_delta : 0;
+}
+
+static void set_sample_duration
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    VSVideoInfo                       *vi,
+    VSMap                             *props,
+    uint32_t                           sample_number,
+    const VSAPI                       *vsapi
+)
+{
+    int sample_duration = get_composition_duration( vdhp, sample_number, vi->numFrames );
+    if( sample_duration == 0 )
+    {
+        vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,      paReplace );
+        vsapi->propSetInt( props, "_DurationDen", vi->fpsNum,      paReplace );
+    }
+    else
+    {
+        uint32_t media_timescale = lsmash_get_media_timescale( vdhp->root, vdhp->track_ID );
+        vsapi->propSetInt( props, "_DurationNum", sample_duration, paReplace );
+        vsapi->propSetInt( props, "_DurationDen", media_timescale, paReplace );
+    }
+}
+
+static void set_frame_properties
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    VSVideoInfo                       *vi,
+    AVFrame                           *av_frame,
+    VSFrameRef                        *vs_frame,
+    uint32_t                           sample_number,
+    const VSAPI                       *vsapi
+)
+{
+    AVCodecContext *ctx   = vdhp->config.ctx;
+    VSMap          *props = vsapi->getFramePropsRW( vs_frame );
+    /* Sample duration */
+    set_sample_duration( vdhp, vi, props, sample_number, vsapi );
+    /* Sample aspect ratio */
+    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
+    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
+    /* Color format */
+    if( ctx )
+    {
+        vsapi->propSetInt( props, "_ColorRange",  ctx->color_range != AVCOL_RANGE_JPEG, paReplace );
+        vsapi->propSetInt( props, "_ColorSpace",  ctx->colorspace,                      paReplace );
+        int chroma_loc;
+        switch( ctx->chroma_sample_location )
+        {
+            case AVCHROMA_LOC_LEFT       : chroma_loc = 0;  break;
+            case AVCHROMA_LOC_CENTER     : chroma_loc = 1;  break;
+            case AVCHROMA_LOC_TOPLEFT    : chroma_loc = 2;  break;
+            case AVCHROMA_LOC_TOP        : chroma_loc = 3;  break;
+            case AVCHROMA_LOC_BOTTOMLEFT : chroma_loc = 4;  break;
+            case AVCHROMA_LOC_BOTTOM     : chroma_loc = 5;  break;
+            default                      : chroma_loc = -1; break;
+        }
+        if( chroma_loc != -1 )
+            vsapi->propSetInt( props, "_ChromaLocation", chroma_loc, paReplace );
+    }
+    /* Picture type */
+    char pict_type = av_get_picture_type_char( av_frame->pict_type );
+    vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
+    /* Progressive or Interlaced */
+    vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
+}
+
 static int vs_make_first_valid_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
@@ -59,7 +151,11 @@ static int vs_make_first_valid_frame
 )
 {
     vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->config.ctx->colorspace );
-    return vohp->first_valid_frame ? 0 : -1;
+    if( !vohp->first_valid_frame )
+        return -1;
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    set_frame_properties( vdhp, vs_vohp->vi, vdhp->frame_buffer, vohp->first_valid_frame, vohp->first_valid_frame_number, vs_vohp->vsapi );
+    return 0;
 }
 
 static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAPI *vsapi )
@@ -96,6 +192,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
+    vs_vohp->vi        = vi;
     config->get_buffer = setup_video_rendering( vohp, config->ctx, vi, config->prefer.width, config->prefer.height );
     if( !config->get_buffer )
     {
@@ -111,79 +208,6 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
     /* Force seeking at the first reading. */
     vdhp->last_sample_number = vi->numFrames + 1;
     return 0;
-}
-
-static int get_composition_duration
-(
-    libavsmash_video_decode_handler_t *hp,
-    uint32_t                           composition_sample_number,
-    uint32_t                           last_sample_number
-)
-{
-    uint32_t decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number );
-    if( composition_sample_number == last_sample_number )
-        goto no_composition_duration;
-    uint32_t next_decoding_sample_number = get_decoding_sample_number( hp->order_converter, composition_sample_number + 1 );
-    uint64_t      cts;
-    uint64_t next_cts;
-    if( lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID,      decoding_sample_number,      &cts )
-     || lsmash_get_cts_from_media_timeline( hp->root, hp->track_ID, next_decoding_sample_number, &next_cts ) )
-        goto no_composition_duration;
-    if( next_cts <= cts || (next_cts - cts) > INT_MAX )
-        return 0;
-    return (int)(next_cts - cts);
-no_composition_duration:;
-    uint32_t sample_delta;
-    if( lsmash_get_sample_delta_from_media_timeline( hp->root, hp->track_ID, decoding_sample_number, &sample_delta ) )
-        return 0;
-    return sample_delta <= INT_MAX ? sample_delta : 0;
-}
-
-static void set_frame_properties( lsmas_handler_t *hp, AVFrame *av_frame, VSFrameRef *vs_frame, uint32_t sample_number, const VSAPI *vsapi )
-{
-    libavsmash_video_decode_handler_t *vdhp  = &hp->vdh;
-    VSVideoInfo                       *vi    = &hp->vi;
-    AVCodecContext                    *ctx   = vdhp->config.ctx;
-    VSMap                             *props = vsapi->getFramePropsRW( vs_frame );
-    /* Sample aspect ratio */
-    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
-    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
-    /* Sample duration */
-    int sample_duration = get_composition_duration( vdhp, sample_number, vi->numFrames );
-    if( sample_duration == 0 )
-    {
-        vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,          paReplace );
-        vsapi->propSetInt( props, "_DurationDen", vi->fpsNum,          paReplace );
-    }
-    else
-    {
-        vsapi->propSetInt( props, "_DurationNum", sample_duration,     paReplace );
-        vsapi->propSetInt( props, "_DurationDen", hp->media_timescale, paReplace );
-    }
-    /* Color format */
-    if( ctx )
-    {
-        vsapi->propSetInt( props, "_ColorRange",  ctx->color_range != AVCOL_RANGE_JPEG, paReplace );
-        vsapi->propSetInt( props, "_ColorSpace",  ctx->colorspace,                      paReplace );
-        int chroma_loc;
-        switch( ctx->chroma_sample_location )
-        {
-            case AVCHROMA_LOC_LEFT       : chroma_loc = 0;  break;
-            case AVCHROMA_LOC_CENTER     : chroma_loc = 1;  break;
-            case AVCHROMA_LOC_TOPLEFT    : chroma_loc = 2;  break;
-            case AVCHROMA_LOC_TOP        : chroma_loc = 3;  break;
-            case AVCHROMA_LOC_BOTTOMLEFT : chroma_loc = 4;  break;
-            case AVCHROMA_LOC_BOTTOM     : chroma_loc = 5;  break;
-            default                      : chroma_loc = -1; break;
-        }
-        if( chroma_loc != -1 )
-            vsapi->propSetInt( props, "_ChromaLocation", chroma_loc, paReplace );
-    }
-    /* Picture type */
-    char pict_type = av_get_picture_type_char( av_frame->pict_type );
-    vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
-    /* Progressive or Interlaced */
-    vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
 }
 
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
@@ -202,9 +226,13 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     if( sample_number < vohp->first_valid_frame_number || vi->numFrames == 1 )
     {
+        /* Force seeking at the next access for valid video sample. */
+        vdhp->last_sample_number = vi->numFrames + 1;
         /* Copy the first valid video frame. */
-        vdhp->last_sample_number = vi->numFrames + 1;   /* Force seeking at the next access for valid video sample. */
-        return vsapi->cloneFrameRef( vohp->first_valid_frame );
+        VSFrameRef *vs_frame = (VSFrameRef *)vsapi->cloneFrameRef( vohp->first_valid_frame );
+        VSMap      *props    = vsapi->getFramePropsRW( vs_frame );
+        set_sample_duration( vdhp, vi, props, sample_number, vsapi );
+        return vs_frame;
     }
     codec_configuration_t *config = &vdhp->config;
     if( config->error )
@@ -231,10 +259,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     }
-    set_frame_properties( hp, av_frame, vs_frame, sample_number, vsapi );
-    return vs_frame != av_frame->opaque
-         ? vs_frame
-         : vsapi->cloneFrameRef( vs_frame );
+    set_frame_properties( vdhp, vi, av_frame, vs_frame, sample_number, vsapi );
+    return vs_frame;
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )

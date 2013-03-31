@@ -88,67 +88,17 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
     vsapi->setVideoInfo( &hp->vi, 1, node );
 }
 
-static int vs_make_first_valid_frame
+static void set_frame_properties
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp
+    VSVideoInfo                    *vi,
+    AVFrame                        *av_frame,
+    VSFrameRef                     *vs_frame,
+    const VSAPI                    *vsapi
 )
 {
-    vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
-    return vohp->first_valid_frame ? 0 : -1;
-}
-
-static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
-{
-    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
-    lwlibav_video_output_handler_t *vohp = &hp->voh;
-    VSVideoInfo                    *vi   = &hp->vi;
-    lw_log_handler_t               *lhp  = &vdhp->lh;
-    /* Import AVIndexEntrys. */
-    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
-        return -1;
-    /* Set up output format. */
-    vdhp->ctx->width      = vdhp->initial_width;
-    vdhp->ctx->height     = vdhp->initial_height;
-    vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
-    vdhp->ctx->colorspace = vdhp->initial_colorspace;
-    if( determine_colorspace_conversion( vohp, vdhp->ctx->pix_fmt ) )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( vdhp->ctx->pix_fmt ) );
-        return -1;
-    }
-    if( initialize_scaler_handler( &vohp->scaler, vdhp->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
-        return -1;
-    }
-    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
-    vs_vohp->frame_ctx = NULL;
-    vs_vohp->core      = core;
-    vs_vohp->vsapi     = vsapi;
-    vdhp->exh.get_buffer = setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height );
-    if( !vdhp->exh.get_buffer )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
-        return -1;
-    }
-    /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, vi->numFrames, vs_make_first_valid_frame ) < 0 )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
-        return -1;
-    }
-    /* Force seeking at the first reading. */
-    vdhp->last_frame_number = vi->numFrames + 1;
-    return 0;
-}
-
-static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *av_frame, VSFrameRef *vs_frame, const VSAPI *vsapi )
-{
-    lwlibav_video_decode_handler_t *vdhp  = &hp->vdh;
-    VSVideoInfo                    *vi    = &hp->vi;
-    AVCodecContext                 *ctx   = vdhp->ctx;
-    VSMap                          *props = vsapi->getFramePropsRW( vs_frame );
+    AVCodecContext *ctx   = vdhp->ctx;
+    VSMap          *props = vsapi->getFramePropsRW( vs_frame );
     /* Sample aspect ratio */
     vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
     vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
@@ -180,6 +130,66 @@ static void set_frame_properties( lwlibav_handler_t *hp, AVFrame *av_frame, VSFr
     vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
     /* Progressive or Interlaced */
     vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
+}
+
+static int vs_make_first_valid_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
+    if( !vohp->first_valid_frame )
+        return -1;
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    set_frame_properties( vdhp, vs_vohp->vi, vdhp->frame_buffer, vohp->first_valid_frame, vs_vohp->vsapi );
+    return 0;
+}
+
+static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
+{
+    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
+    VSVideoInfo                    *vi   = &hp->vi;
+    lw_log_handler_t               *lhp  = &vdhp->lh;
+    /* Import AVIndexEntrys. */
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
+        return -1;
+    /* Set up output format. */
+    vdhp->ctx->width      = vdhp->initial_width;
+    vdhp->ctx->height     = vdhp->initial_height;
+    vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
+    vdhp->ctx->colorspace = vdhp->initial_colorspace;
+    if( determine_colorspace_conversion( vohp, vdhp->ctx->pix_fmt ) )
+    {
+        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( vdhp->ctx->pix_fmt ) );
+        return -1;
+    }
+    if( initialize_scaler_handler( &vohp->scaler, vdhp->ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
+    {
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
+        return -1;
+    }
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    vs_vohp->frame_ctx = NULL;
+    vs_vohp->core      = core;
+    vs_vohp->vsapi     = vsapi;
+    vs_vohp->vi        = vi;
+    vdhp->exh.get_buffer = setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height );
+    if( !vdhp->exh.get_buffer )
+    {
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
+        return -1;
+    }
+    /* Find the first valid video frame. */
+    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, vi->numFrames, vs_make_first_valid_frame ) < 0 )
+    {
+        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
+        return -1;
+    }
+    /* Force seeking at the first reading. */
+    vdhp->last_frame_number = vi->numFrames + 1;
+    return 0;
 }
 
 static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason, void **instance_data, void **frame_data, VSFrameContext *frame_ctx, VSCore *core, const VSAPI *vsapi )
@@ -227,8 +237,8 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     }
-    set_frame_properties( hp, av_frame, vs_frame, vsapi );
-    return av_frame->opaque ? vsapi->cloneFrameRef( vs_frame ) : vs_frame;
+    set_frame_properties( vdhp, vi, av_frame, vs_frame, vsapi );
+    return vs_frame;
 }
 
 static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI *vsapi )
