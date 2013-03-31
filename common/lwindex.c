@@ -1328,13 +1328,12 @@ static void create_index
                      && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                         constant_frame_length = 0;
                 }
-                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                             "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
+                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=-1,PTS=%"PRId64",DTS=%"PRId64",EDI=-1\n"
+                             "Channels=0:0x0,Rate=0,Format=none,BPS=0,Length=%d\n",
                              stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                              format_ctx->streams[stream_index]->time_base.num,
                              format_ctx->streams[stream_index]->time_base.den,
-                             -1LL, AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1,
-                             0, 0, 0, "none", 0, frame_length );
+                             AV_NOPTS_VALUE, AV_NOPTS_VALUE, frame_length );
             }
         }
     }
