@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+#include "cpp_compat.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
