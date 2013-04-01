@@ -578,11 +578,7 @@ static void video_cleanup( lsmash_handler_t *h )
         return;
     if( hp->vih.keyframe_list )
         free( hp->vih.keyframe_list );
-    if( hp->vdh.order_converter )
-        free( hp->vdh.order_converter );
-    if( hp->vdh.frame_buffer )
-        avcodec_free_frame( &hp->vdh.frame_buffer );
-    cleanup_configuration( &hp->vdh.config );
+    libavsmash_cleanup_video_decode_handler( &hp->vdh );
     libavsmash_cleanup_video_output_handler( &hp->voh );
 }
 

@@ -344,3 +344,15 @@ int libavsmash_find_first_valid_video_frame
     }
     return 0;
 }
+
+void libavsmash_cleanup_video_decode_handler
+(
+    libavsmash_video_decode_handler_t *vdhp
+)
+{
+    if( vdhp->order_converter )
+        lw_freep( &vdhp->order_converter );
+    if( vdhp->frame_buffer )
+        avcodec_free_frame( &vdhp->frame_buffer );
+    cleanup_configuration( &vdhp->config );
+}

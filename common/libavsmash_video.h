@@ -71,6 +71,11 @@ int libavsmash_find_first_valid_video_frame
     int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
 );
 
+void libavsmash_cleanup_video_decode_handler
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
 static inline void libavsmash_cleanup_video_output_handler
 (
     libavsmash_video_output_handler_t *vohp

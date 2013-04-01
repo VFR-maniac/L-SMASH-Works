@@ -76,11 +76,7 @@ LSMASHVideoSource::LSMASHVideoSource
 
 LSMASHVideoSource::~LSMASHVideoSource()
 {
-    if( vdh.order_converter )
-        delete [] vdh.order_converter;
-    if( vdh.frame_buffer )
-        avcodec_free_frame( &vdh.frame_buffer );
-    cleanup_configuration( &vdh.config );
+    libavsmash_cleanup_video_decode_handler( &vdh );
     libavsmash_cleanup_video_output_handler( &voh );
     if( format_ctx )
         avformat_close_input( &format_ctx );
@@ -140,7 +136,7 @@ static void setup_timestamp_info( libavsmash_video_decode_handler_t *hp, VideoIn
     {
         /* Consider composition order for keyframe detection.
          * Note: sample number for L-SMASH is 1-origin. */
-        hp->order_converter = new order_converter_t[ts_list.sample_count + 1];
+        hp->order_converter = (order_converter_t *)malloc( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
         if( !hp->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
