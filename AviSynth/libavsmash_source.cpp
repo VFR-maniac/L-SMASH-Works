@@ -318,9 +318,7 @@ LSMASHAudioSource::~LSMASHAudioSource()
         av_free( aoh.resampled_buffer );
     if( aoh.avr_ctx )
         avresample_free( &aoh.avr_ctx );
-    if( adh.frame_buffer )
-        avcodec_free_frame( &adh.frame_buffer );
-    cleanup_configuration( &adh.config );
+    libavsmash_cleanup_audio_decode_handler( &adh );
     if( format_ctx )
         avformat_close_input( &format_ctx );
     lsmash_destroy_root( adh.root );

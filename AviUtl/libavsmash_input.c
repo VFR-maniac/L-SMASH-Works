@@ -591,9 +591,7 @@ static void audio_cleanup( lsmash_handler_t *h )
         av_free( hp->aoh.resampled_buffer );
     if( hp->aoh.avr_ctx )
         avresample_free( &hp->aoh.avr_ctx );
-    if( hp->adh.frame_buffer )
-        avcodec_free_frame( &hp->adh.frame_buffer );
-    cleanup_configuration( &hp->adh.config );
+    libavsmash_cleanup_audio_decode_handler( &hp->adh );
 }
 
 static void close_file( void *private_stuff )

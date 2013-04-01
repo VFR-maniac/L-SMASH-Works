@@ -381,3 +381,13 @@ audio_out:
     adhp->last_frame_number      = frame_number;
     return output_length;
 }
+
+void libavsmash_cleanup_audio_decode_handler
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( adhp->frame_buffer )
+        avcodec_free_frame( &adhp->frame_buffer );
+    cleanup_configuration( &adhp->config );
+}

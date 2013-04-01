@@ -50,3 +50,8 @@ uint64_t libavsmash_get_pcm_audio_samples
     int64_t                            start,
     int64_t                            wanted_length
 );
+
+void libavsmash_cleanup_audio_decode_handler
+(
+    libavsmash_audio_decode_handler_t *adhp
+);
