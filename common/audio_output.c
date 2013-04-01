@@ -202,3 +202,14 @@ uint64_t output_pcm_samples_from_packet
         *output_flags |= AUDIO_DECODER_DELAY;
     return output_length;
 }
+
+void lw_cleanup_audio_output_handler
+(
+    lw_audio_output_handler_t *aohp
+)
+{
+    if( aohp->resampled_buffer )
+        av_freep( &aohp->resampled_buffer );
+    if( aohp->avr_ctx )
+        avresample_free( &aohp->avr_ctx );
+}

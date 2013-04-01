@@ -587,11 +587,8 @@ static void audio_cleanup( lsmash_handler_t *h )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     if( !hp )
         return;
-    if( hp->aoh.resampled_buffer )
-        av_free( hp->aoh.resampled_buffer );
-    if( hp->aoh.avr_ctx )
-        avresample_free( &hp->aoh.avr_ctx );
     libavsmash_cleanup_audio_decode_handler( &hp->adh );
+    libavsmash_cleanup_audio_output_handler( &hp->aoh );
 }
 
 static void close_file( void *private_stuff )

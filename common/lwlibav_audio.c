@@ -472,14 +472,6 @@ void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp 
         lavf_close_file( &adhp->format );
 }
 
-void lwlibav_cleanup_audio_output_handler( lwlibav_audio_output_handler_t *aohp )
-{
-    if( aohp->resampled_buffer )
-        av_freep( &aohp->resampled_buffer );
-    if( aohp->avr_ctx )
-        avresample_free( &aohp->avr_ctx );
-}
-
 void set_audio_basic_settings
 (
     lwlibav_decode_handler_t *dhp,

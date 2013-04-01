@@ -55,3 +55,11 @@ void libavsmash_cleanup_audio_decode_handler
 (
     libavsmash_audio_decode_handler_t *adhp
 );
+
+static inline void libavsmash_cleanup_audio_output_handler
+(
+    libavsmash_audio_output_handler_t *aohp
+)
+{
+    lw_cleanup_audio_output_handler( aohp );
+};

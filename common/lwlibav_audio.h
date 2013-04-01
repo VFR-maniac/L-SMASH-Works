@@ -82,5 +82,15 @@ uint64_t lwlibav_get_pcm_audio_samples
     int64_t                         wanted_length
 );
 
-void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp );
-void lwlibav_cleanup_audio_output_handler( lwlibav_audio_output_handler_t *aohp );
+void lwlibav_cleanup_audio_decode_handler
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+static inline void lwlibav_cleanup_audio_output_handler
+(
+    lwlibav_audio_output_handler_t *aohp
+)
+{
+    lw_cleanup_audio_output_handler( aohp );
+};

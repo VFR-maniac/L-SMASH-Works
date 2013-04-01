@@ -70,3 +70,8 @@ uint64_t output_pcm_samples_from_packet
     uint8_t                  **output_buffer,
     enum audio_output_flag    *output_flags
 );
+
+void lw_cleanup_audio_output_handler
+(
+    lw_audio_output_handler_t *aohp
+);
