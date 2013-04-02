@@ -203,7 +203,7 @@ fail:
     return;
 }
 
-static uint32_t shift_current_frame_number
+static uint32_t correct_current_frame_number
 (
     lwlibav_video_decode_handler_t *vdhp,
     AVPacket                       *pkt,
@@ -220,15 +220,16 @@ static uint32_t shift_current_frame_number
         return i;
     if( pkt->dts > info[p].dts )
     {
+        uint32_t limit = MIN( goal, vdhp->frame_count );
         if( oc )
             while( !MATCH_DTS( oc[++i].decoding_to_presentation )
                 && !MATCH_POS( oc[  i].decoding_to_presentation )
-                && i < goal );
+                && i <= limit );
         else
             while( !MATCH_DTS( ++i )
                 && !MATCH_POS(   i )
-                && i < goal );
-        if( i == goal )
+                && i <= limit );
+        if( i > limit )
             return 0;
     }
     else
@@ -267,7 +268,7 @@ static int decode_video_sample
     /* Shift the current frame number in order to match DTS since libavformat might have sought wrong position. */
     if( frame_number == rap_number && (vdhp->lw_seek_flags & SEEK_DTS_BASED) )
     {
-        frame_number = shift_current_frame_number( vdhp, pkt, frame_number, goal );
+        frame_number = correct_current_frame_number( vdhp, pkt, frame_number, goal );
         if( frame_number == 0 )
             return -2;
         *current = frame_number;
