@@ -169,7 +169,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         return -1;
     }
     /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp, vohp ) < 0 )
+    if( lwlibav_find_first_valid_video_frame( vdhp ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
         return -1;
@@ -208,7 +208,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     vdhp->ctx->opaque = vohp;
-    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( vdhp, frame_number ) < 0 )
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;

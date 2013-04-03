@@ -168,7 +168,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp, vohp ) < 0 )
+    if( lwlibav_find_first_valid_video_frame( vdhp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
     vdhp->last_frame_number = h->video_sample_count + 1;
@@ -219,7 +219,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( vdhp, frame_number ) < 0 )
         return 0;
     return convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, buf );
 }

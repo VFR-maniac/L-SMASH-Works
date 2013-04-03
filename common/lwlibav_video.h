@@ -72,6 +72,8 @@ typedef struct
     uint8_t            *keyframe_list;      /* stored in decoding order */
     uint32_t            last_frame_number;
     uint32_t            last_rap_number;
+    uint32_t            first_valid_frame_number;
+    AVFrame            *first_valid_frame;
 } lwlibav_video_decode_handler_t;
 
 int lwlibav_get_desired_video_track
@@ -105,7 +107,6 @@ int64_t lwlibav_get_random_accessible_point_position
 int lwlibav_get_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_number
 );
 
@@ -124,6 +125,5 @@ static inline void lwlibav_cleanup_video_output_handler
 
 int lwlibav_find_first_valid_video_frame
 (
-    lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp
+    lwlibav_video_decode_handler_t *vdhp
 );

@@ -57,7 +57,6 @@ LWLibavVideoSource::LWLibavVideoSource
     memset( &voh, 0, sizeof(lwlibav_video_output_handler_t) );
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
-    voh.first_valid_frame      = NULL;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
@@ -122,7 +121,7 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
                                                    direct_rendering, vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
-    if( lwlibav_find_first_valid_video_frame( &vdh, &voh ) < 0 )
+    if( lwlibav_find_first_valid_video_frame( &vdh ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
     /* Force seeking at the first reading. */
     vdh.last_frame_number = vi.num_frames + 1;
@@ -134,7 +133,7 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
     vdh.lh.priv = env;
     if( vdh.error )
         return env->NewVideoFrame( vi );
-    if( lwlibav_get_video_frame( &vdh, &voh, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( &vdh, frame_number ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
     if( make_frame( &voh, vdh.frame_buffer, as_frame, vdh.ctx->colorspace, env ) < 0 )

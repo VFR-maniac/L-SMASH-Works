@@ -425,17 +425,16 @@ static int get_picture
 int lwlibav_get_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_number
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
     AVFrame *picture = vdhp->frame_buffer;
-    if( frame_number < vohp->first_valid_frame_number || vdhp->frame_count == 1 )
+    if( frame_number < vdhp->first_valid_frame_number || vdhp->frame_count == 1 )
     {
         /* Copy the first valid video frame data. */
         av_frame_unref( picture );
-        if( av_frame_ref( picture, vohp->first_valid_frame ) < 0 )
+        if( av_frame_ref( picture, vdhp->first_valid_frame ) < 0 )
             goto video_fail;
         /* Force seeking at the next access for valid video frame. */
         vdhp->last_frame_number = vdhp->frame_count + 1;
@@ -526,6 +525,8 @@ void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp 
         else
             avcodec_free_frame( &vdhp->frame_buffer );
     }
+    if( vdhp->first_valid_frame )
+        av_frame_free( &vdhp->first_valid_frame );
     if( vdhp->ctx )
     {
         avcodec_close( vdhp->ctx );
@@ -537,8 +538,7 @@ void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp 
 
 int lwlibav_find_first_valid_video_frame
 (
-    lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp
+    lwlibav_video_decode_handler_t *vdhp
 )
 {
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
@@ -561,14 +561,13 @@ int lwlibav_find_first_valid_video_frame
         int got_picture;
         if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 && got_picture )
         {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
-            if( vohp->first_valid_frame_number > 1 || vdhp->frame_count == 1 )
+            vdhp->first_valid_frame_number = i - MIN( get_decoder_delay( vdhp->ctx ), vdhp->exh.delay_count );
+            if( vdhp->first_valid_frame_number > 1 || vdhp->frame_count == 1 )
             {
-                AVFrame *frame_buffer = av_frame_clone( vdhp->frame_buffer );
-                if( !frame_buffer )
+                vdhp->first_valid_frame = av_frame_clone( vdhp->frame_buffer );
+                if( !vdhp->first_valid_frame )
                     return -1;
                 av_frame_unref( vdhp->frame_buffer );
-                vohp->first_valid_frame = frame_buffer;
             }
             break;
         }

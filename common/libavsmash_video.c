@@ -233,7 +233,6 @@ static int get_picture
 int libavsmash_get_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
-    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_number,
     uint32_t                           sample_count
 )
@@ -241,11 +240,11 @@ int libavsmash_get_video_frame
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     codec_configuration_t *config  = &vdhp->config;
     AVFrame               *picture = vdhp->frame_buffer;
-    if( sample_number < vohp->first_valid_frame_number || sample_count == 1 )
+    if( sample_number < vdhp->first_valid_frame_number || sample_count == 1 )
     {
         /* Copy the first valid video frame data. */
         av_frame_unref( picture );
-        if( av_frame_ref( picture, vohp->first_valid_frame ) < 0 )
+        if( av_frame_ref( picture, vdhp->first_valid_frame ) < 0 )
             goto video_fail;
         /* Force seeking at the next access for valid video frame. */
         vdhp->last_sample_number = sample_count + 1;
@@ -325,7 +324,6 @@ video_fail:
 int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
-    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_count
 )
 {
@@ -339,14 +337,13 @@ int libavsmash_find_first_valid_video_frame
         int got_picture;
         if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
-            vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( vohp->first_valid_frame_number > 1 || sample_count == 1 )
+            vdhp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
+            if( vdhp->first_valid_frame_number > 1 || sample_count == 1 )
             {
-                AVFrame *frame_buffer = av_frame_clone( vdhp->frame_buffer );
-                if( !frame_buffer )
+                vdhp->first_valid_frame = av_frame_clone( vdhp->frame_buffer );
+                if( !vdhp->first_valid_frame )
                     return -1;
                 av_frame_unref( vdhp->frame_buffer );
-                vohp->first_valid_frame = frame_buffer;
             }
             break;
         }
@@ -365,5 +362,7 @@ void libavsmash_cleanup_video_decode_handler
         lw_freep( &vdhp->order_converter );
     if( vdhp->frame_buffer )
         av_frame_free( &vdhp->frame_buffer );
+    if( vdhp->first_valid_frame )
+        av_frame_free( &vdhp->first_valid_frame );
     cleanup_configuration( &vdhp->config );
 }

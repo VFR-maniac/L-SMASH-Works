@@ -61,7 +61,6 @@ LSMASHVideoSource::LSMASHVideoSource
     format_ctx                 = NULL;
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
-    voh.first_valid_frame      = NULL;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
@@ -247,7 +246,7 @@ void LSMASHVideoSource::prepare_video_decoding
     config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
                                                    direct_rendering, config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( &vdh, &voh, vi.num_frames ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( &vdh, vi.num_frames ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
     /* Force seeking at the first reading. */
     vdh.last_sample_number = vi.num_frames + 1;
@@ -260,7 +259,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     config->lh.priv = env;
     if( config->error )
         return env->NewVideoFrame( vi );
-    if( libavsmash_get_video_frame( &vdh, &voh, sample_number, vi.num_frames ) < 0 )
+    if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
     if( make_frame( &voh, vdh.frame_buffer, as_frame, config->ctx->colorspace, env ) < 0 )

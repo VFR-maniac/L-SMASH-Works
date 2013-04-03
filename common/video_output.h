@@ -42,8 +42,6 @@ typedef struct
     int                       output_height;
     int                       output_linesize;
     uint32_t                  output_frame_size;
-    uint32_t                  first_valid_frame_number;
-    AVFrame                  *first_valid_frame;
     void                     *private_handler;
     void (*free_private_handler)( void *private_handler );
 } lw_video_output_handler_t;

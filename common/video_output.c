@@ -132,8 +132,6 @@ void lw_cleanup_video_output_handler
     lw_video_output_handler_t *vohp
 )
 {
-    if( vohp->first_valid_frame )
-        av_frame_free( &vohp->first_valid_frame );
     if( vohp->free_private_handler )
         vohp->free_private_handler( vohp->private_handler );
     vohp->private_handler = NULL;

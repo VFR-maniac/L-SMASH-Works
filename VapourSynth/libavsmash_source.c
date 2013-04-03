@@ -185,7 +185,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
         return -1;
     }
     /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( vdhp, vohp, vi->numFrames ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( vdhp, vi->numFrames ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
         return -1;
@@ -224,7 +224,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->frame_ctx = frame_ctx;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    if( libavsmash_get_video_frame( vdhp, vohp, sample_number, vi->numFrames ) < 0 )
+    if( libavsmash_get_video_frame( vdhp, sample_number, vi->numFrames ) < 0 )
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
