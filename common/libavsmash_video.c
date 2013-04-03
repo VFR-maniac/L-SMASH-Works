@@ -57,7 +57,7 @@ static int decode_video_sample
     }
     else
         pkt.flags = 0;
-    avcodec_get_frame_defaults( picture );
+    av_frame_unref( picture );
     uint64_t cts = pkt.pts;
     ret = avcodec_decode_video2( vdhp->config.ctx, picture, got_picture, &pkt );
     picture->pts = cts;
@@ -216,7 +216,7 @@ static int get_picture
             av_init_packet( &pkt );
             pkt.data = NULL;
             pkt.size = 0;
-            avcodec_get_frame_defaults( picture );
+            av_frame_unref( picture );
             if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
             {
 #ifdef DEBUG_VIDEO
@@ -233,6 +233,7 @@ static int get_picture
 int libavsmash_get_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_number,
     uint32_t                           sample_count
 )
@@ -240,6 +241,16 @@ int libavsmash_get_video_frame
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     codec_configuration_t *config  = &vdhp->config;
     AVFrame               *picture = vdhp->frame_buffer;
+    if( sample_number < vohp->first_valid_frame_number || sample_count == 1 )
+    {
+        /* Copy the first valid video frame data. */
+        av_frame_unref( picture );
+        if( av_frame_ref( picture, vohp->first_valid_frame ) < 0 )
+            goto video_fail;
+        /* Force seeking at the next access for valid video frame. */
+        vdhp->last_sample_number = sample_count + 1;
+        return 0;
+    }
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
     int seek_mode = vdhp->seek_mode;
@@ -315,27 +326,27 @@ int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
-    uint32_t                           sample_count,
-    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
+    uint32_t                           sample_count
 )
 {
-    codec_configuration_t *config  = &vdhp->config;
+    codec_configuration_t *config = &vdhp->config;
+    config->ctx->refcounted_frames = 1;
     for( uint32_t i = 1; i <= sample_count + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
         get_sample( vdhp->root, vdhp->track_ID, i, config, &pkt );
-        avcodec_get_frame_defaults( vdhp->frame_buffer );
+        av_frame_unref( vdhp->frame_buffer );
         int got_picture;
         if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
             vohp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vohp->first_valid_frame_number > 1 || sample_count == 1 )
             {
-                int ret = make_first_valid_frame( vdhp, vohp );
-                if( ret == -1 )
+                AVFrame *frame_buffer = av_frame_clone( vdhp->frame_buffer );
+                if( !frame_buffer )
                     return -1;
-                else if( ret == -2 )
-                    continue;
+                av_frame_unref( vdhp->frame_buffer );
+                vohp->first_valid_frame = frame_buffer;
             }
             break;
         }
@@ -353,6 +364,6 @@ void libavsmash_cleanup_video_decode_handler
     if( vdhp->order_converter )
         lw_freep( &vdhp->order_converter );
     if( vdhp->frame_buffer )
-        avcodec_free_frame( &vdhp->frame_buffer );
+        av_frame_free( &vdhp->frame_buffer );
     cleanup_configuration( &vdhp->config );
 }

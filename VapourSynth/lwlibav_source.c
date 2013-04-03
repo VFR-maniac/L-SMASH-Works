@@ -134,20 +134,6 @@ static void set_frame_properties
     vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
 }
 
-static int vs_make_first_valid_frame
-(
-    lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp
-)
-{
-    vohp->first_valid_frame = make_frame( vohp, vdhp->frame_buffer, vdhp->ctx->colorspace );
-    if( !vohp->first_valid_frame )
-        return -1;
-    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
-    set_frame_properties( vdhp, vs_vohp->vi, vdhp->frame_buffer, vohp->first_valid_frame, vs_vohp->vsapi );
-    return 0;
-}
-
 static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
 {
     lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
@@ -176,7 +162,6 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    vs_vohp->vi        = vi;
     vdhp->exh.get_buffer = setup_video_rendering( vohp, vdhp->ctx, vi, vdhp->max_width, vdhp->max_height );
     if( !vdhp->exh.get_buffer )
     {
@@ -184,7 +169,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         return -1;
     }
     /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, vi->numFrames, vs_make_first_valid_frame ) < 0 )
+    if( lwlibav_find_first_valid_video_frame( vdhp, vohp ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
         return -1;
@@ -208,12 +193,6 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     }
     lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
     lwlibav_video_output_handler_t *vohp = &hp->voh;
-    if( frame_number < vohp->first_valid_frame_number || vi->numFrames == 1 )
-    {
-        /* Copy the first valid video frame. */
-        vdhp->last_frame_number = vi->numFrames + 1;    /* Force seeking at the next access for valid video sample. */
-        return vsapi->cloneFrameRef( vohp->first_valid_frame );
-    }
     if( vdhp->error )
         return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
     /* Set up VapourSynth error handler. */
@@ -229,7 +208,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     vdhp->ctx->opaque = vohp;
-    if( lwlibav_get_video_frame( vdhp, frame_number, vi->numFrames ) )
+    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;

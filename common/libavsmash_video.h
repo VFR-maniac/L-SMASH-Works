@@ -59,6 +59,7 @@ static inline uint32_t get_decoding_sample_number
 int libavsmash_get_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_number,
     uint32_t                           sample_count
 );
@@ -67,8 +68,7 @@ int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
-    uint32_t                           sample_count,
-    int (*make_first_valid_frame)( libavsmash_video_decode_handler_t *, libavsmash_video_output_handler_t * )
+    uint32_t                           sample_count
 );
 
 void libavsmash_cleanup_video_decode_handler

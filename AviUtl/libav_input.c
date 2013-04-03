@@ -138,24 +138,6 @@ static int get_audio_track( lsmash_handler_t *h )
     return 0;
 }
 
-static int au_make_first_valid_frame
-(
-    lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp
-)
-{
-    if( !vohp->first_valid_frame )
-    {
-        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
-        if( !vohp->first_valid_frame )
-            return -1;
-    }
-    if( vohp->output_frame_size != convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
-        return -2;
-    return 0;
-}
-
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
@@ -186,7 +168,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp, vohp, h->video_sample_count, au_make_first_valid_frame ) < 0 )
+    if( lwlibav_find_first_valid_video_frame( vdhp, vohp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
     vdhp->last_frame_number = h->video_sample_count + 1;
@@ -237,14 +219,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( frame_number < vohp->first_valid_frame_number || h->video_sample_count == 1 )
-    {
-        /* Copy the first valid video frame data. */
-        memcpy( buf, vohp->first_valid_frame, vohp->output_frame_size );
-        vdhp->last_frame_number = h->video_sample_count + 1;    /* Force seeking at the next access for valid video frame. */
-        return vohp->output_frame_size;
-    }
-    if( lwlibav_get_video_frame( vdhp, frame_number, h->video_sample_count ) )
+    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
         return 0;
     return convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, buf );
 }

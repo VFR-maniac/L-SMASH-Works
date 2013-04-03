@@ -229,25 +229,6 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
-static int as_make_first_valid_frame
-(
-    libavsmash_video_decode_handler_t *vdhp,
-    libavsmash_video_output_handler_t *vohp
-)
-{
-    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
-    IScriptEnvironment *env = as_vohp->env;
-    PVideoFrame temp = env->NewVideoFrame( *as_vohp->vi );
-    if( !temp )
-        env->ThrowError( "LSMASHVideoSource: failed to allocate memory for the first valid video frame data." );
-    if( make_frame( vohp, vdhp->frame_buffer, temp, vdhp->config.ctx->colorspace, env ) < 0 )
-        return -2;
-    vohp->first_valid_frame = new PVideoFrame( temp );
-    if( !vohp->first_valid_frame )
-        env->ThrowError( "LSMASHVideoSource: failed to allocate the first valid frame." );
-    return 0;
-}
-
 void LSMASHVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
@@ -266,7 +247,7 @@ void LSMASHVideoSource::prepare_video_decoding
     config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
                                                    direct_rendering, config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( &vdh, &voh, vi.num_frames, as_make_first_valid_frame ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( &vdh, &voh, vi.num_frames ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
     /* Force seeking at the first reading. */
     vdh.last_sample_number = vi.num_frames + 1;
@@ -275,17 +256,11 @@ void LSMASHVideoSource::prepare_video_decoding
 PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *env )
 {
     uint32_t sample_number = n + 1;     /* For L-SMASH, sample_number is 1-origin. */
-    if( sample_number < voh.first_valid_frame_number || vi.num_frames == 1 )
-    {
-        /* Copy the first valid video frame. */
-        vdh.last_sample_number = vi.num_frames + 1;     /* Force seeking at the next access for valid video sample. */
-        return *(PVideoFrame *)voh.first_valid_frame;
-    }
     codec_configuration_t *config = &vdh.config;
     config->lh.priv = env;
     if( config->error )
         return env->NewVideoFrame( vi );
-    if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) )
+    if( libavsmash_get_video_frame( &vdh, &voh, sample_number, vi.num_frames ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
     if( make_frame( &voh, vdh.frame_buffer, as_frame, config->ctx->colorspace, env ) < 0 )

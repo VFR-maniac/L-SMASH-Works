@@ -353,16 +353,6 @@ fail:
     return AVERROR( ENOMEM );
 }
 
-static void as_free_first_valid_frame
-(
-    void *first_valid_frame,
-    void *private_handler
-)
-{
-    if( first_valid_frame )
-        delete first_valid_frame;
-}
-
 func_get_buffer_t *as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
@@ -400,6 +390,5 @@ func_get_buffer_t *as_setup_video_rendering
     }
     vohp->output_width  = vi->width;
     vohp->output_height = vi->height;
-    vohp->free_first_valid_frame = as_free_first_valid_frame;
     return ctx->get_buffer2;
 }

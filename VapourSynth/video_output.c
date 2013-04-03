@@ -745,20 +745,6 @@ fail:
     return AVERROR( ENOMEM );
 }
 
-static void vs_free_first_valid_frame
-(
-    void *first_valid_frame,
-    void *private_handler
-)
-{
-    if( first_valid_frame )
-    {
-        vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)private_handler;
-        if( vs_vohp && vs_vohp->vsapi && vs_vohp->vsapi->freeFrame )
-            vs_vohp->vsapi->freeFrame( first_valid_frame );
-    }
-}
-
 func_get_buffer_t *setup_video_rendering
 (
     lw_video_output_handler_t *lw_vohp,
@@ -798,7 +784,6 @@ func_get_buffer_t *setup_video_rendering
     }
     lw_vohp->output_width  = vi->width;
     lw_vohp->output_height = vi->height;
-    lw_vohp->free_first_valid_frame = vs_free_first_valid_frame;
     /* Set up custom get_buffer() for direct rendering if available. */
     if( vs_vohp->direct_rendering )
     {

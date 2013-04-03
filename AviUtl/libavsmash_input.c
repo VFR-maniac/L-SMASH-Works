@@ -407,24 +407,6 @@ static int create_keyframe_list( libavsmash_handler_t *hp, uint32_t video_sample
     return 0;
 }
 
-static int au_make_first_valid_frame
-(
-    libavsmash_video_decode_handler_t *vdhp,
-    libavsmash_video_output_handler_t *vohp
-)
-{
-    if( !vohp->first_valid_frame )
-    {
-        au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        vohp->first_valid_frame = lw_memdup( au_vohp->back_ground, vohp->output_frame_size );
-        if( !vohp->first_valid_frame )
-            return -1;
-    }
-    if( vohp->output_frame_size != convert_colorspace( vohp, vdhp->config.ctx, vdhp->frame_buffer, vohp->first_valid_frame ) )
-        return -2;
-    return 0;
-}
-
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
@@ -460,7 +442,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     config->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( libavsmash_find_first_valid_video_frame( vdhp, vohp, h->video_sample_count, au_make_first_valid_frame ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( vdhp, vohp, h->video_sample_count ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
     vdhp->last_sample_number = h->video_sample_count + 1;
@@ -532,14 +514,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( sample_number < vohp->first_valid_frame_number || h->video_sample_count == 1 )
-    {
-        /* Copy the first valid video sample data. */
-        memcpy( buf, vohp->first_valid_frame, vohp->output_frame_size );
-        vdhp->last_sample_number = h->video_sample_count + 1;   /* Force seeking at the next access for valid video sample. */
-        return vohp->output_frame_size;
-    }
-    if( libavsmash_get_video_frame( vdhp, sample_number, h->video_sample_count ) )
+    if( libavsmash_get_video_frame( vdhp, vohp, sample_number, h->video_sample_count ) < 0 )
         return 0;
     return convert_colorspace( vohp, vdhp->config.ctx, vdhp->frame_buffer, buf );
 }

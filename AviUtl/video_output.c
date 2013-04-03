@@ -121,16 +121,6 @@ static void au_free_video_output_handler
     free( au_vohp );
 }
 
-static void au_free_first_valid_frame
-(
-    void *first_valid_frame,
-    void *private_handler
-)
-{
-    if( first_valid_frame )
-        free( first_valid_frame );
-}
-
 func_get_buffer_t *au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
@@ -148,9 +138,8 @@ func_get_buffer_t *au_setup_video_rendering
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the AviUtl video output handler." );
         return NULL;
     }
-    vohp->private_handler        = au_vohp;
-    vohp->free_private_handler   = au_free_video_output_handler;
-    vohp->free_first_valid_frame = au_free_first_valid_frame;
+    vohp->private_handler      = au_vohp;
+    vohp->free_private_handler = au_free_video_output_handler;
     enum AVPixelFormat output_pixel_format;
     output_colorspace_index index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
     if( initialize_scaler_handler( &vohp->scaler, ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )

@@ -105,8 +105,8 @@ int64_t lwlibav_get_random_accessible_point_position
 int lwlibav_get_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    uint32_t                        frame_number,
-    uint32_t                        frame_count
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
 );
 
 void lwlibav_cleanup_video_decode_handler
@@ -125,7 +125,5 @@ static inline void lwlibav_cleanup_video_output_handler
 int lwlibav_find_first_valid_video_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
-    lwlibav_video_output_handler_t *vohp,
-    uint32_t                        frame_count,
-    int (*make_first_valid_frame)( lwlibav_video_decode_handler_t *, lwlibav_video_output_handler_t * )
+    lwlibav_video_output_handler_t *vohp
 );

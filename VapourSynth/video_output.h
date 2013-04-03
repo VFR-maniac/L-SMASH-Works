@@ -47,7 +47,6 @@ typedef struct
     int                         direct_rendering;
     const component_reorder_t  *component_reorder;
     VSPresetFormat              vs_output_pixel_format;
-    VSVideoInfo                *vi;
     VSFrameRef                 *background_frame;
     func_make_black_background *make_black_background;
     func_make_frame            *make_frame;
