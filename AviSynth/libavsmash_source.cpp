@@ -67,7 +67,7 @@ LSMASHVideoSource::LSMASHVideoSource
     as_vohp->vi  = &vi;
     as_vohp->env = env;
     voh.private_handler      = as_vohp;
-    voh.free_private_handler = lw_freep;
+    voh.free_private_handler = free;
     get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vdh.root );
     prepare_video_decoding( direct_rendering, env );

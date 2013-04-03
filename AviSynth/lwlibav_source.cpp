@@ -63,7 +63,7 @@ LWLibavVideoSource::LWLibavVideoSource
     as_vohp->vi  = &vi;
     as_vohp->env = env;
     voh.private_handler      = as_vohp;
-    voh.free_private_handler = lw_freep;
+    voh.free_private_handler = free;
     /* Set up error handler. */
     lw_log_handler_t lh;
     lh.level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
