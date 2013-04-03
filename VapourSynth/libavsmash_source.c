@@ -473,7 +473,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     libavsmash_video_output_handler_t *vohp = &hp->voh;
-    vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
+    vs_video_output_handler_t *vs_vohp = vs_allocate_video_output_handler( vohp );
     if( !vs_vohp )
     {
         free( hp );

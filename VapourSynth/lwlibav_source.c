@@ -253,7 +253,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     lwlibav_file_handler_t         *lwhp = &hp->lwh;
     lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
     lwlibav_video_output_handler_t *vohp = &hp->voh;
-    vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
+    vs_video_output_handler_t *vs_vohp = vs_allocate_video_output_handler( vohp );
     if( !vs_vohp )
     {
         free( hp );

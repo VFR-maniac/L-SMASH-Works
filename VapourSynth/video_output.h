@@ -87,3 +87,8 @@ func_get_buffer_t *setup_video_rendering
     int                        width,
     int                        height
 );
+
+vs_video_output_handler_t *vs_allocate_video_output_handler
+(
+    lw_video_output_handler_t *vohp
+);

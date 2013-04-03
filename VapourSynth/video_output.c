@@ -29,6 +29,9 @@
 #include <libavutil/mem.h>
 
 #include "VapourSynth.h"
+
+#include "../common/utils.h"
+
 #include "video_output.h"
 
 static inline void bit_blt
@@ -792,4 +795,30 @@ func_get_buffer_t *setup_video_rendering
         ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
     return ctx->get_buffer2;
+}
+
+static void vs_free_video_output_handler
+(
+    void *private_handler
+)
+{
+    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)private_handler;
+    if( !vs_vohp )
+        return;
+    if( vs_vohp->vsapi && vs_vohp->vsapi->freeFrame && vs_vohp->background_frame )
+        vs_vohp->vsapi->freeFrame( vs_vohp->background_frame );
+    free( vs_vohp );
+}
+
+vs_video_output_handler_t *vs_allocate_video_output_handler
+(
+    lw_video_output_handler_t *vohp
+)
+{
+    vs_video_output_handler_t *vs_vohp = lw_malloc_zero( sizeof(vs_video_output_handler_t) );
+    if( !vs_vohp )
+        return NULL;
+    vohp->private_handler      = vs_vohp;
+    vohp->free_private_handler = vs_free_video_output_handler;
+    return vs_vohp;
 }
