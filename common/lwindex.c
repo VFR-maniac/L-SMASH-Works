@@ -47,7 +47,6 @@ extern "C"
 typedef struct
 {
     lwlibav_extradata_handler_t exh;
-    int                         own_parser;
     AVCodecParserContext       *parser_ctx;
     AVFrame                    *picture;
     uint32_t                    delay_count;
@@ -561,19 +560,11 @@ static lwindex_helper_t *get_index_helper
                              || ctx->codec_id == AV_CODEC_ID_WMV3 || ctx->codec_id == AV_CODEC_ID_WMV3IMAGE);
         if( helper->vc1_wmv3 && !strcmp( format_name, "asf" ) )
             helper->vc1_wmv3 = 2;
-        /* Set up the parser. */
-        if( !stream->parser || stream->need_parsing == AVSTREAM_PARSE_NONE )
-        {
-            helper->own_parser = 1;
-            helper->parser_ctx = av_parser_init( helper->vc1_wmv3 ? AV_CODEC_ID_VC1 : ctx->codec_id );
-            if( helper->parser_ctx )
-                helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
-        }
-        else
-        {
-            helper->own_parser = 0;
-            helper->parser_ctx = stream->parser;
-        }
+        /* Set up the parser externally.
+         * We don't trust parameters returned by the internal parser. */
+        helper->parser_ctx = av_parser_init( helper->vc1_wmv3 ? AV_CODEC_ID_VC1 : ctx->codec_id );
+        if( helper->parser_ctx )
+            helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
         /* For audio, prepare the decoder and the parser to get frame length.
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
         if( ctx->codec_type == AVMEDIA_TYPE_AUDIO || helper->mpeg12_video || helper->vc1_wmv3 )
@@ -736,37 +727,34 @@ static int get_picture_type
     if( !helper->parser_ctx )
         return 0;
     /* Get by the parser. */
-    if( helper->own_parser )
+    uint8_t *data;
+    int      size;
+    if( helper->vc1_wmv3 == 2 )
     {
-        uint8_t *data;
-        int      size;
-        if( helper->vc1_wmv3 == 2 )
-        {
-            /* Make a frame EBDU (0x0000010D). */
-            data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
-            if( !data )
-                return -1;
-        }
-        else
-        {
-            data = pkt->data;
-            size = pkt->size;
-        }
-        uint8_t *dummy;
-        int      dummy_size;
-        av_parser_parse2( helper->parser_ctx, ctx,
-                          &dummy, &dummy_size, data, size,
-                          pkt->pts, pkt->dts, pkt->pos );
+        /* Make a frame EBDU (0x0000010D). */
+        data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
+        if( !data )
+            return -1;
     }
+    else
+    {
+        data = pkt->data;
+        size = pkt->size;
+    }
+    uint8_t *dummy;
+    int      dummy_size;
+    av_parser_parse2( helper->parser_ctx, ctx,
+                      &dummy, &dummy_size, data, size,
+                      pkt->pts, pkt->dts, pkt->pos );
+    /* One frame decoding.
+     * Sometimes, the parser returns a picture type other than I-picture and BI-picture even if the frame is a keyframe.
+     * Actual decoding fixes this issue.
+     * In addition, it seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
+     * So, we treat only I-picture as a keyframe. */
     if( (helper->mpeg12_video || helper->vc1_wmv3)
      && (pkt->flags & AV_PKT_FLAG_KEY)
      && (enum AVPictureType)helper->parser_ctx->pict_type != AV_PICTURE_TYPE_I )
     {
-        /* One frame decoding.
-         * Sometimes, the parser returns a picture type other than I-picture and BI-picture even if the frame is a keyframe.
-         * Actual decoding fixes this issue.
-         * In addition, it seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
-         * So, we treat only I-picture as a keyframe. */
         int decode_complete;
         avcodec_get_frame_defaults( helper->picture );
         helper->decode( ctx, helper->picture, &decode_complete, pkt );
@@ -949,7 +937,7 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
         lwindex_helper_t *helper = (lwindex_helper_t *)format_ctx->streams[stream_index]->codec->opaque;
         if( !helper )
             continue;
-        if( helper->own_parser && helper->parser_ctx )
+        if( helper->parser_ctx )
             av_parser_close( helper->parser_ctx );
         if( helper->picture )
             avcodec_free_frame( &helper->picture );
