@@ -623,7 +623,6 @@ static int append_extradata_if_new
     /* Anyway, import extradata from AVCodecContext. */
     lwlibav_extradata_t current = { ctx->extradata, ctx->extradata_size };
     /* Import extradata from a side data in the packet if present. */
-    av_packet_get_side_data( pkt, AV_PKT_DATA_NEW_EXTRADATA, &current.extradata_size );
     for( int i = 0; i < pkt->side_data_elems; i++ )
         if( pkt->side_data[i].type == AV_PKT_DATA_NEW_EXTRADATA )
         {
