@@ -981,13 +981,13 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=8>
+        <LibavReaderIndexFile=9>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
-        Pic=1,Key=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
+        Key=1,Pic=1,Repeat=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
@@ -1108,6 +1108,7 @@ static void create_index
                 av_free_packet( &pkt );
                 goto fail_index;
             }
+            int repeat_pict = helper->parser_ctx ? helper->parser_ctx->repeat_pict : 1;
             /* Set video frame info if this stream is active. */
             if( pkt.stream_index == vdhp->stream_index )
             {
@@ -1118,6 +1119,7 @@ static void create_index
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
                 video_info[video_sample_count].pict_type       = pict_type;
+                video_info[video_sample_count].repeat_pict     = repeat_pict;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].is_leading = 1;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
@@ -1163,11 +1165,12 @@ static void create_index
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                         "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                         "Key=%d,Pic=%d,Repeat=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
-                         pkt.pos, pkt.pts, pkt.dts, extradata_index, pict_type,
-                         !!(pkt.flags & AV_PKT_FLAG_KEY), pkt_ctx->width, pkt_ctx->height,
+                         pkt.pos, pkt.pts, pkt.dts, extradata_index,
+                         !!(pkt.flags & AV_PKT_FLAG_KEY), pict_type, repeat_pict,
+                         pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
         }
@@ -1583,13 +1586,14 @@ static int parse_index
             if( stream_index == vdhp->stream_index )
             {
                 int pict_type;
+                int repeat_pict;
                 int key;
                 int width;
                 int height;
                 int colorspace;
                 char pix_fmt[64];
-                if( sscanf( buf, "Pic=%d,Key=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
-                    &pict_type, &key, &width, &height, pix_fmt, &colorspace ) != 6 )
+                if( sscanf( buf, "Key=%d,Pic=%d,Repeat=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
+                            &key, &pict_type, &repeat_pict, &width, &height, pix_fmt, &colorspace ) != 7 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
@@ -1625,6 +1629,7 @@ static int parse_index
                     video_info[video_sample_count].sample_number   = video_sample_count;
                     video_info[video_sample_count].extradata_index = extradata_index;
                     video_info[video_sample_count].pict_type       = pict_type;
+                    video_info[video_sample_count].repeat_pict     = repeat_pict;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                         video_info[video_sample_count].is_leading = 1;
                     if( key )
