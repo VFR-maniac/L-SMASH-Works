@@ -208,7 +208,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     vdhp->ctx->opaque = vohp;
-    if( lwlibav_get_video_frame( vdhp, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
@@ -280,15 +280,17 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     int64_t seek_threshold;
     int64_t variable_info;
     int64_t direct_rendering;
+    int64_t apply_repeat_flag;
     const char *format;
-    set_option_int64 ( &stream_index,    -1,    "stream_index",   in, vsapi );
-    set_option_int64 ( &threads,          0,    "threads",        in, vsapi );
-    set_option_int64 ( &cache_index,      1,    "cache",          in, vsapi );
-    set_option_int64 ( &seek_mode,        0,    "seek_mode",      in, vsapi );
-    set_option_int64 ( &seek_threshold,   10,   "seek_threshold", in, vsapi );
-    set_option_int64 ( &variable_info,    0,    "variable",       in, vsapi );
-    set_option_int64 ( &direct_rendering, 0,    "dr",             in, vsapi );
-    set_option_string( &format,           NULL, "format",         in, vsapi );
+    set_option_int64 ( &stream_index,     -1,    "stream_index",   in, vsapi );
+    set_option_int64 ( &threads,           0,    "threads",        in, vsapi );
+    set_option_int64 ( &cache_index,       1,    "cache",          in, vsapi );
+    set_option_int64 ( &seek_mode,         0,    "seek_mode",      in, vsapi );
+    set_option_int64 ( &seek_threshold,    10,   "seek_threshold", in, vsapi );
+    set_option_int64 ( &variable_info,     0,    "variable",       in, vsapi );
+    set_option_int64 ( &direct_rendering,  0,    "dr",             in, vsapi );
+    set_option_int64 ( &apply_repeat_flag, 0,    "repeat",         in, vsapi );
+    set_option_string( &format,            NULL, "format",         in, vsapi );
     /* Set options. */
     lwlibav_option_t opt;
     opt.file_path         = file_path;
@@ -299,6 +301,8 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_video_index = stream_index >= 0 ? stream_index : -1;
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
+    opt.apply_repeat_flag = apply_repeat_flag;
+    opt.field_dominance   = 0;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );
@@ -312,7 +316,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     /* Construct index. */
     lwlibav_audio_decode_handler_t adh = { 0 };
     lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( lwhp, vdhp, &adh, &aoh, &lh, &opt, &indicator, NULL );
+    int ret = lwlibav_construct_index( lwhp, vdhp, vohp, &adh, &aoh, &lh, &opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( ret < 0 )
@@ -329,10 +333,10 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         return;
     }
     /* Set up timestamp info. */
-    hp->vi.numFrames = vdhp->frame_count;
+    hp->vi.numFrames = vohp->frame_count;
     int fps_num;
     int fps_den;
-    lwlibav_setup_timestamp_info( vdhp, &fps_num, &fps_den );
+    lwlibav_setup_timestamp_info( vdhp, vohp, &fps_num, &fps_den );
     hp->vi.fpsNum = (unsigned int)fps_num;
     hp->vi.fpsDen = (unsigned int)fps_den;
     /* Set up decoders for this stream. */

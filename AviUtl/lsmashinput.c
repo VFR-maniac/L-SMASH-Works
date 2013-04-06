@@ -73,6 +73,7 @@ static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
 static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
 static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
                                        "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
+static const char *field_dominance_list[2] = { "Top -> Bottom", "Bottom -> Top" };
 
 void au_message_box_desktop
 (
@@ -166,6 +167,12 @@ static void get_settings( void )
             video_opt->scaler = 0;
         else
             video_opt->scaler = CLIP_VALUE( video_opt->scaler, 0, 10 );
+        /* apply_repeat_flag */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "apply_repeat_flag=%d", &video_opt->apply_repeat_flag ) != 1 )
+            video_opt->apply_repeat_flag = 0;
+        /* field_dominance */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "field_dominance=%d", &video_opt->field_dominance ) != 1 )
+            video_opt->field_dominance = 0;
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -236,13 +243,15 @@ static void get_settings( void )
         reader_opt.force_video_index      = -1;
         reader_opt.force_audio            = 0;
         reader_opt.force_audio_index      = -1;
-        video_opt->seek_mode              = 0;
-        video_opt->forward_seek_threshold = 10;
-        video_opt->scaler                 = 0;
-        audio_delay                       = 0;
         reader_disabled[0]                = 0;
         reader_disabled[1]                = 0;
         reader_disabled[2]                = 0;
+        audio_delay                       = 0;
+        video_opt->seek_mode              = 0;
+        video_opt->forward_seek_threshold = 10;
+        video_opt->scaler                 = 0;
+        video_opt->apply_repeat_flag      = 0;
+        video_opt->field_dominance        = 0;
         video_opt->width                  = 720;
         video_opt->height                 = 480;
         video_opt->framerate_num          = 24;
@@ -523,6 +532,13 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 11; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)scaler_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->scaler, 0 );
+            /* apply_repeat_flag */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG ), BM_SETCHECK, (WPARAM) video_opt->apply_repeat_flag ? BST_CHECKED : BST_UNCHECKED, 0 );
+            /* field_dominance */
+            hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE );
+            for( int i = 0; i < 2; i++ )
+                SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)field_dominance_list[i] );
+            SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -671,6 +687,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* scaler */
                     video_opt->scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "scaler=%d\n", video_opt->scaler );
+                    /* apply_repeat_flag */
+                    video_opt->apply_repeat_flag = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG ), BM_GETCHECK, 0, 0 ));
+                    fprintf( ini, "apply_repeat_flag=%d\n", video_opt->apply_repeat_flag );
+                    /* field_dominance */
+                    video_opt->field_dominance = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "field_dominance=%d\n", video_opt->field_dominance );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );

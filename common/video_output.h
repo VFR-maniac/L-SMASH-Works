@@ -20,6 +20,8 @@
 
 /* This file is available under an ISC license. */
 
+#define REPEAT_CONTROL_CACHE_NUM 2
+
 typedef int func_get_buffer_t( struct AVCodecContext *, AVFrame *, int );
 
 typedef struct
@@ -37,11 +39,26 @@ typedef struct
 
 typedef struct
 {
+    uint32_t top;
+    uint32_t bottom;
+} lw_video_frame_order_t;
+
+typedef struct
+{
     lw_video_scaler_handler_t scaler;
     int                       output_width;
     int                       output_height;
     int                       output_linesize;
     uint32_t                  output_frame_size;
+    /* Repeat control */
+    int                       repeat_control;
+    int64_t                   repeat_correction_ts;
+    uint32_t                  frame_count;
+    uint32_t                  frame_order_count;
+    lw_video_frame_order_t   *frame_order_list;
+    AVFrame                  *frame_cache_buffers[REPEAT_CONTROL_CACHE_NUM];
+    uint32_t                  frame_cache_numbers[REPEAT_CONTROL_CACHE_NUM];
+    /* Application private extension */
     void                     *private_handler;
     void (*free_private_handler)( void *private_handler );
 } lw_video_output_handler_t;

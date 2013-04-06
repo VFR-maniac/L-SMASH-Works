@@ -28,6 +28,7 @@ extern "C"
 #endif  /* __cplusplus */
 #include <libavformat/avformat.h>   /* Demuxer */
 #include <libavcodec/avcodec.h>     /* Decoder */
+#include <libavutil/imgutils.h>
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */
@@ -130,6 +131,7 @@ static int try_ntsc_framerate
 void lwlibav_setup_timestamp_info
 (
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     int                            *framerate_num,
     int                            *framerate_den
 )
@@ -190,7 +192,8 @@ void lwlibav_setup_timestamp_info
     uint64_t stream_timescale = video_stream->time_base.den;
     uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
     uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
-    double stream_framerate = vdhp->frame_count * ((double)stream_timescale / stream_duration);
+    double stream_framerate = (vohp->frame_count - (vohp->repeat_correction_ts ? 1 : 0))
+                            * ((double)stream_timescale / stream_duration);
     if( try_ntsc_framerate( stream_framerate, framerate_num, framerate_den ) )
         return;
     if( stream_timebase > INT_MAX || (uint64_t)(stream_framerate * stream_timebase + 0.5) > INT_MAX )
@@ -398,6 +401,18 @@ static uint32_t seek_video
     return current;
 }
 
+static inline int copy_last_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    AVFrame                        *picture
+)
+{
+    if( picture == vdhp->last_frame_buffer )
+        return 0;
+    av_frame_unref( picture );
+    return av_frame_ref( picture, vdhp->last_frame_buffer );
+}
+
 static int get_picture
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -409,8 +424,17 @@ static int get_picture
 {
     int got_picture = (current + (vdhp->last_half_frame ? 1 : 0) > goal);
     if( got_picture )
-        /* The last frame is the requested frame. */
-        return 0;
+    {
+        /* The last decoded frame is the requested frame. */
+        if( (current - vdhp->exh.delay_count == vdhp->last_frame_number)
+         || (current - vdhp->exh.delay_count == vdhp->last_frame_number + (vdhp->last_half_frame ? 1 : 0)) )
+        {
+            assert( vdhp->last_frame_buffer );
+            return copy_last_frame( vdhp, picture );
+        }
+        else
+            return 0;
+    }
     while( current <= goal )
     {
         int ret = decode_video_sample( vdhp, picture, &got_picture, &current, goal, rap_number );
@@ -419,14 +443,14 @@ static int get_picture
         else if( ret == 1 )
             break;      /* Sample doesn't exist. */
         if( current > vdhp->exh.delay_count
-         && current <= vdhp->frame_count + vdhp->exh.delay_count
+         && current - vdhp->exh.delay_count <= vdhp->frame_count
          && vdhp->frame_list[ current - vdhp->exh.delay_count ].repeat_pict == 0 )
         {
             /* Handle PAFF field coded picture. */
             if( got_picture )
             {
                 if( current + 1 == goal
-                 && current + 1 <= vdhp->frame_count + vdhp->exh.delay_count
+                 && current + 1 - vdhp->exh.delay_count <= vdhp->frame_count
                  && vdhp->frame_list[ current + 1 - vdhp->exh.delay_count ].repeat_pict == 0 )
                 {
                     /* Libavcodec will not return the requested frame by feeding the next picture.
@@ -477,18 +501,23 @@ static int get_picture
     return got_picture ? 0 : -1;
 }
 
-int lwlibav_get_video_frame
+static int get_requested_picture
 (
     lwlibav_video_decode_handler_t *vdhp,
+    AVFrame                        *picture,
     uint32_t                        frame_number
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
-    AVFrame *picture = vdhp->frame_buffer;
     if( frame_number == vdhp->last_frame_number
      || frame_number == vdhp->last_frame_number + vdhp->last_half_frame )
+    {
         /* The last frame is the requested frame. */
+        assert( vdhp->last_frame_buffer );
+        if( copy_last_frame( vdhp, picture ) < 0 )
+            goto video_fail;
         return 0;
+    }
     if( frame_number < vdhp->first_valid_frame_number || vdhp->frame_count == 1 )
     {
         /* Copy the first valid video frame data. */
@@ -565,7 +594,195 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
-void lwlibav_cleanup_video_decode_handler( lwlibav_video_decode_handler_t *vdhp )
+static inline int copy_frame
+(
+    lw_log_handler_t *lhp,
+    AVFrame          *dst,
+    AVFrame          *src
+)
+{
+    av_frame_unref( dst );
+    if( av_frame_ref( dst, src ) < 0 )
+    {
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
+        return -1;
+    }
+    /* Treat this frame as interlaced. */
+    dst->interlaced_frame = 1;
+    return 0;
+}
+
+static inline int copy_field
+(
+    lw_log_handler_t *lhp,
+    AVFrame          *dst,
+    AVFrame          *src,
+    int               line_offset
+)
+{
+    /* Check if the destination is writable. */
+    if( av_frame_is_writable( dst ) == 0 )
+    {
+        /* The destination is NOT writable, so allocate new buffers and copy the data. */
+        av_frame_unref( dst );
+        if( av_frame_ref( dst, src ) < 0 )
+        {
+            if( lhp->show_log )
+                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
+            return -1;
+        }
+        if( av_frame_make_writable( dst ) < 0 )
+        {
+            if( lhp->show_log )
+                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to make a video frame writable.\n" );
+            return -1;
+        }
+        /* For direct rendering, the destination can not know
+         * whether the value at the address held by the opaque pointer is valid or not.
+         * Anyway, the opaque pointer for direct rendering shall be set to NULL. */
+        dst->opaque = NULL;
+    }
+    else
+    {
+        /* The destination is writable. Copy field data from the source. */
+        const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get( (enum AVPixelFormat)dst->format );
+        int number_of_planes = av_pix_fmt_count_planes( (enum AVPixelFormat)dst->format );
+        int height           = MIN( dst->height, src->height );
+        for( int i = 0; i < number_of_planes; i++ )
+        {
+            int r_shift = 1 + ((i == 1 || i == 2) ? desc->log2_chroma_h : 0);
+            int field_height = (height >> r_shift) + (line_offset == 0 && (height & 1) ? 1 : 0);
+            av_image_copy_plane( dst->data[i] + dst->linesize[i] * line_offset, 2 * dst->linesize[i],
+                                 src->data[i] + src->linesize[i] * line_offset, 2 * src->linesize[i],
+                                 MIN( dst->linesize[i], src->linesize[i] ),
+                                 field_height );
+        }
+    }
+    /* Treat this frame as interlaced. */
+    dst->interlaced_frame = 1;
+    return 0;
+}
+
+int lwlibav_get_video_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
+)
+{
+    if( !vohp->repeat_control )
+        return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
+    /* Get picture to applied the repeat control. */
+    uint32_t t = vohp->frame_order_list[frame_number].top;
+    uint32_t b = vohp->frame_order_list[frame_number].bottom;
+    uint32_t first_field_number  = MIN( t, b );
+    uint32_t second_field_number = MAX( t, b );
+    /* Check repeat targets and cache datas. */
+    enum
+    {
+        REPEAT_CONTROL_COPIED_FROM_CACHE   = 0x00,
+        REPEAT_CONTROL_DECODE_TOP_FIELD    = 0x01,
+        REPEAT_CONTROL_DECODE_BOTTOM_FIELD = 0x02,
+        REPEAT_CONTROL_DECODE_BOTH_FIELDS  = 0x03,  /* REPEAT_CONTROL_DECODE_TOP_FIELD | REPEAT_CONTROL_DECODE_BOTTOM_FIELD */
+        REPEAT_CONTROL_DECODE_ONE_FRAME    = 0x04
+    };
+    int repeat_control;
+    if( first_field_number == second_field_number )
+    {
+        repeat_control = REPEAT_CONTROL_DECODE_ONE_FRAME;
+        if( first_field_number == vohp->frame_cache_numbers[0] )
+            return copy_frame( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[0] );
+        if( first_field_number == vohp->frame_cache_numbers[1] )
+            return copy_frame( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[1] );
+        if( first_field_number != vohp->frame_order_list[frame_number - 1].top
+         && first_field_number != vohp->frame_order_list[frame_number - 1].bottom
+         && first_field_number != vohp->frame_order_list[frame_number + 1].top
+         && first_field_number != vohp->frame_order_list[frame_number + 1].bottom )
+        {
+            if( get_requested_picture( vdhp, vdhp->frame_buffer, first_field_number ) < 0 )
+                return -1;
+            /* Treat this frame as interlaced. */
+            vdhp->frame_buffer->interlaced_frame = 1;
+            return 0;
+        }
+    }
+    else
+    {
+        repeat_control = REPEAT_CONTROL_DECODE_BOTH_FIELDS;
+        for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
+        {
+            if( t == vohp->frame_cache_numbers[i] )
+            {
+                if( copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[i], 0 ) < 0 )
+                    return -1;
+                repeat_control &= ~REPEAT_CONTROL_DECODE_TOP_FIELD;
+            }
+            if( b == vohp->frame_cache_numbers[i] )
+            {
+                if( copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[i], 1 ) < 0 )
+                    return -1;
+                repeat_control &= ~REPEAT_CONTROL_DECODE_BOTTOM_FIELD;
+            }
+        }
+        if( repeat_control == REPEAT_CONTROL_COPIED_FROM_CACHE )
+            return 0;
+    }
+    /* Decode target frames and copy to output buffer. */
+    if( repeat_control == REPEAT_CONTROL_DECODE_BOTH_FIELDS )
+    {
+        /* Decode 2 frames, and copy each a top and bottom fields. */
+        if( get_requested_picture( vdhp, vohp->frame_cache_buffers[0], first_field_number ) < 0 )
+            return -1;
+        vohp->frame_cache_numbers[0] = first_field_number;
+        if( get_requested_picture( vdhp, vohp->frame_cache_buffers[1], second_field_number ) < 0 )
+            return -1;
+        vohp->frame_cache_numbers[1] = second_field_number;
+        if( copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[0], t > b ? 1 : 0 ) < 0
+         || copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[1], t < b ? 1 : 0 ) < 0 )
+            return -1;
+        return 0;
+    }
+    else
+    {
+        /* Decode 1 frame, and copy 1 frame or 1 field. */
+        int decode_number = repeat_control == REPEAT_CONTROL_DECODE_ONE_FRAME ? first_field_number
+                          : repeat_control == REPEAT_CONTROL_DECODE_TOP_FIELD ? t : b;
+        int idx = vohp->frame_cache_numbers[0] > vohp->frame_cache_numbers[1] ? 1 : 0;
+        if( get_requested_picture( vdhp, vohp->frame_cache_buffers[idx], decode_number ) < 0 )
+            return -1;
+        vohp->frame_cache_numbers[idx] = decode_number;
+        if( repeat_control == REPEAT_CONTROL_DECODE_ONE_FRAME )
+            return copy_frame( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[idx] );
+        else
+            return copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[idx],
+                               repeat_control == REPEAT_CONTROL_DECODE_TOP_FIELD ? 0 : 1 );
+    }
+}
+
+int lwlibav_is_keyframe
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
+)
+{
+    assert( frame_number );
+    if( vohp->repeat_control )
+    {
+        lw_video_frame_order_t *order = &vohp->frame_order_list[frame_number];
+        return (vdhp->frame_list[ order->top    ].keyframe
+             && order->top    != (order - 1)->top && order->top    != (order - 1)->bottom)
+            || (vdhp->frame_list[ order->bottom ].keyframe
+             && order->bottom != (order - 1)->top && order->bottom != (order - 1)->bottom);
+    }
+    return vdhp->frame_list[frame_number].keyframe;
+}
+
+void lwlibav_cleanup_video_decode_handler
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
 {
     lwlibav_extradata_handler_t *exhp = &vdhp->exh;
     if( exhp->entries )

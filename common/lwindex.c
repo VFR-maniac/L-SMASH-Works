@@ -410,6 +410,7 @@ static void decide_audio_seek_method
 static int64_t calculate_av_gap
 (
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
     AVRational                      video_time_base,
     AVRational                      audio_time_base,
@@ -454,9 +455,147 @@ static int64_t calculate_av_gap
             ++delay_count;
     /* Calculate A/V gap in audio samplerate. */
     if( video_ts || audio_ts )
-        return av_rescale_q( audio_ts, audio_time_base, audio_sample_base )
-             - av_rescale_q( video_ts, video_time_base, audio_sample_base );
+    {
+        int64_t av_gap = av_rescale_q( audio_ts, audio_time_base, audio_sample_base )
+                       - av_rescale_q( video_ts, video_time_base, audio_sample_base );
+        if( vohp->repeat_control && vohp->repeat_correction_ts )
+            av_gap += av_rescale_q( vohp->repeat_correction_ts, video_time_base, audio_sample_base );
+        return av_gap;
+    }
     return 0;
+}
+
+static void create_video_frame_order_list
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    lwlibav_option_t               *opt
+)
+{
+    if( !opt->apply_repeat_flag || !(vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
+        goto disable_repeat;
+    video_frame_info_t *info                      = vdhp->frame_list;
+    uint32_t            frame_count               = vdhp->frame_count;
+    uint32_t            order_count               = 0;
+    int                 no_support_frame_tripling = (vdhp->codec_id != AV_CODEC_ID_MPEG2VIDEO);
+    int                 specified_field_dominance = opt->field_dominance == 0 ? AV_FIELD_TT     /* Top -> Bottom */
+                                                  :                             AV_FIELD_BB;    /* Bottom -> Top */
+    /* Check repeat_pict and order_count. */
+    int               complete_frame       = 1;
+    int               repeat_field         = 1;
+    enum AVFieldOrder field_dominance = (enum AVFieldOrder)specified_field_dominance;
+    for( uint32_t i = 1; i <= frame_count; i++, order_count++ )
+    {
+        int repeat_pict = info[i].repeat_pict;
+        switch( repeat_pict )
+        {
+            case 5 :
+                if( no_support_frame_tripling )
+                    ++order_count;
+            case 3 :
+                ++order_count;
+                break;
+            case 2 :
+                repeat_field ^= 1;
+                order_count += repeat_field;
+                break;
+            case 0 :    /* PAFF field coded picture */
+                complete_frame ^= 1;
+                order_count -= complete_frame;
+                break;
+            default :
+                break;
+        }
+        if( (repeat_pict & 1) == 0 )
+            field_dominance = field_dominance == AV_FIELD_TT ? AV_FIELD_BB : AV_FIELD_TT;
+    }
+    if( frame_count == order_count )
+        goto disable_repeat;
+    /* Allocate frame cache buffers. */
+    for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
+    {
+        vohp->frame_cache_buffers[i] = av_frame_alloc();
+        if( !vohp->frame_cache_buffers[i] )
+            goto disable_repeat;
+        vohp->frame_cache_numbers[i] = 0;
+    }
+    /* Create order list. */
+    lw_video_frame_order_t *order_list = (lw_video_frame_order_t *)lw_malloc_zero( (order_count + 2) * sizeof(lw_video_frame_order_t) );
+    if( !order_list )
+    {
+        if( vdhp->lh.show_log )
+            vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+        goto disable_repeat;
+    }
+    int64_t  correction_ts = 0;
+    uint32_t t_count       = 1;
+    uint32_t b_count       = 1;
+    complete_frame  = 1;
+    field_dominance = (enum AVFieldOrder)specified_field_dominance;
+    for( uint32_t i = 1; i <= frame_count; i++ )
+    {
+        /* Check repeat_pict and field dominance. */
+        int repeat_pict = info[i].repeat_pict;
+        order_list[t_count++].top    = i;
+        order_list[b_count++].bottom = i;
+        switch( repeat_pict )
+        {
+            case 5 :    /* frame tripling */
+                if( no_support_frame_tripling )
+                {
+                    order_list[t_count++].top    = i;
+                    order_list[b_count++].bottom = i;
+                }
+            case 3 :    /* frame doubling */
+                order_list[t_count++].top    = i;
+                order_list[b_count++].bottom = i;
+                break;
+            case 2 :    /* field tripling */
+                if( field_dominance == AV_FIELD_TT )
+                    order_list[t_count++].top = i;
+                else if( field_dominance == AV_FIELD_BB )
+                    order_list[b_count++].bottom = i;
+                break;
+            case 0 :    /* PAFF field coded picture */
+                if( field_dominance == AV_FIELD_BB )
+                    --t_count;
+                else
+                    --b_count;
+                complete_frame ^= 1;
+            default :
+                break;
+        }
+        if( (repeat_pict & 1) == 0 )
+            field_dominance = field_dominance == AV_FIELD_TT ? AV_FIELD_BB : AV_FIELD_TT;
+    }
+    --t_count;
+    --b_count;
+    if( t_count != b_count )
+    {
+        order_list[order_count].top    = frame_count;
+        order_list[order_count].bottom = frame_count;
+    }
+    memset( &order_list[order_count + 1], 0, sizeof(lw_video_frame_order_t) );
+    /* Set up repeat control info. */
+    if( vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO,
+                           "Enable repeat control. frame_count = %u, order_count = %u, t_count = %u, b_count = %u",
+                           frame_count, order_count, t_count, b_count );
+    vohp->repeat_control       = 1;
+    vohp->repeat_correction_ts = correction_ts;
+    vohp->frame_order_count    = order_count;
+    vohp->frame_order_list     = order_list;
+    vohp->frame_count          = vohp->frame_order_count;
+    return;
+disable_repeat:
+    if( opt->apply_repeat_flag && vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
+    vohp->repeat_control       = 0;
+    vohp->repeat_correction_ts = 0;
+    vohp->frame_order_count    = 0;
+    vohp->frame_order_list     = NULL;
+    vohp->frame_count          = vdhp->frame_count;
+    return;
 }
 
 static lwlibav_extradata_t *alloc_extradata_entries
@@ -1002,6 +1141,7 @@ static void create_index
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
     AVFormatContext                *format_ctx,
@@ -1389,6 +1529,8 @@ static void create_index
         vdhp->initial_pix_fmt = vdhp->ctx->pix_fmt;
         if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
             goto fail_index;
+        /* Create the repeat control info. */
+        create_video_frame_order_list( vdhp, vohp, opt );
     }
     else
         lw_freep( &video_info );
@@ -1423,8 +1565,7 @@ static void create_index
         adhp->frame_length = constant_frame_length ? adhp->frame_list[1].length : 0;
         decide_audio_seek_method( lwhp, adhp, audio_sample_count );
         if( opt->av_sync && vdhp->stream_index >= 0 )
-            lwhp->av_gap = calculate_av_gap( vdhp,
-                                             adhp,
+            lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp,
                                              format_ctx->streams[ vdhp->stream_index ]->time_base,
                                              format_ctx->streams[ adhp->stream_index ]->time_base,
                                              audio_sample_rate );
@@ -1540,6 +1681,7 @@ static int parse_index
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
     lwlibav_option_t               *opt,
@@ -1945,6 +2087,8 @@ static int parse_index
             vdhp->frame_count = video_sample_count;
             if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
                 goto fail_parsing;
+            /* Create the repeat control info. */
+            create_video_frame_order_list( vdhp, vohp, opt );
         }
         if( adhp->stream_index >= 0 )
         {
@@ -1977,7 +2121,7 @@ static int parse_index
             adhp->frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( lwhp, adhp, audio_sample_count );
             if( opt->av_sync && vdhp->stream_index >= 0 )
-                lwhp->av_gap = calculate_av_gap( vdhp, adhp, video_time_base, audio_time_base, audio_sample_rate );
+                lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp, video_time_base, audio_time_base, audio_sample_rate );
         }
         if( vdhp->stream_index != active_video_index || adhp->stream_index != active_audio_index )
         {
@@ -2002,6 +2146,7 @@ int lwlibav_construct_index
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
     lw_log_handler_t               *lhp,
@@ -2046,7 +2191,7 @@ int lwlibav_construct_index
         int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
         if( ret == 1
          && version == INDEX_FILE_VERSION
-         && parse_index( lwhp, vdhp, adhp, aohp, opt, index ) == 0 )
+         && parse_index( lwhp, vdhp, vohp, adhp, aohp, opt, index ) == 0 )
         {
             /* Opening and parsing the index file succeeded. */
             fclose( index );
@@ -2078,7 +2223,7 @@ int lwlibav_construct_index
     vdhp->stream_index = -1;
     adhp->stream_index = -1;
     /* Create the index file. */
-    create_index( lwhp, vdhp, adhp, aohp, format_ctx, opt, indicator, php );
+    create_index( lwhp, vdhp, vohp, adhp, aohp, format_ctx, opt, indicator, php );
     /* Close file.
      * By opening file for video and audio separately, indecent work about frame reading can be avoidable. */
     lavf_close_file( &format_ctx );

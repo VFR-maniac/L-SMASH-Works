@@ -33,6 +33,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "utils.h"
 #include "video_output.h"
 
 /* If YUV is treated as full range, return 1.
@@ -135,6 +136,11 @@ void lw_cleanup_video_output_handler
     if( vohp->free_private_handler )
         vohp->free_private_handler( vohp->private_handler );
     vohp->private_handler = NULL;
+    if( vohp->frame_order_list )
+        lw_freep( &vohp->frame_order_list );
+    for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
+        if( vohp->frame_cache_buffers[i] )
+            av_frame_free( &vohp->frame_cache_buffers[i] );
     if( vohp->scaler.sws_ctx )
     {
         sws_freeContext( vohp->scaler.sws_ctx );

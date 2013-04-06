@@ -77,7 +77,7 @@ LWLibavVideoSource::LWLibavVideoSource
     /* Construct index. */
     lwlibav_audio_decode_handler_t adh = { 0 };
     lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &lh, opt, &indicator, NULL );
+    int ret = lwlibav_construct_index( &lwh, &vdh, &voh, &adh, &aoh, &lh, opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( ret < 0 )
@@ -86,10 +86,10 @@ LWLibavVideoSource::LWLibavVideoSource
     if( lwlibav_get_desired_video_track( lwh.file_path, &vdh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to get the video track." );
     vdh.lh = lh;
-    vi.num_frames = vdh.frame_count;
+    vi.num_frames = voh.frame_count;
     int fps_num;
     int fps_den;
-    lwlibav_setup_timestamp_info( &vdh, &fps_num, &fps_den );
+    lwlibav_setup_timestamp_info( &vdh, &voh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
     prepare_video_decoding( direct_rendering, env );
@@ -133,7 +133,7 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
     vdh.lh.priv = env;
     if( vdh.error )
         return env->NewVideoFrame( vi );
-    if( lwlibav_get_video_frame( &vdh, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( &vdh, &voh, frame_number ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
     if( make_frame( &voh, vdh.frame_buffer, as_frame, vdh.ctx->colorspace, env ) < 0 )
@@ -165,9 +165,11 @@ LWLibavAudioSource::LWLibavAudioSource
     indicator.close  = NULL;
     /* Construct index. */
     lwlibav_video_decode_handler_t vdh = { 0 };
-    if( lwlibav_construct_index( &lwh, &vdh, &adh, &aoh, &lh, opt, &indicator, NULL ) < 0 )
+    lwlibav_video_output_handler_t voh = { 0 };
+    if( lwlibav_construct_index( &lwh, &vdh, &voh, &adh, &aoh, &lh, opt, &indicator, NULL ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get construct index." );
     lwlibav_cleanup_video_decode_handler( &vdh );
+    lwlibav_cleanup_video_output_handler( &voh );
     /* Get the desired video track. */
     if( lwlibav_get_desired_audio_track( lwh.file_path, &adh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get the audio track." );
@@ -243,6 +245,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         seek_mode              = args[4].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
     int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
+    int         apply_repeat_flag      = args[7].AsBool( false ) ? 1 : 0;
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -253,6 +256,8 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.force_video_index = stream_index >= 0 ? stream_index : -1;
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
+    opt.apply_repeat_flag = apply_repeat_flag;
+    opt.field_dominance   = 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, env );
@@ -279,6 +284,8 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.force_video_index = -1;
     opt.force_audio       = (stream_index >= 0);
     opt.force_audio_index = stream_index >= 0 ? stream_index : -1;
+    opt.apply_repeat_flag = 0;
+    opt.field_dominance   = 0;
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
     return new LWLibavAudioSource( &opt, channel_layout, sample_rate, env );
 }

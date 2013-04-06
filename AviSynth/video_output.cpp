@@ -186,7 +186,7 @@ int make_frame
     IScriptEnvironment        *env
 )
 {
-    if( !vohp->scaler.enabled )
+    if( !vohp->scaler.enabled && av_frame->opaque )
     {
         /* Render a video frame from the decoder directly. */
         as_video_buffer_handler_t *as_vbhp = (as_video_buffer_handler_t *)av_frame->opaque;

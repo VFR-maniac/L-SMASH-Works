@@ -536,7 +536,7 @@ VSFrameRef *make_frame
     VSFrameContext *frame_ctx = vs_vohp->frame_ctx;
     VSCore         *core      = vs_vohp->core;
     const VSAPI    *vsapi     = vs_vohp->vsapi;
-    if( vs_vohp->direct_rendering && !vohp->scaler.enabled )
+    if( vs_vohp->direct_rendering && !vohp->scaler.enabled && av_frame->opaque )
     {
         /* Render from the decoder directly. */
         vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)av_frame->opaque;

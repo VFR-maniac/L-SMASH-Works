@@ -96,6 +96,8 @@ typedef struct
     int seek_mode;
     int forward_seek_threshold;
     int scaler;
+    int apply_repeat_flag;
+    int field_dominance;
     /* for dummy reader */
     int width;
     int height;

@@ -97,6 +97,8 @@ static void *open_file( char *file_path, reader_option_t *opt )
     lwlibav_opt.force_video_index = opt->force_video_index;
     lwlibav_opt.force_audio       = opt->force_audio;
     lwlibav_opt.force_audio_index = opt->force_audio_index;
+    lwlibav_opt.apply_repeat_flag = opt->video_opt.apply_repeat_flag;
+    lwlibav_opt.field_dominance   = opt->video_opt.field_dominance;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = open_indicator;
@@ -106,7 +108,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     ph.module_name = "lsmashinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
     /* Construct index. */
-    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->adh, &hp->aoh, &lh, &lwlibav_opt, &indicator, &ph ) < 0 )
+    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->voh, &hp->adh, &hp->aoh, &lh, &lwlibav_opt, &indicator, &ph ) < 0 )
     {
         free( hp );
         return NULL;
@@ -146,13 +148,14 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return 0;
     vdhp->seek_mode              = opt->seek_mode;
     vdhp->forward_seek_threshold = opt->forward_seek_threshold;
-    h->video_sample_count = vdhp->frame_count;
+    lwlibav_video_output_handler_t *vohp = &hp->voh;
+    h->video_sample_count = vohp->frame_count;
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
         return -1;
     /* Set up timestamp info. */
     hp->uType = MB_OK;
-    lwlibav_setup_timestamp_info( vdhp, &h->framerate_num, &h->framerate_den );
+    lwlibav_setup_timestamp_info( vdhp, vohp, &h->framerate_num, &h->framerate_den );
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set up the initial input format. */
     vdhp->ctx->width      = vdhp->initial_width;
@@ -160,7 +163,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
     vdhp->ctx->colorspace = vdhp->initial_colorspace;
     /* Set up video rendering. */
-    lwlibav_video_output_handler_t *vohp = &hp->voh;
     vdhp->exh.get_buffer = au_setup_video_rendering( vohp, vdhp->ctx, opt, &h->video_format, vdhp->max_width, vdhp->max_height );
     if( !vdhp->exh.get_buffer )
         return -1;
@@ -219,7 +221,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( lwlibav_get_video_frame( vdhp, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
         return 0;
     return convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, buf );
 }
@@ -230,10 +232,10 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
     return lwlibav_get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
 }
 
-static int is_keyframe( lsmash_handler_t *h, int sample_number )
+static int is_keyframe( lsmash_handler_t *h, int frame_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    return hp->vdh.frame_list[sample_number + 1].keyframe;
+    return lwlibav_is_keyframe( &hp->vdh, &hp->voh, frame_number + 1 );
 }
 
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )

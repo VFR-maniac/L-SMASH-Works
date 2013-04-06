@@ -72,7 +72,7 @@ extern "C" __declspec(dllexport) const char * __stdcall AvisynthPluginInit2( ISc
     env->AddFunction
     (
         "LWLibavVideoSource",
-        "[source]s[stream_index]i[threads]i[cache]b[seek_mode]i[seek_threshold]i[dr]b",
+        "[source]s[stream_index]i[threads]i[cache]b[seek_mode]i[seek_threshold]i[dr]b[repeat]b",
         CreateLWLibavVideoSource,
         0
     );

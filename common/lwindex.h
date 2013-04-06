@@ -32,6 +32,8 @@ typedef struct
     int         force_video_index;
     int         force_audio;
     int         force_audio_index;
+    int         apply_repeat_flag;
+    int         field_dominance;
 } lwlibav_option_t;
 
 typedef struct
@@ -47,6 +49,7 @@ int lwlibav_construct_index
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
     lw_log_handler_t               *lhp,
