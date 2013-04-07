@@ -48,6 +48,7 @@ typedef struct
 {
     lwlibav_extradata_handler_t exh;
     AVCodecParserContext       *parser_ctx;
+    AVBitStreamFilterContext   *bsf;
     AVFrame                    *picture;
     uint32_t                    delay_count;
     int                         mpeg12_video;   /* 0: neither MPEG-1 Video nor MPEG-2 Video
@@ -564,7 +565,16 @@ static lwindex_helper_t *get_index_helper
          * We don't trust parameters returned by the internal parser. */
         helper->parser_ctx = av_parser_init( helper->vc1_wmv3 ? AV_CODEC_ID_VC1 : ctx->codec_id );
         if( helper->parser_ctx )
+        {
             helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+            /* Set up bitstream filter if needed. */
+            if( ctx->codec_id == AV_CODEC_ID_H264 && stream->need_parsing == AVSTREAM_PARSE_NONE )
+            {
+                helper->bsf = av_bitstream_filter_init( "h264_mp4toannexb" );
+                if( !helper->bsf )
+                    return NULL;
+            }
+        }
         /* For audio, prepare the decoder and the parser to get frame length.
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
         if( ctx->codec_type == AVMEDIA_TYPE_AUDIO || helper->mpeg12_video || helper->vc1_wmv3 )
@@ -572,10 +582,7 @@ static lwindex_helper_t *get_index_helper
             helper->decode  = ctx->codec_type == AVMEDIA_TYPE_AUDIO ? avcodec_decode_audio4 : avcodec_decode_video2;
             helper->picture = avcodec_alloc_frame();
             if( !helper->picture )
-            {
-                free( helper );
                 return NULL;
-            }
         }
         if( helper->parser_ctx && helper->vc1_wmv3 == 2 )
         {
@@ -734,6 +741,19 @@ static int get_picture_type
         data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
         if( !data )
             return -1;
+    }
+    else if( helper->bsf )
+    {
+        /* Convert frame data into parsable bitstream format. */
+        if( helper->buffer )
+            av_freep( &helper->buffer );
+        helper->buffer_size = 0;
+        if( av_bitstream_filter_filter( helper->bsf, ctx, NULL,
+                                        &helper->buffer, &helper->buffer_size,
+                                        pkt->data, pkt->size, 0 ) < 0 )
+            return -1;
+        data = helper->buffer;
+        size = helper->buffer_size;
     }
     else
     {
@@ -938,6 +958,8 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
             continue;
         if( helper->parser_ctx )
             av_parser_close( helper->parser_ctx );
+        if( helper->bsf )
+            av_bitstream_filter_close( helper->bsf );
         if( helper->picture )
             avcodec_free_frame( &helper->picture );
         if( helper->buffer )
