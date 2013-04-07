@@ -366,7 +366,7 @@ static uint32_t seek_video
         int ret = decode_video_sample( vdhp, picture, &got_picture, &current, goal, rap_number );
         if( ret == -2 )
             return 0;
-        if( vdhp->frame_list[current].repeat_pict == 0 )
+        if( current <= vdhp->frame_count && vdhp->frame_list[current].repeat_pict == 0 )
             vdhp->last_half_frame ^= 1;
         if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1 )
         {
@@ -450,7 +450,7 @@ static int get_picture
         ++current;
     }
     /* Flush the last frames. */
-    if( !got_picture && current > vdhp->frame_count && vdhp->exh.delay_count )
+    if( current <= goal && current > vdhp->frame_count && vdhp->exh.delay_count )
         while( current <= goal )
         {
             AVPacket pkt = { 0 };
