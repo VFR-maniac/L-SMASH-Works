@@ -650,16 +650,20 @@ static int append_extradata_if_new
         AVCodecParserContext *parser_ctx = helper->parser_ctx;
         if( parser_ctx && parser_ctx->parser && parser_ctx->parser->split )
         {
-            int extradata_size = parser_ctx->parser->split( ctx, pkt->data, pkt->size );
+            /* For H.264 stream without start codes, don't split extradata from pkt->data.
+             * Its extradata is stored as global header. so, pkt->data shall contain no extradata. */
+            int extradata_size = helper->bsf ? 0 : parser_ctx->parser->split( ctx, pkt->data, pkt->size );
             if( extradata_size > 0 )
             {
                 current.extradata      = pkt->data;
                 current.extradata_size = extradata_size;
             }
             else if( list->entry_count > 0 )
-                /* Probably, this frame should not be marked as a keyframe.
+                /* Probably, this frame is a keyframe in CODEC level
+                 * but should not be a random accessible point in container level.
                  * For instance, an IDR-picture which corresponding SPSs and PPSs
-                 * do not precede immediately might not be decodable correctly. */
+                 * do not precede immediately might not be decodable correctly
+                 * when decoding from there in MPEG-2 transport stream. */
                 return list->current_index;
         }
     }
@@ -730,6 +734,34 @@ static void investigate_pix_fmt_by_decoding
     avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
 }
 
+static inline uint8_t *make_parsable_format
+(
+    lwindex_helper_t *helper,
+    AVCodecContext   *ctx,
+    AVPacket         *pkt,
+    int              *size
+)
+{
+    if( !helper->bsf )
+    {
+        *size = pkt->size;
+        return pkt->data;
+    }
+    /* Convert frame data into parsable bitstream format. */
+    if( helper->buffer )
+        av_freep( &helper->buffer );
+    helper->buffer_size = 0;
+    if( av_bitstream_filter_filter( helper->bsf, ctx, NULL,
+                                    &helper->buffer, &helper->buffer_size,
+                                    pkt->data, pkt->size, 0 ) < 0 )
+    {
+        *size = 0;
+        return NULL;
+    }
+    *size = helper->buffer_size;
+    return helper->buffer;
+}
+
 static int get_picture_type
 (
     lwindex_helper_t *helper,
@@ -740,33 +772,15 @@ static int get_picture_type
     if( !helper->parser_ctx )
         return 0;
     /* Get by the parser. */
-    uint8_t *data;
     int      size;
+    uint8_t *data;
     if( helper->vc1_wmv3 == 2 )
-    {
         /* Make a frame EBDU (0x0000010D). */
         data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
-        if( !data )
-            return -1;
-    }
-    else if( helper->bsf )
-    {
-        /* Convert frame data into parsable bitstream format. */
-        if( helper->buffer )
-            av_freep( &helper->buffer );
-        helper->buffer_size = 0;
-        if( av_bitstream_filter_filter( helper->bsf, ctx, NULL,
-                                        &helper->buffer, &helper->buffer_size,
-                                        pkt->data, pkt->size, 0 ) < 0 )
-            return -1;
-        data = helper->buffer;
-        size = helper->buffer_size;
-    }
     else
-    {
-        data = pkt->data;
-        size = pkt->size;
-    }
+        data = make_parsable_format( helper, ctx, pkt, &size );
+    if( !data )
+        return -1;
     uint8_t *dummy;
     int      dummy_size;
     av_parser_parse2( helper->parser_ctx, ctx,
