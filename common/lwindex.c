@@ -617,11 +617,11 @@ static lwindex_helper_t *get_index_helper
 
 static int append_extradata_if_new
 (
-    AVStream *stream,
-    AVPacket *pkt
+    lwindex_helper_t *helper,
+    AVCodecContext   *ctx,
+    AVPacket         *pkt
 )
 {
-    AVCodecContext              *ctx  = stream->codec;
     lwlibav_extradata_handler_t *list = &((lwindex_helper_t *)ctx->opaque)->exh;
     if( !(pkt->flags & AV_PKT_FLAG_KEY) && list->entry_count > 0 )
         /* Some decoders might not change AVCodecContext.extradata even if a new extradata occurs.
@@ -640,7 +640,7 @@ static int append_extradata_if_new
     /* Try to import extradata from the packet by splitting if no extradata is present in side data. */
     if( current.extradata == ctx->extradata )
     {
-        AVCodecParserContext *parser_ctx = stream->parser;
+        AVCodecParserContext *parser_ctx = helper->parser_ctx;
         if( parser_ctx && parser_ctx->parser && parser_ctx->parser->split )
         {
             int extradata_size = parser_ctx->parser->split( ctx, pkt->data, pkt->size );
@@ -1077,7 +1077,7 @@ static void create_index
             av_free_packet( &pkt );
             goto fail_index;
         }
-        int extradata_index = append_extradata_if_new( stream, &pkt );
+        int extradata_index = append_extradata_if_new( helper, pkt_ctx, &pkt );
         if( extradata_index < 0 )
         {
             av_free_packet( &pkt );
