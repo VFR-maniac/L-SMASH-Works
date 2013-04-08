@@ -568,8 +568,15 @@ static lwindex_helper_t *get_index_helper
         {
             helper->parser_ctx->flags |= PARSER_FLAG_COMPLETE_FRAMES;
             /* Set up bitstream filter if needed. */
-            if( ctx->codec_id == AV_CODEC_ID_H264 && stream->need_parsing == AVSTREAM_PARSE_NONE )
+            if( ctx->codec_id == AV_CODEC_ID_H264
+             && ctx->extradata_size >= 8    /* 8 is the offset of the first byte of the first SPS in AVCConfigurationRecord. */
+             && ctx->extradata[0] == 1      /* configurationVersion == 1 */
+             && helper->parser_ctx->parser
+             && helper->parser_ctx->parser->split
+             && helper->parser_ctx->parser->split( ctx, ctx->extradata + 8, ctx->extradata_size - 8 ) <= 0 )
             {
+                /* Since a SPS shall have no start code and no its emulation,
+                 * therefore, this stream is not encapsulated as byte stream format. */
                 helper->bsf = av_bitstream_filter_init( "h264_mp4toannexb" );
                 if( !helper->bsf )
                     return NULL;
