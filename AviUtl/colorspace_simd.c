@@ -50,8 +50,8 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
     static const int16_t AUI_ALIGN(16) Array_4[8] = { 4, 4, 4, 4, 4, 4, 4, 4 };
     uint8_t *ptr_y, *ptr_u, *ptr_v, *ptr_dst, *ptr_dst_fin;
     __m128i x0, x1, x2, x3, x4, x5, x6, x7;
-    const int y_pitch = pic_linesize[0];
-    const int uv_pitch = y_pitch >> 1;
+    const int y_pitch  = pic_linesize[0];
+    const int uv_pitch = pic_linesize[1];
     uint8_t *y_line = pic_data[0];
     uint8_t *u_line = pic_data[1];
     uint8_t *v_line = pic_data[2];
