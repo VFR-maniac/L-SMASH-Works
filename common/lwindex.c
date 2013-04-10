@@ -1151,7 +1151,14 @@ static void create_index
                 av_free_packet( &pkt );
                 goto fail_index;
             }
-            int repeat_pict = helper->parser_ctx ? helper->parser_ctx->repeat_pict : 1;
+            /* Get field information. */
+            int repeat_pict;
+            if( helper->parser_ctx )
+                repeat_pict = pkt_ctx->ticks_per_frame == 2
+                            ? helper->parser_ctx->repeat_pict
+                            : 2 * helper->parser_ctx->repeat_pict + 1;
+            else
+                repeat_pict = 1;
             /* Set video frame info if this stream is active. */
             if( pkt.stream_index == vdhp->stream_index )
             {
