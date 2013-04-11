@@ -371,7 +371,7 @@ static uint32_t seek_video
             return 0;
         if( current <= vdhp->frame_count && vdhp->frame_list[current].repeat_pict == 0 )
             vdhp->last_half_frame ^= 1;
-        if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1 )
+        if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
         {
             decoder_delay += vdhp->last_half_frame;
             goal          += vdhp->last_half_frame;
@@ -849,7 +849,7 @@ int lwlibav_find_first_valid_video_frame
         {
             if( vdhp->frame_list[i].repeat_pict == 0 )
                 vdhp->last_half_frame ^= 1;
-            if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1 )
+            if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
                 decoder_delay += vdhp->last_half_frame;
             if( got_picture )
             {
