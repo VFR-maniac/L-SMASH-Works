@@ -594,6 +594,16 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
+static inline int check_frame_buffer_identical
+(
+    AVFrame *a,
+    AVFrame *b
+)
+{
+    return !memcmp( a->data,     b->data,     sizeof(a->data) )
+        && !memcmp( a->linesize, b->linesize, sizeof(a->linesize) );
+}
+
 static inline int copy_frame
 (
     lw_log_handler_t *lhp,
@@ -738,6 +748,8 @@ int lwlibav_get_video_frame
         if( get_requested_picture( vdhp, vohp->frame_cache_buffers[1], second_field_number ) < 0 )
             return -1;
         vohp->frame_cache_numbers[1] = second_field_number;
+        if( check_frame_buffer_identical( vohp->frame_cache_buffers[0], vohp->frame_cache_buffers[1] ) )
+            return copy_frame( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[0] );
         if( copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[0], t > b ? 1 : 0 ) < 0
          || copy_field( &vdhp->lh, vdhp->frame_buffer, vohp->frame_cache_buffers[1], t < b ? 1 : 0 ) < 0 )
             return -1;
