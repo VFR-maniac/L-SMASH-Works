@@ -72,7 +72,7 @@ FILTER_DLL filter =
     NULL,                                           /* Pointer to group of set points of checkbox */
     NULL,                                           /* Pointer to extended data region (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
     0,                                              /* Size of extended data (Valid only if FILTER_FLAG_EX_DATA is enabled.) */
-    "L-SMASH Dumper r" LSMASHWORKS_REV "\0",        /* Information of filter plugin */
+    "L-SMASH Works Dumper r" LSMASHWORKS_REV "\0",  /* Information of filter plugin */
 };
 
 EXTERN_C FILTER_DLL __declspec(dllexport) * __stdcall GetFilterTable( void )
