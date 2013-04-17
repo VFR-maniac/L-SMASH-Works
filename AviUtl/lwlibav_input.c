@@ -105,7 +105,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     indicator.update = update_indicator;
     indicator.close  = close_indicator;
     progress_handler_t ph = { { 0 } };
-    ph.module_name = "lsmashinput.aui";
+    ph.module_name = "lwinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
     /* Construct index. */
     if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->voh, &hp->adh, &hp->aoh, &lh, &lwlibav_opt, &indicator, &ph ) < 0 )

@@ -8,7 +8,7 @@ vpath %.c $(SRCDIR)
 vpath %.h $(SRCDIR)
 vpath %.rc $(SRCDIR)
 
-OBJ_INPUT = $(SRC_INPUT:%.c=%.o) lsmashinput.res
+OBJ_INPUT = $(SRC_INPUT:%.c=%.o) lwinput.res
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o) lwmuxer.res
 OBJ_DUMPER = $(SRC_DUMPER:%.c=%.o)
 
@@ -24,13 +24,13 @@ endif
 
 all: input muxer dumper
 
-input: lsmashinput.aui
+input: lwinput.aui
 
 muxer: lwmuxer.auf
 
 dumper: lwdumper.auf
 
-lsmashinput.aui: $(OBJ_INPUT)
+lwinput.aui: $(OBJ_INPUT)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 lwmuxer.auf: $(OBJ_MUXER)

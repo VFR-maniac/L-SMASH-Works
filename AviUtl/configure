@@ -83,7 +83,7 @@ AU_LDFLAGS="-shared -Wl,--dll,--add-stdcall-alias"
 LDFLAGS="-L."
 DEPLIBS="liblsmash libavformat libavcodec libswscale libavresample libavutil"
 
-SRC_INPUT="lsmashinput.c libavsmash_input.c libav_input.c avs_input.c dummy_input.c          \
+SRC_INPUT="lwinput.c libavsmash_input.c lwlibav_input.c avs_input.c dummy_input.c            \
            colorspace.c colorspace_simd.c video_output.c audio_output.c progress_dlg.c       \
            ../common/libavsmash.c ../common/libavsmash_video.c ../common/libavsmash_audio.c  \
            ../common/lwlibav_dec.c ../common/lwlibav_video.c ../common/lwlibav_audio.c       \
@@ -271,7 +271,7 @@ cat << EOF
 
 configure finished.
 type 'make'        : compile all plugins
-type 'make input'  : compile lsmashinput.aui
+type 'make input'  : compile lwinput.aui
 type 'make muxer'  : compile lwmuxer.auf
 type 'make dumper' : compile lwdumper.auf
 EOF
