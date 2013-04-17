@@ -34,7 +34,7 @@
 #include <libavresample/avresample.h>   /* Audio resampler */
 #include <libavutil/mathematics.h>
 
-#include "lsmashinput.h"
+#include "lwinput.h"
 #include "colorspace.h"
 #include "video_output.h"
 #include "audio_output.h"

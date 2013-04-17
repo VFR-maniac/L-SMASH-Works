@@ -22,7 +22,7 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-#include "lsmashinput.h"
+#include "lwinput.h"
 
 typedef struct
 {

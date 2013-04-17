@@ -29,7 +29,7 @@
 #include <libswscale/swscale.h>         /* Colorspace converter */
 #include <libavresample/avresample.h>   /* Audio resampler */
 
-#include "lsmashinput.h"
+#include "lwinput.h"
 #include "resource.h"
 #include "progress_dlg.h"
 #include "colorspace.h"

@@ -28,7 +28,7 @@
 #include <libavresample/avresample.h>
 #include <libavutil/opt.h>
 
-#include "lsmashinput.h"
+#include "lwinput.h"
 #include "audio_output.h"
 
 static inline enum AVSampleFormat au_decide_audio_output_sample_format
