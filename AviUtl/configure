@@ -89,7 +89,7 @@ SRC_INPUT="lsmashinput.c libavsmash_input.c libav_input.c avs_input.c dummy_inpu
            ../common/lwlibav_dec.c ../common/lwlibav_video.c ../common/lwlibav_audio.c       \
            ../common/lwindex.c ../common/resample.c ../common/audio_output.c                 \
            ../common/video_output.c ../common/utils.c"
-SRC_MUXER="lsmashmuxer.c progress_dlg.c ../common/utils.c"
+SRC_MUXER="lwmuxer.c progress_dlg.c ../common/utils.c"
 SRC_DUMPER="lsmashdumper.c"
 
 # -- options ----------------------------------------------------------------------------------
@@ -272,6 +272,6 @@ cat << EOF
 configure finished.
 type 'make'        : compile all plugins
 type 'make input'  : compile lsmashinput.aui
-type 'make muxer'  : compile lsmashmuxer.auf
+type 'make muxer'  : compile lwmuxer.auf
 type 'make dumper' : compile lsmashdumper.auf
 EOF

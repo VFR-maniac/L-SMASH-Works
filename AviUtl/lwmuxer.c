@@ -1371,7 +1371,7 @@ static int finish_movie( output_movie_t *output, int optimize_pd )
     if( !optimize_pd )
         return lsmash_finish_movie( output->root, NULL );
     progress_dlg_t progress_dlg;
-    init_progress_dlg( &progress_dlg, "lsmashmuxer.auf", IDD_PROGRESS_UNABORTABLE );
+    init_progress_dlg( &progress_dlg, "lwmuxer.auf", IDD_PROGRESS_UNABORTABLE );
     lsmash_adhoc_remux_t moov_to_front;
     moov_to_front.func        = moov_to_front_callback;
     moov_to_front.buffer_size = 4*1024*1024;    /* 4MiB */
