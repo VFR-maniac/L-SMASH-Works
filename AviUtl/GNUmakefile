@@ -28,7 +28,7 @@ input: lsmashinput.aui
 
 muxer: lwmuxer.auf
 
-dumper: lsmashdumper.auf
+dumper: lwdumper.auf
 
 lsmashinput.aui: $(OBJ_INPUT)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -36,7 +36,7 @@ lsmashinput.aui: $(OBJ_INPUT)
 lwmuxer.auf: $(OBJ_MUXER)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-lsmashdumper.auf: $(OBJ_DUMPER)
+lwdumper.auf: $(OBJ_DUMPER)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 %.o: %.c .depend
