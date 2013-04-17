@@ -1085,7 +1085,7 @@ static int do_mux( lsmash_handler_t *hp )
     uint32_t          num_output_samples[2]       = { 0, 0 };
     uint64_t          total_num_samples           = hp->number_of_samples[VIDEO_TRACK] + hp->number_of_samples[AUDIO_TRACK];
     progress_dlg_t    progress_dlg;
-    init_progress_dlg( &progress_dlg, "lsmashmuxer.auf", IDD_PROGRESS_ABORTABLE );
+    init_progress_dlg( &progress_dlg, "lwmuxer.auf", IDD_PROGRESS_ABORTABLE );
     while( 1 )
     {
         /* Try append a sample in an input track where we didn't reach the end of media timeline. */
@@ -1590,7 +1590,7 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
             muxer_t muxer;
             muxer.editp = editp;
             muxer.fp    = fp;
-            DialogBoxParam( GetModuleHandle( "lsmashmuxer.auf" ), MAKEINTRESOURCE( IDD_MUXER_OPTIONS ), hwnd, dialog_proc, (LPARAM)&muxer );
+            DialogBoxParam( GetModuleHandle( "lwmuxer.auf" ), MAKEINTRESOURCE( IDD_MUXER_OPTIONS ), hwnd, dialog_proc, (LPARAM)&muxer );
             break;
         }
         case WM_FILTER_FILE_CLOSE :
