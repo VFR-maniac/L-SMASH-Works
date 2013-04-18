@@ -30,12 +30,41 @@
 #include <commctrl.h>
 
 #include <libavutil/channel_layout.h>
+/* Version */
+#include <libavutil/version.h>
+#include <libavcodec/version.h>
+#include <libavformat/version.h>
+#include <libswscale/version.h>
+#include <libavresample/version.h>
+/* License */
+#include <libavutil/avutil.h>
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+#include <libavresample/avresample.h>
 
 #define MAX_AUTO_NUM_THREADS 16
 
 #define MPEG4_FILE_EXT      "*.mp4;*.m4v;*.m4a;*.mov;*.qt;*.3gp;*.3g2;*.f4v;*.ismv;*.isma"
 #define INDEX_FILE_EXT      "*.lwi"
 #define ANY_FILE_EXT        "*.*"
+
+static char plugin_information[512] = { 0 };
+
+static void get_plugin_information( void )
+{
+    sprintf( plugin_information,
+             "L-SMASH Works File Reader r%s\n"
+             "    libavutil %s: %s / libavcodec %s: %s\n"
+             "    libavformat %s: %s / libswscale %s: %s\n"
+             "    libavresample %s: %s",
+             LSMASHWORKS_REV,
+             AV_STRINGIFY( LIBAVUTIL_VERSION     ), avutil_license    (),
+             AV_STRINGIFY( LIBAVCODEC_VERSION    ), avcodec_license   (),
+             AV_STRINGIFY( LIBAVFORMAT_VERSION   ), avformat_license  (),
+             AV_STRINGIFY( LIBSWSCALE_VERSION    ), swscale_license   (),
+             AV_STRINGIFY( LIBAVRESAMPLE_VERSION ), avresample_license() );
+}
 
 INPUT_PLUGIN_TABLE input_plugin_table =
 {
@@ -599,6 +628,17 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->colorspace, 0 );
+            /* Library informations */
+            if( plugin_information[0] == 0 )
+                get_plugin_information();
+            SetDlgItemText( hwnd, IDC_TEXT_LIBRARY_INFO, (LPCTSTR)plugin_information );
+            HFONT hfont = (HFONT)GetStockObject( DEFAULT_GUI_FONT );
+            LOGFONT lf = { 0 };
+            GetObject( hfont, sizeof(lf), &lf );
+            lf.lfWidth  *= 0.90;
+            lf.lfHeight *= 0.90;
+            lf.lfQuality = ANTIALIASED_QUALITY;
+            SendMessage( GetDlgItem( hwnd, IDC_TEXT_LIBRARY_INFO ), WM_SETFONT, (WPARAM)CreateFontIndirect( &lf ), 1 );
             return TRUE;
         case WM_NOTIFY :
             if( wparam == IDC_SPIN_THREADS )

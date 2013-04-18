@@ -64,6 +64,7 @@
 #define IDC_EDIT_SAMPLE_RATE          1128
 #define IDC_CHECK_APPLY_REPEAT_FLAG   1129
 #define IDC_COMBOBOX_FIELD_DOMINANCE  1130
+#define IDC_TEXT_LIBRARY_INFO         1131
 
 /* Muxer dialog */
 #define IDD_MUXER_OPTIONS              103
