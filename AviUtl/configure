@@ -216,7 +216,7 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libavresample/avresample.h" "av
 fi
 
 LDFLAGS="$AU_LDFLAGS $LDFLAGS"
-LIBS="-lcomctl32 -lwinmm $LIBS $XLIBS"
+LIBS="-lcomctl32 -lwinmm -lgdi32 $LIBS $XLIBS"
 
 # -- output config.h --------------------------------------------------------------------------
 pushd $SRCDIR
