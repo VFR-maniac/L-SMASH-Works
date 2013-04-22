@@ -26,7 +26,7 @@
                 Let's say
                   - the threshold is T,
                 and
-                  - you request to seek the frame numbered as M called f(M) from the frame numbered as N called f(N).
+                  - you request to seek the M-th frame called f(M) from the N-th frame called f(N).
                 If M > N and M - N <= T, then
                     the decoder tries to get f(N) by decoding frames from f(M) sequentially.
                 If M < N or M - N > T, then
