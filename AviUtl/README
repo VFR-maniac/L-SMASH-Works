@@ -49,12 +49,6 @@
                 The scaling algorithm for chroma upsamling.
                 This settings is applied for progressive or non-YUV4:2:0 frames.
                 For interlaced YUV4:2:0 frames, apply 5-3-7-1 interlaced YUV4:2:0 interpolation based on MPEG-2 Video chroma location.
-            + Apply repeat flag : check box (default : unchecked)
-                Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if checked and usable.
-                If unchecked, video frames consisting of two separated field coded pictures are displayed twice consecutively.
-            + Field dominance : combo box (default : Top -> Bottom)
-                Which field, top or bottom, is displayed first.
-                This settings is enabled only if Apply repeat flag is checked.
         [Audio postprocessors]
             + Audio delay : edit box (default : 0)
                 Amount of audio delay relative to video stream in units of the number of PCM samples.
@@ -146,14 +140,20 @@
                 Create the index file (.lwi) to the same directory as the input file if checked.
                 The index file avoids parsing all frames in the input file at the next or later access.
                 Parsing all frames is very important for frame accurate seek.
-            + Libav video index check box (default : unchecked) / edit box (default : -1)
+            + Libav video index : check box (default : unchecked) / edit box (default : -1)
                 Try to activate a video stream specified if checked.
                 The value -1 deactivates any video stream.
                 If unchecked, try to activate a video stream which has the largest resolution.
-            + Libav audio index check box (default : unchecked) / edit box (default : -1)
+            + Libav audio index : check box (default : unchecked) / edit box (default : -1)
                 Try to activate a audio stream specified if checked.
                 The value -1 deactivates any audio stream.
                 If unchecked, try to activate the first detected audio stream.
+            + Apply repeat flag : check box (default : unchecked)
+                Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if checked and usable.
+                If unchecked, video frames consisting of two separated field coded pictures are displayed twice consecutively.
+            + Field dominance : combo box (default : Top -> Bottom)
+                Which field, top or bottom, is displayed first.
+                This settings is enabled only if Apply repeat flag is checked.
         [Dummy reader]
             Dummy reader is used when deactivating video stream or the input file has no video stream
             since AviUtl can't handle any input file without video stream.
@@ -172,7 +172,7 @@
             Specify a path of simple text file which describes chapters.
             For all ISO Base Media file format, a chapter list will be written.
             For iTunes MP4 (known as M4A, M4V ...) or QuickTime file format (known as MOV), a reference chapter track will be written.
-        + Optimize for Progressive Download (default : checked)
+        + Optimize for Progressive Download : check box (default : checked)
             Move overall necessary data to access and decode samples into the very front of the file at the end of muxing if checked.
 [lwdumper: L-SMASH Works Dumper]
     This plugin supports only file formats derived from ISO Base Media (ISO/IEC 14496-12) and QuickTime (MOV) currently.
