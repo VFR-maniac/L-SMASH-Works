@@ -70,7 +70,7 @@
             LWLibavSource(string source, int stream_index = -1, int threads = 0, int cache = 1,
                           int seek_mode = 0, int seek_threshold = 10, int dr = 0,
                           int repeat = 0, int dominance = 1)
-                * This function uses libavcodec as video decoder and as demuxer.
+                * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
                 + source
                     The path of the source file.

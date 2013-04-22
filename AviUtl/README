@@ -13,7 +13,7 @@
             + AviSynth Script : check box (default : checked)
                 Enable a reader for AviSynth Script files (*.avs) if checked.
             + LW-Libav        : check box (default : checked)
-                Enable a reader by libavcodec as decoder and as demuxer if checked.
+                Enable a reader by libavcodec as decoder and libavformat as demuxer if checked.
         [Decoders]
             Libav+L-SMASH and LW-Libav use libavcodec as a decoder.
             The following settings affect these readers.

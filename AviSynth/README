@@ -132,7 +132,7 @@
             LWLibavVideoSource(string source, int stream_index = -1, int threads = 0, bool cache = true,
                                int seek_mode = 0, int seek_threshold = 10, bool dr = false,
                                bool repeat = false, int dominance = 1)
-                * This function uses libavcodec as video decoder and as demuxer.
+                * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
                 + source
                     The path of the source file.
@@ -162,7 +162,7 @@
                     This option is enabled only if 'repeat' is set to true.
         [LWLibavAudioSource]
             LWLibavAudioSource(string source, int stream_index = -1, bool cache = true, bool av_sync = false, string layout = "", int rate = 0)
-                * This function uses libavcodec as audio decoder and as demuxer.
+                * This function uses libavcodec as audio decoder and libavformat as demuxer.
                 * If audio stream can be coded as lossy, do pre-roll whenever any seek of audio stream occurs.
             [Arguments]
                 + source

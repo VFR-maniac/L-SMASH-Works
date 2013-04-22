@@ -13,7 +13,7 @@
             + AviSynth Script : チェックボックス (デフォルト値 : 有効)
                 チェックがされている場合、avisynth.dllを利用して、AviSynthスクリプトファイル(拡張子: .avsなファイル)の読み込みをサポートします。
             + LW-Libav        : チェックボックス (デフォルト値 : 有効)
-                チェックがされている場合、libavcodecをdemuxer及びデコーダとして、入力ファイルの読み込みに使用します。
+                チェックがされている場合、libavformatをdemuxerとして、libavcodecをデコーダとして入力ファイルの読み込みに使用します。
             * demuxerとはストリーム分離器のことです。
         [デコーダ]
             Libav+L-SMASH と LW-Libav は libavcodec をデコーダとして使用します。
