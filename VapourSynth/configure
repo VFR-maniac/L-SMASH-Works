@@ -237,7 +237,7 @@ if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "libswscale/swscale.h" "sws_getC
 fi
 
 # -- LDFLAGS settings --------------------------------------------------------------------------
-if [ "$SYS" = "MINGW" ]; then
+if [ "$SYS" = WIN32 ]; then
     LDFLAGS="$LDFLAGS -shared -Wl,--dll,--add-stdcall-alias"
     LIBS="-lwinmm $LIBS $XLIBS"
 else
