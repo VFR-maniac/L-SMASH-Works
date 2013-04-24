@@ -58,7 +58,8 @@
                     If any priming samples, do pre-roll whenever any seek of audio stream occurs.
                 + layout (default : "")
                     Output audio channel layout.
-                    If unspecified, the resampler does nothing to change channel layout from the decoder.
+                    If unspecified, audio stream is output to the buffer from the decoder via the resampler at the channel layout
+                    which is the first maximum number of channels in audio stream.
                     You can specify channel layout by combination of the name of a channel layout with separator (+) as follows.
                         - the name or mask of a single channel.
                             FL   (0x1)         = Front Left

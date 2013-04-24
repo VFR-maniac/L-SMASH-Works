@@ -56,11 +56,12 @@
                 Negative value means audio is advanced from the original and the first samples are removed by the specified value.
             + Sampling rate : edit box (default : 0)
                 Audio sampling rate or sampling frequency in units of Hz.
-                The defaut value 0 means audio stream is output to the buffer via the resampler at the maximum sampling rate in audio stream.
-                Otherwise, audio stream is output to the buffer via the resampler at specified sampling rate.
+                The value 0 means audio stream is output to the buffer from the decoder via the resampler at the maximum sampling rate in audio stream.
+                Otherwise, audio stream is output to the buffer from the decoder via the resampler at specified sampling rate.
             + Channel layout : edit box (default : Unspecified)
                 Output audio channel layout.
-                If unspecified, the resampler does nothing to change channel layout from the decoder.
+                If unspecified, audio stream is output to the buffer from the decoder via the resampler at the channel layout
+                which is the first maximum number of channels in audio stream.
                 You can specify channel layout by combination of the name of a channel layout with separator (+) as follows.
                     - the name or mask of a single channel.
                         FL   (0x1)         = Front Left
