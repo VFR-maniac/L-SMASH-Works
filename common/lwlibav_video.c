@@ -254,7 +254,7 @@ static uint32_t correct_current_frame_number
 #undef MATCH_POS
 }
 
-static int decode_video_sample
+static int decode_video_picture
 (
     lwlibav_video_decode_handler_t *vdhp,
     AVFrame                        *picture,
@@ -279,9 +279,17 @@ static int decode_video_sample
     }
     if( pkt->flags & AV_PKT_FLAG_KEY )
         vdhp->last_rap_number = *current;
-    av_frame_unref( picture );
+    AVFrame *mov_frame = vdhp->movable_frame_buffer;
+    av_frame_unref( mov_frame );
     int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
-    ret = avcodec_decode_video2( vdhp->ctx, picture, got_picture, pkt );
+    ret = avcodec_decode_video2( vdhp->ctx, mov_frame, got_picture, pkt );
+    /* We can't get the requested frame by feeding a picture if that picture is PAFF field coded.
+     * This branch avoids putting empty data on the frame buffer. */
+    if( *got_picture )
+    {
+        av_frame_unref( picture );
+        av_frame_move_ref( picture, mov_frame );
+    }
     picture->pts = pts;
     if( ret < 0 )
     {
@@ -364,21 +372,34 @@ static uint32_t seek_video
     uint32_t goal = presentation_sample_number + decoder_delay;
     exhp->delay_count     = 0;
     vdhp->last_half_frame = 0;
-    for( current = rap_number; current < goal; current++ )
+    for( current = rap_number; current <= goal; current++ )
     {
-        int ret = decode_video_sample( vdhp, picture, &got_picture, &current, goal, rap_number );
+        int ret = decode_video_picture( vdhp, picture, &got_picture, &current, goal, rap_number );
         if( ret == -2 )
             return 0;
-        if( current <= vdhp->frame_count )
+        else if( ret >= 1 )
         {
-            /* Handle decoder delay derived from PAFF field coded pictures. */
-            if( vdhp->frame_list[current].repeat_pict == 0 )
-                vdhp->last_half_frame ^= 1;
+            /* No decoding occurs. */
+            got_picture = 0;
+            break;
+        }
+        /* Handle decoder delay derived from PAFF field coded pictures. */
+        if( current <= vdhp->frame_count && current >= rap_number + decoder_delay
+         && !got_picture && vdhp->frame_list[current].repeat_pict == 0 )
+        {
+            /* No output picture since the second field coded picture of the next frame is not decoded yet. */
             if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
             {
-                decoder_delay += vdhp->last_half_frame;
-                goal          += vdhp->last_half_frame;
+                uint32_t new_decoder_delay = thread_delay + 2 * vdhp->ctx->has_b_frames + 1UL;
+                goal += new_decoder_delay - decoder_delay;
+                decoder_delay = new_decoder_delay;
             }
+        }
+        if( got_picture )
+        {
+            exhp->delay_count = MIN( decoder_delay, current - rap_number );
+            uint32_t frame_number = current - exhp->delay_count;
+            vdhp->last_half_frame = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
         }
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
@@ -390,18 +411,25 @@ static uint32_t seek_video
                 vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
             return 0;
         }
-        else if( ret >= 1 )
+    }
+    exhp->delay_count = MIN( decoder_delay, current - rap_number );
+    if( current > rap_number && vdhp->last_half_frame )
+    {
+        if( got_picture )
+            /* first field of PAFF field coded picture */
+            vdhp->last_half_offset = 0;
+        else
         {
-            /* No decoding occurs. */
-            got_picture = 0;
-            break;
+            /* second field of PAFF field coded picture */
+            vdhp->last_half_frame  = UINT32_MAX;
+            vdhp->last_half_offset = 1;     /* A picture of the second field is already decoded. */
         }
     }
-    vdhp->exh.delay_count = MIN( decoder_delay, current - rap_number );
-    if( vdhp->frame_list[ current - 1 - vdhp->exh.delay_count ].repeat_pict == 0 )
-        vdhp->last_half_frame = got_picture ? UINT32_MAX : 0;
     else
-        vdhp->last_half_frame = 0;
+    {
+        vdhp->last_half_frame  = 0;
+        vdhp->last_half_offset = 0;
+    }
     return current;
 }
 
@@ -411,6 +439,8 @@ static inline int copy_last_frame
     AVFrame                        *picture
 )
 {
+    /* Copy the last decoded and output frame. */
+    assert( vdhp->last_frame_buffer );
     if( picture == vdhp->last_frame_buffer )
         return 0;
     av_frame_unref( picture );
@@ -426,61 +456,77 @@ static int get_picture
     uint32_t                        rap_number
 )
 {
-    int got_picture = (current + (vdhp->last_half_frame ? 1 : 0) > goal);
+    int got_picture = (current > goal);
     if( got_picture )
     {
-        /* The last decoded frame is the requested frame. */
-        if( (current - vdhp->exh.delay_count == vdhp->last_frame_number)
-         || (current - vdhp->exh.delay_count == vdhp->last_frame_number + (vdhp->last_half_frame ? 1 : 0)) )
-        {
-            assert( vdhp->last_frame_buffer );
+        /* The last decoded and output frame is the requested frame. */
+        uint32_t frame_number = goal - vdhp->exh.delay_count;
+        if( frame_number == vdhp->last_frame_number )
             return copy_last_frame( vdhp, picture );
-        }
         else
             return 0;
     }
     while( current <= goal )
     {
-        int ret = decode_video_sample( vdhp, picture, &got_picture, &current, goal, rap_number );
+        int ret = decode_video_picture( vdhp, picture, &got_picture, &current, goal, rap_number );
         if( ret < 0 )
             return -1;
         else if( ret == 1 )
-            break;      /* Sample doesn't exist. */
-        if( current > vdhp->exh.delay_count
-         && current - vdhp->exh.delay_count <= vdhp->frame_count
-         && vdhp->frame_list[ current - vdhp->exh.delay_count ].repeat_pict == 0 )
+            /* No more frames. */
+            break;
+        uint32_t frame_number = current - vdhp->exh.delay_count;
+        if( got_picture )
         {
-            /* Handle PAFF field coded picture. */
-            if( got_picture )
+            /* frame coded picture or first field of PAFF field coded picture. */
+            vdhp->last_half_frame  = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
+            vdhp->last_half_offset = 0;
+        }
+        else
+        {
+            if( vdhp->last_half_frame )
             {
-                if( current + 1 == goal
-                 && current + 1 - vdhp->exh.delay_count <= vdhp->frame_count
-                 && vdhp->frame_list[ current + 1 - vdhp->exh.delay_count ].repeat_pict == 0 )
+                /* second field of PAFF field coded picture */
+                vdhp->last_half_frame  = UINT32_MAX;
+                vdhp->last_half_offset = 1;     /* A picture of the second field is already decoded. */
+                if( current == goal )
                 {
-                    /* Libavcodec will not return the requested frame by feeding the next picture.
-                     * Instead, this picture, the second field of a frame, shall be just the requested frame. */
-                    vdhp->last_half_frame = UINT32_MAX;
-                    return 0;
+                    /* The last decoded and output frame is the requested frame. */
+                    if( frame_number == vdhp->last_frame_number + 1 )
+                        return copy_last_frame( vdhp, picture );
+                    else
+                        return 0;
                 }
-                else
-                    vdhp->last_half_frame = 1;
             }
             else
             {
-                vdhp->last_half_frame = 0;
-                if( current == goal )
-                    /* Try to decode more one picture. Libavcodec returns not every picture but every frame. */
-                    ++goal;
+                /* frame coded picture but delayed by picture reordering */
+                vdhp->last_half_offset = 0;
+                vdhp->exh.delay_count += 1;
             }
         }
-        if( !got_picture )
-            ++ vdhp->exh.delay_count;
         ++current;
     }
     /* Flush the last frames. */
     if( current <= goal && current > vdhp->frame_count && vdhp->exh.delay_count )
         while( current <= goal )
         {
+            uint32_t frame_number = current - vdhp->exh.delay_count;
+            if( vdhp->last_half_frame && vdhp->last_half_offset == 0 )
+            {
+                /* A picture of the second field is already decoded. */
+                vdhp->last_half_frame  = UINT32_MAX;
+                vdhp->last_half_offset = 1;
+                if( current == goal )
+                {
+                    /* The last decoded and output frame is the requested frame. */
+                    if( frame_number == vdhp->last_frame_number + 1 )
+                        return copy_last_frame( vdhp, picture );
+                    else
+                        return 0;
+                }
+                ++current;
+                continue;
+            }
             AVPacket pkt = { 0 };
             av_init_packet( &pkt );
             pkt.data = NULL;
@@ -494,12 +540,8 @@ static int get_picture
             }
             if( !got_picture )
                 break;
-            vdhp->last_half_frame = (vdhp->frame_list[ current - vdhp->exh.delay_count ].repeat_pict == 0);
-            if( vdhp->last_half_frame )
-            {
-                ++ vdhp->exh.delay_count;
-                ++ current;
-            }
+            vdhp->last_half_frame  = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
+            vdhp->last_half_offset = 0;
             ++current;
         }
     return got_picture ? 0 : -1;
@@ -513,11 +555,12 @@ static int get_requested_picture
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
+    if( frame_number > vdhp->frame_count )
+        frame_number = vdhp->frame_count;
     if( frame_number == vdhp->last_frame_number
-     || frame_number == vdhp->last_frame_number + vdhp->last_half_frame )
+     || frame_number == vdhp->last_frame_number + vdhp->last_half_offset )
     {
         /* The last frame is the requested frame. */
-        assert( vdhp->last_frame_buffer );
         if( copy_last_frame( vdhp, picture ) < 0 )
             goto video_fail;
         return 0;
@@ -540,14 +583,14 @@ static int get_requested_picture
     if( frame_number > vdhp->last_frame_number
      && frame_number <= vdhp->last_frame_number + vdhp->forward_seek_threshold )
     {
-        start_number = vdhp->last_frame_number + 1 + vdhp->exh.delay_count;
+        start_number = vdhp->last_frame_number + vdhp->last_half_offset + 1 + vdhp->exh.delay_count;
         rap_number   = vdhp->last_rap_number;
     }
     else
     {
         lwlibav_find_random_accessible_point( vdhp, frame_number, 0, &rap_number );
         if( rap_number == vdhp->last_rap_number && frame_number > vdhp->last_frame_number )
-            start_number = vdhp->last_frame_number + 1 + vdhp->exh.delay_count;
+            start_number = vdhp->last_frame_number + vdhp->last_half_offset + 1 + vdhp->exh.delay_count;
         else
         {
             /* Require starting to decode from random accessible sample. */
@@ -585,7 +628,7 @@ static int get_requested_picture
     if( vdhp->last_half_frame == UINT32_MAX )
     {
         /* The second field was requested in this time.
-         * Shift number of the last frame to of the first field. */
+         * Shift the last frame number to the first field number. */
         vdhp->last_frame_number -= 1;
         vdhp->last_half_frame    = 1;
     }
@@ -828,6 +871,8 @@ void lwlibav_cleanup_video_decode_handler
     }
     if( vdhp->first_valid_frame )
         av_frame_free( &vdhp->first_valid_frame );
+    if( vdhp->movable_frame_buffer )
+        av_frame_free( &vdhp->movable_frame_buffer );
     if( vdhp->ctx )
     {
         avcodec_close( vdhp->ctx );
@@ -842,6 +887,9 @@ int lwlibav_find_first_valid_video_frame
     lwlibav_video_decode_handler_t *vdhp
 )
 {
+    vdhp->movable_frame_buffer = av_frame_alloc();
+    if( !vdhp->movable_frame_buffer )
+        return -1;
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
                         : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
                         : 0;
@@ -862,16 +910,17 @@ int lwlibav_find_first_valid_video_frame
         lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, i, pkt );
         av_frame_unref( vdhp->frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt ) >= 0 )
+        int ret = avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt );
+        /* Handle decoder delay derived from PAFF field coded pictures. */
+        if( i <= vdhp->frame_count && i > decoder_delay
+         && !got_picture && vdhp->frame_list[i].repeat_pict == 0 )
         {
-            if( i <= vdhp->frame_count )
-            {
-                /* Handle decoder delay derived from PAFF field coded pictures. */
-                if( vdhp->frame_list[i].repeat_pict == 0 )
-                    vdhp->last_half_frame ^= 1;
-                if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
-                    decoder_delay += vdhp->last_half_frame;
-            }
+            /* No output picture since the second field coded picture of the next frame is not decoded yet. */
+            if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
+                decoder_delay = thread_delay + 2 * vdhp->ctx->has_b_frames + 1UL;
+        }
+        if( ret >= 0 )
+        {
             if( got_picture )
             {
                 /* Found the first valid video frame. */

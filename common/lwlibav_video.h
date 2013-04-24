@@ -72,11 +72,13 @@ typedef struct
     order_converter_t  *order_converter;    /* stored in decoding order */
     uint8_t            *keyframe_list;      /* stored in decoding order */
     uint32_t            last_half_frame;
+    uint32_t            last_half_offset;
     uint32_t            last_frame_number;
     uint32_t            last_rap_number;
     uint32_t            first_valid_frame_number;
     AVFrame            *first_valid_frame;
     AVFrame            *last_frame_buffer;
+    AVFrame            *movable_frame_buffer;
 } lwlibav_video_decode_handler_t;
 
 int lwlibav_get_desired_video_track
