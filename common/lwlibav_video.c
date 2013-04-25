@@ -578,19 +578,20 @@ static int get_requested_picture
     }
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
-    int      seek_mode = vdhp->seek_mode;
-    int64_t  rap_pos   = INT64_MIN;
-    if( frame_number > vdhp->last_frame_number
-     && frame_number <= vdhp->last_frame_number + vdhp->forward_seek_threshold )
+    uint32_t last_frame_number = vdhp->last_frame_number + vdhp->last_half_offset;
+    int      seek_mode         = vdhp->seek_mode;
+    int64_t  rap_pos           = INT64_MIN;
+    if( frame_number > last_frame_number
+     && frame_number <= last_frame_number + vdhp->forward_seek_threshold )
     {
-        start_number = vdhp->last_frame_number + vdhp->last_half_offset + 1 + vdhp->exh.delay_count;
+        start_number = last_frame_number + 1 + vdhp->exh.delay_count;
         rap_number   = vdhp->last_rap_number;
     }
     else
     {
         lwlibav_find_random_accessible_point( vdhp, frame_number, 0, &rap_number );
-        if( rap_number == vdhp->last_rap_number && frame_number > vdhp->last_frame_number )
-            start_number = vdhp->last_frame_number + vdhp->last_half_offset + 1 + vdhp->exh.delay_count;
+        if( rap_number == vdhp->last_rap_number && frame_number > last_frame_number )
+            start_number = last_frame_number + 1 + vdhp->exh.delay_count;
         else
         {
             /* Require starting to decode from random accessible sample. */
