@@ -224,6 +224,7 @@ static uint32_t correct_current_frame_number
         return i;
     if( pkt->dts > info[p].dts )
     {
+        /* too forward */
         uint32_t limit = MIN( goal, vdhp->frame_count );
         if( oc )
             while( !MATCH_DTS( oc[++i].decoding_to_presentation )
@@ -238,6 +239,7 @@ static uint32_t correct_current_frame_number
     }
     else
     {
+        /* too backward */
         if( oc )
             while( !MATCH_DTS( oc[--i].decoding_to_presentation )
                 && !MATCH_POS( oc[  i].decoding_to_presentation )
@@ -269,19 +271,34 @@ static int decode_video_picture
     int ret = lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, frame_number, pkt );
     if( ret > 0 )
         return ret;
-    /* Shift the current frame number in order to match DTS since libavformat might have sought wrong position. */
+    /* Correct the current frame number in order to match DTS since libavformat might have sought wrong position. */
+    uint32_t correction_distance = 0;
     if( frame_number == rap_number && (vdhp->lw_seek_flags & SEEK_DTS_BASED) )
     {
         frame_number = correct_current_frame_number( vdhp, pkt, frame_number, goal );
         if( frame_number == 0 )
             return -2;
+        if( *current > frame_number )
+            /* It seems we got a more backward frame rather than what we requested. */
+            correction_distance = *current - frame_number;
         *current = frame_number;
     }
     if( pkt->flags & AV_PKT_FLAG_KEY )
-        vdhp->last_rap_number = *current;
+        vdhp->last_rap_number = frame_number;
+    /* Avoid decoding frames until the seek correction caused by too backward is done. */
+    while( correction_distance )
+    {
+        ret = lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, ++frame_number, pkt );
+        if( ret > 0 )
+            return ret;
+        if( pkt->flags & AV_PKT_FLAG_KEY )
+            vdhp->last_rap_number = frame_number;
+        *current = frame_number;
+        --correction_distance;
+    }
+    int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
     AVFrame *mov_frame = vdhp->movable_frame_buffer;
     av_frame_unref( mov_frame );
-    int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
     ret = avcodec_decode_video2( vdhp->ctx, mov_frame, got_picture, pkt );
     /* We can't get the requested frame by feeding a picture if that picture is PAFF field coded.
      * This branch avoids putting empty data on the frame buffer. */
