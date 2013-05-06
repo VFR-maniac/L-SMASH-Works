@@ -123,13 +123,12 @@ static inline void sort_decoding_order
 
 static inline int lineup_seek_base_candidates
 (
-    lwlibav_file_handler_t *lwhp,
-    int                     av_index_entry_present
+    lwlibav_file_handler_t *lwhp
 )
 {
     return !strcmp( lwhp->format_name, "mpeg" )
         || !strcmp( lwhp->format_name, "mpegts" )
-        || lwhp->raw_demuxer || !av_index_entry_present
+        || lwhp->raw_demuxer
          ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_BASED | SEEK_POS_CORRECTION
          : SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_CORRECTION;
 }
@@ -208,7 +207,7 @@ static int decide_video_seek_method
     uint32_t                        sample_count
 )
 {
-    vdhp->lw_seek_flags = lineup_seek_base_candidates( lwhp, vdhp->index_entries_count > 0 );
+    vdhp->lw_seek_flags = lineup_seek_base_candidates( lwhp );
     video_frame_info_t *info = vdhp->frame_list;
     /* Decide seek base. */
     for( uint32_t i = 1; i <= sample_count; i++ )
@@ -344,7 +343,7 @@ static void decide_audio_seek_method
     uint32_t                        sample_count
 )
 {
-    adhp->lw_seek_flags = lineup_seek_base_candidates( lwhp, adhp->index_entries_count > 0 );
+    adhp->lw_seek_flags = lineup_seek_base_candidates( lwhp );
     audio_frame_info_t *info = adhp->frame_list;
     for( uint32_t i = 1; i <= sample_count; i++ )
         if( info[i].pts == AV_NOPTS_VALUE )
