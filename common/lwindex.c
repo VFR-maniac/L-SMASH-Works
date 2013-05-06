@@ -124,10 +124,12 @@ static inline void sort_decoding_order
 static inline int lineup_seek_base_candidates
 (
     lwlibav_file_handler_t *lwhp,
-    int                     has_av_index_entries
+    int                     av_index_entry_present
 )
 {
-    return !strcmp( lwhp->format_name, "mpeg" ) || !strcmp( lwhp->format_name, "mpegts" ) || !has_av_index_entries
+    return !strcmp( lwhp->format_name, "mpeg" )
+        || !strcmp( lwhp->format_name, "mpegts" )
+        || lwhp->raw_demuxer || !av_index_entry_present
          ? SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_BASED | SEEK_POS_CORRECTION
          : SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_CORRECTION;
 }
@@ -1168,9 +1170,9 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=9>
+        <LibavReaderIndexFile=10>
         <InputFilePath>foobar.omo</InputFilePath>
-        <LibavReaderIndex=0x00000208,marumoska>
+        <LibavReaderIndex=0x00000208,0,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
@@ -1196,6 +1198,7 @@ static void create_index
     }
     lwhp->format_name  = (char *)format_ctx->iformat->name;
     lwhp->format_flags = format_ctx->iformat->flags;
+    lwhp->raw_demuxer  = !!format_ctx->iformat->raw_codec_id;
     vdhp->format       = format_ctx;
     adhp->format       = format_ctx;
     adhp->dv_in_avi    = !strcmp( lwhp->format_name, "avi" ) ? -1 : 0;
@@ -1206,7 +1209,7 @@ static void create_index
         /* Write Index file header. */
         fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
         fprintf( index, "<InputFilePath>%s</InputFilePath>\n", lwhp->file_path );
-        fprintf( index, "<LibavReaderIndex=0x%08x,%s>\n", lwhp->format_flags, lwhp->format_name );
+        fprintf( index, "<LibavReaderIndex=0x%08x,%d,%s>\n", lwhp->format_flags, lwhp->raw_demuxer, lwhp->format_name );
         video_index_pos = ftell( index );
         fprintf( index, "<ActiveVideoStreamIndex>%+011d</ActiveVideoStreamIndex>\n", -1 );
         audio_index_pos = ftell( index );
@@ -1716,7 +1719,7 @@ static int parse_index
     char format_name[256];
     int active_video_index;
     int active_audio_index;
-    if( fscanf( index, "<LibavReaderIndex=0x%x,%[^>]>\n", &lwhp->format_flags, format_name ) != 2 )
+    if( fscanf( index, "<LibavReaderIndex=0x%x,%d,%[^>]>\n", &lwhp->format_flags, &lwhp->raw_demuxer, format_name ) != 3 )
         return -1;
     int32_t active_index_pos = ftell( index );
     if( fscanf( index, "<ActiveVideoStreamIndex>%d</ActiveVideoStreamIndex>\n", &active_video_index ) != 1

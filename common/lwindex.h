@@ -20,7 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#define INDEX_FILE_VERSION 9
+#define INDEX_FILE_VERSION 10
 
 typedef struct
 {
@@ -41,6 +41,7 @@ typedef struct
     char   *file_path;
     char   *format_name;
     int     format_flags;
+    int     raw_demuxer;
     int     threads;
     int64_t av_gap;
 } lwlibav_file_handler_t;
