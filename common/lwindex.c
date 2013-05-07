@@ -1224,6 +1224,7 @@ static void create_index
     int       constant_frame_length = 1;
     uint64_t  audio_duration        = 0;
     int64_t   first_dts             = AV_NOPTS_VALUE;
+    int64_t   filesize              = avio_size( format_ctx->pb );
     if( indicator->open )
         indicator->open( php );
     /* Start to read frames and write the index file. */
@@ -1468,15 +1469,20 @@ static void create_index
         }
         if( indicator->update )
         {
-            /* Update progress dialog if packet's DTS is valid. */
+            /* Update progress dialog. */
+            int percent = 0;
             if( first_dts == AV_NOPTS_VALUE )
                 first_dts = pkt.dts;
+            if( filesize > 0 && pkt.pos > 0 )
+                /* Update if packet's file offset is valid. */
+                percent = (int)(100.0 * ((double)pkt.pos / filesize) + 0.5);
+            else if( format_ctx->duration > 0 && first_dts != AV_NOPTS_VALUE && pkt.dts != AV_NOPTS_VALUE )
+                /* Update if packet's DTS is valid. */
+                percent = (int)(100.0
+                             * (pkt.dts - first_dts) * (stream->time_base.num / (double)stream->time_base.den)
+                             / (format_ctx->duration / AV_TIME_BASE)
+                             + 0.5);
             const char *message = index ? "Creating Index file" : "Parsing input file";
-            int percent = first_dts == AV_NOPTS_VALUE || pkt.dts == AV_NOPTS_VALUE
-                        ? 0
-                        : (int)(100.0 * (pkt.dts - first_dts)
-                             * (stream->time_base.num / (double)stream->time_base.den)
-                             / (format_ctx->duration / AV_TIME_BASE) + 0.5);
             int abort = indicator->update( php, message, percent );
             av_free_packet( &pkt );
             if( abort )
