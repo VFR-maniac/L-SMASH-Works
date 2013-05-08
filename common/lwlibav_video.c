@@ -356,7 +356,7 @@ void lwlibav_find_random_accessible_point
     uint32_t                       *rap_number
 )
 {
-    uint8_t is_leading = vdhp->frame_list[presentation_sample_number].is_leading;
+    int is_leading = !!(vdhp->frame_list[presentation_sample_number].flags & LW_VFRAME_FLAG_LEADING);
     if( decoding_sample_number == 0 )
         decoding_sample_number = vdhp->frame_list[presentation_sample_number].sample_number;
     *rap_number = decoding_sample_number;
@@ -890,13 +890,12 @@ int lwlibav_is_keyframe
     assert( frame_number );
     if( vohp->repeat_control )
     {
-        lw_video_frame_order_t *order = &vohp->frame_order_list[frame_number];
-        return (vdhp->frame_list[ order->top    ].keyframe
-             && order->top    != (order - 1)->top && order->top    != (order - 1)->bottom)
-            || (vdhp->frame_list[ order->bottom ].keyframe
-             && order->bottom != (order - 1)->top && order->bottom != (order - 1)->bottom);
+        lw_video_frame_order_t *curr = &vohp->frame_order_list[frame_number    ];
+        lw_video_frame_order_t *prev = &vohp->frame_order_list[frame_number - 1];
+        return ((vdhp->frame_list[ curr->top    ].flags & LW_VFRAME_FLAG_KEY) && curr->top    != prev->top && curr->top    != prev->bottom)
+            || ((vdhp->frame_list[ curr->bottom ].flags & LW_VFRAME_FLAG_KEY) && curr->bottom != prev->top && curr->bottom != prev->bottom);
     }
-    return vdhp->frame_list[frame_number].keyframe;
+    return !!(vdhp->frame_list[frame_number].flags & LW_VFRAME_FLAG_KEY);
 }
 
 void lwlibav_cleanup_video_decode_handler

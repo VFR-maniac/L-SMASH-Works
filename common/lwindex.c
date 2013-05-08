@@ -190,8 +190,8 @@ static void mpeg12_video_vc1_genarate_pts
             if( info[i].pts       != AV_NOPTS_VALUE
              && last_keyframe_pts != AV_NOPTS_VALUE
              && info[i].pts < last_keyframe_pts )
-                info[i].is_leading = 1;
-            if( info[i].keyframe )
+                info[i].flags |= LW_VFRAME_FLAG_LEADING;
+            if( info[i].flags & LW_VFRAME_FLAG_KEY )
                 last_keyframe_pts = info[i].pts;
         }
     }
@@ -299,46 +299,58 @@ static int decide_video_seek_method
     /* Treat video frames with unique value as keyframe. */
     if( vdhp->lw_seek_flags & SEEK_POS_BASED )
     {
-        info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].file_offset != -1);
+        if( info[ info[1].sample_number ].file_offset == -1 )
+            info[ info[1].sample_number ].flags &= ~LW_VFRAME_FLAG_KEY;
         for( uint32_t i = 2; i <= sample_count; i++ )
         {
             uint32_t j = info[i    ].sample_number;
             uint32_t k = info[i - 1].sample_number;
             if( info[j].file_offset == -1 )
-                info[j].keyframe = 0;
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
             else if( info[j].file_offset == info[k].file_offset )
-                info[j].keyframe = info[k].keyframe = 0;
+            {
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
+                info[k].flags &= ~LW_VFRAME_FLAG_KEY;
+            }
         }
     }
     else if( vdhp->lw_seek_flags & SEEK_PTS_BASED )
     {
-        info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].pts != AV_NOPTS_VALUE);
+        if( info[ info[1].sample_number ].pts == AV_NOPTS_VALUE )
+            info[ info[1].sample_number ].flags &= ~LW_VFRAME_FLAG_KEY;
         for( uint32_t i = 2; i <= sample_count; i++ )
         {
             uint32_t j = info[i    ].sample_number;
             uint32_t k = info[i - 1].sample_number;
             if( info[j].pts == AV_NOPTS_VALUE )
-                info[j].keyframe = 0;
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
             else if( info[j].pts == info[k].pts )
-                info[j].keyframe = info[k].keyframe = 0;
+            {
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
+                info[k].flags &= ~LW_VFRAME_FLAG_KEY;
+            }
         }
     }
     else if( vdhp->lw_seek_flags & SEEK_DTS_BASED )
     {
-        info[ info[1].sample_number ].keyframe &= (info[ info[1].sample_number ].dts != AV_NOPTS_VALUE);
+        if( info[ info[1].sample_number ].dts == AV_NOPTS_VALUE )
+            info[ info[1].sample_number ].flags &= ~LW_VFRAME_FLAG_KEY;
         for( uint32_t i = 2; i <= sample_count; i++ )
         {
             uint32_t j = info[i    ].sample_number;
             uint32_t k = info[i - 1].sample_number;
             if( info[j].dts == AV_NOPTS_VALUE )
-                info[j].keyframe = 0;
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
             else if( info[j].dts == info[k].dts )
-                info[j].keyframe = info[k].keyframe = 0;
+            {
+                info[j].flags &= ~LW_VFRAME_FLAG_KEY;
+                info[k].flags &= ~LW_VFRAME_FLAG_KEY;
+            }
         }
     }
     /* Set up keyframe list: presentation order (info) -> decoding order (keyframe_list) */
     for( uint32_t i = 1; i <= sample_count; i++ )
-        vdhp->keyframe_list[ info[i].sample_number ] = info[i].keyframe;
+        vdhp->keyframe_list[ info[i].sample_number ] = !!(info[i].flags & LW_VFRAME_FLAG_KEY);
     return 0;
 }
 
@@ -1342,11 +1354,11 @@ static void create_index
                 video_info[video_sample_count].pict_type       = pict_type;
                 video_info[video_sample_count].repeat_pict     = repeat_pict;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
-                    video_info[video_sample_count].is_leading = 1;
+                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
                     /* For the present, treat this frame as a keyframe. */
-                    video_info[video_sample_count].keyframe = 1;
+                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
                     last_keyframe_pts = pkt.pts;
                 }
                 /* Set maximum resolution. */
@@ -1570,7 +1582,7 @@ static void create_index
             audio_sample_count = video_info ? MIN( video_sample_count, audio_sample_count ) : 0;
             for( uint32_t i = 1; i <= audio_sample_count; i++ )
             {
-                audio_info[i].keyframe        = video_info[i].keyframe;
+                audio_info[i].keyframe        = !!(video_info[i].flags & LW_VFRAME_FLAG_KEY);
                 audio_info[i].sample_number   = video_info[i].sample_number;
                 audio_info[i].pts             = video_info[i].pts;
                 audio_info[i].dts             = video_info[i].dts;
@@ -1677,8 +1689,6 @@ static void create_index
         vdhp->keyframe_list = (uint8_t *)lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
         if( !vdhp->keyframe_list )
             goto fail_index;
-        for( uint32_t i = 0; i <= video_sample_count; i++ )
-            vdhp->keyframe_list[i] = video_info[i].keyframe;
         vdhp->frame_list      = video_info;
         vdhp->frame_count     = video_sample_count;
         vdhp->initial_pix_fmt = vdhp->ctx->pix_fmt;
@@ -1866,10 +1876,10 @@ static int parse_index
                     video_info[video_sample_count].pict_type       = pict_type;
                     video_info[video_sample_count].repeat_pict     = repeat_pict;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
-                        video_info[video_sample_count].is_leading = 1;
+                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
                     if( key )
                     {
-                        video_info[video_sample_count].keyframe = 1;
+                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
                         last_keyframe_pts = pts;
                     }
                 }
@@ -2124,8 +2134,6 @@ static int parse_index
             vdhp->keyframe_list = (uint8_t *)lw_malloc_zero( (video_sample_count + 1) * sizeof(uint8_t) );
             if( !vdhp->keyframe_list )
                 goto fail_parsing;
-            for( uint32_t i = 0; i <= video_sample_count; i++ )
-                vdhp->keyframe_list[i] = video_info[i].keyframe;
             vdhp->frame_list  = video_info;
             vdhp->frame_count = video_sample_count;
             if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
@@ -2141,7 +2149,7 @@ static int parse_index
                 audio_sample_count = MIN( video_sample_count, audio_sample_count );
                 for( uint32_t i = 0; i <= audio_sample_count; i++ )
                 {
-                    audio_info[i].keyframe        = video_info[i].keyframe;
+                    audio_info[i].keyframe        = !!(video_info[i].flags & LW_VFRAME_FLAG_KEY);
                     audio_info[i].sample_number   = video_info[i].sample_number;
                     audio_info[i].pts             = video_info[i].pts;
                     audio_info[i].dts             = video_info[i].dts;

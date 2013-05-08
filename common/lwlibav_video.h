@@ -23,6 +23,9 @@
 typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
 typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
 
+#define LW_VFRAME_FLAG_KEY     0x1
+#define LW_VFRAME_FLAG_LEADING 0x2
+
 typedef struct
 {
     int64_t  pts;
@@ -30,8 +33,7 @@ typedef struct
     int64_t  file_offset;
     uint32_t sample_number;     /* unique value in decoding order */
     int      extradata_index;
-    uint8_t  keyframe;
-    uint8_t  is_leading;
+    int      flags;
     int      pict_type;         /* may be stored as enum AVPictureType */
     int      repeat_pict;
 } video_frame_info_t;
