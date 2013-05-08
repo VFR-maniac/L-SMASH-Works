@@ -262,7 +262,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
-    if( make_frame( &voh, vdh.frame_buffer, as_frame, config->ctx->colorspace, env ) < 0 )
+    if( make_frame( &voh, config->ctx, vdh.frame_buffer, as_frame, env ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return as_frame;
 }

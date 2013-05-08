@@ -28,9 +28,9 @@ typedef void func_make_black_background( PVideoFrame &frame );
 typedef int func_make_frame
 (
     struct SwsContext  *sws_ctx,
+    int                 height,
     AVFrame            *av_frame,
-    PVideoFrame        &as_frame,
-    IScriptEnvironment *env
+    PVideoFrame        &as_frame
 );
 
 typedef struct
@@ -49,9 +49,9 @@ typedef struct
 int make_frame
 (
     lw_video_output_handler_t *vohp,
+    AVCodecContext            *ctx,
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
-    enum AVColorSpace          colorspace,
     IScriptEnvironment        *env
 );
 

@@ -59,23 +59,24 @@ static void make_black_background_rgba32( PVideoFrame &frame )
 static inline int convert_av_pixel_format
 (
     struct SwsContext *sws_ctx,
+    int                height,
     AVFrame           *av_frame,
     AVPicture         *av_picture
 )
 {
     int ret = sws_scale( sws_ctx,
                          (const uint8_t * const *)av_frame->data, av_frame->linesize,
-                         0, av_frame->height,
+                         0, height,
                          av_picture->data, av_picture->linesize );
     return ret > 0 ? ret : -1;
 }
 
 static int make_frame_yuv420p
 (
-    struct SwsContext  *sws_ctx,
-    AVFrame            *av_frame,
-    PVideoFrame        &as_frame,
-    IScriptEnvironment *env
+    struct SwsContext *sws_ctx,
+    int                height,
+    AVFrame           *av_frame,
+    PVideoFrame       &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
@@ -85,35 +86,35 @@ static int make_frame_yuv420p
     av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
     av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
     av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
-    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
+    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
 }
 
 static int make_frame_yuv422
 (
-    struct SwsContext  *sws_ctx,
-    AVFrame            *av_frame,
-    PVideoFrame        &as_frame,
-    IScriptEnvironment *env
+    struct SwsContext *sws_ctx,
+    int                height,
+    AVFrame           *av_frame,
+    PVideoFrame       &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
     av_picture.data    [0] = as_frame->GetWritePtr();
     av_picture.linesize[0] = as_frame->GetPitch   ();
-    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
+    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
 }
 
 static int make_frame_rgba32
 (
-    struct SwsContext  *sws_ctx,
-    AVFrame            *av_frame,
-    PVideoFrame        &as_frame,
-    IScriptEnvironment *env
+    struct SwsContext *sws_ctx,
+    int                height,
+    AVFrame           *av_frame,
+    PVideoFrame       &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
     av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
     av_picture.linesize[0] = -as_frame->GetPitch();
-    return convert_av_pixel_format( sws_ctx, av_frame, &av_picture );
+    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
 }
 
 static int determine_colorspace_conversion
@@ -180,9 +181,9 @@ static int determine_colorspace_conversion
 int make_frame
 (
     lw_video_output_handler_t *vohp,
+    AVCodecContext            *ctx,
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
-    enum AVColorSpace          colorspace,
     IScriptEnvironment        *env
 )
 {
@@ -198,31 +199,31 @@ int make_frame
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
+     || vshp->input_width        != ctx->width
+     || vshp->input_height       != ctx->height
      || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != colorspace
+     || vshp->input_colorspace   != ctx->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     av_frame->width, av_frame->height,
+                                                     ctx->width, ctx->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
-                                                     colorspace, yuv_range );
+                                                     ctx->colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return -1;
-        vshp->input_width        = av_frame->width;
-        vshp->input_height       = av_frame->height;
+        vshp->input_width        = ctx->width;
+        vshp->input_height       = ctx->height;
         vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = colorspace;
+        vshp->input_colorspace   = ctx->colorspace;
         vshp->input_yuv_range    = yuv_range;
     }
     /* Render a video frame through the scaler from the decoder. */
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     as_frame = env->NewVideoFrame( *as_vohp->vi, 32 );
-    if( vohp->output_width != av_frame->width || vohp->output_height != av_frame->height )
+    if( vohp->output_width != ctx->width || vohp->output_height != ctx->height )
         as_vohp->make_black_background( as_frame );
-    return as_vohp->make_frame( vshp->sws_ctx, av_frame, as_frame, env );
+    return as_vohp->make_frame( vshp->sws_ctx, ctx->height, av_frame, as_frame );
 }
 
 static int as_check_dr_available

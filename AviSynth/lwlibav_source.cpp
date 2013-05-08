@@ -136,7 +136,7 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
     if( lwlibav_get_video_frame( &vdh, &voh, frame_number ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
-    if( make_frame( &voh, vdh.frame_buffer, as_frame, vdh.ctx->colorspace, env ) < 0 )
+    if( make_frame( &voh, vdh.ctx, vdh.frame_buffer, as_frame, env ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to make a frame." );
     return as_frame;
 }
