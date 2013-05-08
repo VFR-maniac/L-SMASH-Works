@@ -240,15 +240,22 @@ int libavsmash_get_video_frame
 #define MAX_ERROR_COUNT 3       /* arbitrary */
     codec_configuration_t *config  = &vdhp->config;
     AVFrame               *picture = vdhp->frame_buffer;
+    uint32_t               config_index;
     if( sample_number < vdhp->first_valid_frame_number || sample_count == 1 )
     {
+        /* Get the index of the decoder configuration. */
+        lsmash_sample_t sample;
+        uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, vdhp->first_valid_frame_number );
+        if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample ) < 0 )
+            goto video_fail;
+        config_index = sample.index;
         /* Copy the first valid video frame data. */
         av_frame_unref( picture );
         if( av_frame_ref( picture, vdhp->first_valid_frame ) < 0 )
             goto video_fail;
         /* Force seeking at the next access for valid video frame. */
         vdhp->last_sample_number = sample_count + 1;
-        return 0;
+        goto return_frame;
     }
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
@@ -310,6 +317,14 @@ int libavsmash_get_video_frame
         start_number = seek_video( vdhp, picture, sample_number, rap_number, roll_recovery || seek_mode != SEEK_MODE_NORMAL );
     }
     vdhp->last_sample_number = sample_number;
+    config_index = config->index;
+return_frame:;
+    /* Don't exceed the maximum presentation size specified for each sequence. */
+    extended_summary_t *extended = &config->entries[ config_index - 1 ].extended;
+    if( config->ctx->width > extended->width )
+        config->ctx->width = extended->width;
+    if( config->ctx->height > extended->height )
+        config->ctx->height = extended->height;
     return 0;
 video_fail:
     /* fatal error of decoding */

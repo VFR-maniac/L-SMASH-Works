@@ -644,8 +644,8 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     if( codec->type == AVMEDIA_TYPE_VIDEO )
     {
         lsmash_video_summary_t *video = (lsmash_video_summary_t *)summary;
-        ctx->coded_width  = video->width;
-        ctx->coded_height = video->height;
+        ctx->width  = video->width;
+        ctx->height = video->height;
         if( codec->id == AV_CODEC_ID_RAWVIDEO )
             /* Here, expect appropriate pixel format will be picked in avcodec_open2(). */
             config->queue.bits_per_sample = video->depth;
@@ -700,6 +700,10 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
     extended_summary_t *extended = &config->entries[ config->index - 1 ].extended;
     if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
     {
+        /* Set the maximum width and height in this sequence. */
+        extended->width  = ctx->width;
+        extended->height = ctx->height;
+        /* Actual decoding */
         uint32_t i = current_sample_number;
         do
         {
@@ -720,8 +724,6 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
             int dummy;
             avcodec_decode_video2( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
-        extended->width  = ctx->width;
-        extended->height = ctx->height;
     }
     else
     {
