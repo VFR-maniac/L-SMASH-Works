@@ -1371,9 +1371,9 @@ static void create_index
             {
                 lwlibav_extradata_handler_t *list = &helper->exh;
                 lwlibav_extradata_t *entry = &list->entries[ list->current_index ];
-                if( entry->width  == 0 )
-                    entry->width  = pkt_ctx->width;
-                if( entry->height == 0 )
+                if( entry->width < pkt_ctx->width )
+                    entry->width = pkt_ctx->width;
+                if( entry->height < pkt_ctx->height )
                     entry->height = pkt_ctx->height;
                 if( entry->pixel_format == AV_PIX_FMT_NONE )
                     entry->pixel_format = pkt_ctx->pix_fmt;

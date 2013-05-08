@@ -605,13 +605,15 @@ static int get_requested_picture
 #define MAX_ERROR_COUNT 3   /* arbitrary */
     if( frame_number > vdhp->frame_count )
         frame_number = vdhp->frame_count;
+    uint32_t extradata_index;
     if( frame_number == vdhp->last_frame_number
      || frame_number == vdhp->last_frame_number + vdhp->last_half_offset )
     {
         /* The last frame is the requested frame. */
         if( copy_last_frame( vdhp, picture ) < 0 )
             goto video_fail;
-        return 0;
+        extradata_index = vdhp->frame_list[frame_number].extradata_index;
+        goto return_frame;
     }
     if( frame_number < vdhp->first_valid_frame_number || vdhp->frame_count == 1 )
     {
@@ -622,7 +624,9 @@ static int get_requested_picture
         /* Force seeking at the next access for valid video frame. */
         vdhp->last_frame_number = vdhp->frame_count + 1;
         vdhp->last_frame_buffer = picture;
-        return 0;
+        /* Return the first valid video frame. */
+        extradata_index = vdhp->frame_list[ vdhp->first_valid_frame_number ].extradata_index;
+        goto return_frame;
     }
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
     uint32_t rap_number;    /* number of sample, for seeking, where decoding starts excluding decoding delay */
@@ -681,6 +685,14 @@ static int get_requested_picture
         vdhp->last_frame_number -= 1;
         vdhp->last_half_frame    = 1;
     }
+    extradata_index = vdhp->frame_list[frame_number].extradata_index;
+return_frame:;
+    /* Don't exceed the maximum presentation size specified for each sequence. */
+    lwlibav_extradata_t *entry = &vdhp->exh.entries[extradata_index];
+    if( vdhp->ctx->width > entry->width )
+        vdhp->ctx->width = entry->width;
+    if( vdhp->ctx->height > entry->height )
+        vdhp->ctx->height = entry->height;
     return 0;
 video_fail:
     /* fatal error of decoding */
