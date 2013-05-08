@@ -228,7 +228,7 @@ static int decide_video_seek_method
     if( info[1].file_offset == -1 )
         vdhp->lw_seek_flags &= ~SEEK_POS_CORRECTION;
     else
-        for( uint32_t i = 1; i <= sample_count; i++ )
+        for( uint32_t i = 2; i <= sample_count; i++ )
             if( info[i].file_offset == -1 || info[i].file_offset <= info[i - 1].file_offset )
             {
                 vdhp->lw_seek_flags &= ~SEEK_POS_CORRECTION;
