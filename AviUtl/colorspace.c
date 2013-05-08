@@ -293,16 +293,16 @@ static void convert_yv12i_to_yuy2( uint8_t *buf, int buf_linesize, uint8_t **pic
 #undef COPY_CHROMA
 }
 
-int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
+int to_yuv16le_to_yc48( AVCodecContext *ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     uint8_t *dst_data    [4];
     int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, picture->width, picture->height, AV_PIX_FMT_YUV444P16LE, 16 ) < 0 )
+    if( av_image_alloc( dst_data, dst_linesize, ctx->width, ctx->height, AV_PIX_FMT_YUV444P16LE, 16 ) < 0 )
     {
         MessageBox( HWND_DESKTOP, "Failed to av_image_alloc for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
         return 0;
     }
-    int output_linesize = picture->width * YC48_SIZE;
+    int output_linesize = ctx->width * YC48_SIZE;
     static const struct
     {
         enum AVPixelFormat px_fmt;
@@ -326,41 +326,41 @@ int to_yuv16le_to_yc48( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, A
         static int sse41_available = -1;
         if( sse41_available == -1 )
             sse41_available = check_sse41();
-        yuv420_list[yuv420_index].convert[sse41_available]( dst_data, dst_linesize, picture->data, picture->linesize, picture->width * sizeof(uint16_t), picture->height );
-        output_height = picture->height;
+        yuv420_list[yuv420_index].convert[sse41_available]( dst_data, dst_linesize, picture->data, picture->linesize, ctx->width * sizeof(uint16_t), ctx->height );
+        output_height = ctx->height;
     }
     else
-        output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
+        output_height = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, ctx->height, dst_data, dst_linesize );
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int simd_available = -1;
     if( simd_available == -1 )
         simd_available = check_sse2() + ( check_sse2() && check_sse41() );
     static void (*func_yuv16le_to_yc48[3])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2, convert_yuv16le_to_yc48_sse4_1 };
     func_yuv16le_to_yc48[simd_available * (((buf_linesize | (size_t)buf) & 15) == 0)]
-        ( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, video_ctx->color_range == AVCOL_RANGE_JPEG );
+        ( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, ctx->color_range == AVCOL_RANGE_JPEG );
     av_free( dst_data[0] );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_rgba( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
+int to_rgba( AVCodecContext *ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     uint8_t *dst_data    [4] = { buf + buf_linesize * (buf_height - 1), NULL, NULL, NULL };
     int      dst_linesize[4] = { -buf_linesize, 0, 0, 0 };
-    int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    int output_linesize = picture->width * RGBA_SIZE;
+    int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, ctx->height, dst_data, dst_linesize );
+    int output_linesize = ctx->width * RGBA_SIZE;
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_rgb24( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
+int to_rgb24( AVCodecContext *ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     uint8_t *dst_data    [4] = { buf + buf_linesize * (buf_height - 1), NULL, NULL, NULL };
     int      dst_linesize[4] = { -buf_linesize, 0, 0, 0 };
-    int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-    int output_linesize = picture->width * RGB24_SIZE;
+    int output_height   = sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, ctx->height, dst_data, dst_linesize );
+    int output_linesize = ctx->width * RGB24_SIZE;
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
-int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
+int to_yuy2( AVCodecContext *ctx, struct SwsContext *sws_ctx, AVFrame *picture, uint8_t *buf, int buf_linesize, int buf_height )
 {
     int output_linesize = 0;
     if( picture->interlaced_frame
@@ -373,14 +373,14 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
         if( (picture->format == AV_PIX_FMT_NV12)
          || (picture->format == AV_PIX_FMT_NV21) )
         {
-            another_chroma = av_mallocz( (picture->linesize[1] / 2) * picture->height );
+            another_chroma = av_mallocz( (picture->linesize[1] / 2) * ctx->height );
             if( !another_chroma )
             {
                 MessageBox( HWND_DESKTOP, "Failed to av_malloc.", "lsmashinput", MB_ICONERROR | MB_OK );
                 return -1;
             }
             /* convert chroma nv12 to yv12 (split packed uv into planar u and v) */
-            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], picture->width / 2, picture->height / 2 );
+            convert_packed_chroma_to_planar( picture->data[1], another_chroma, picture->linesize[1], ctx->width / 2, ctx->height / 2 );
             /* change data set as yv12 */
             picture->data[2] = picture->data[1];
             picture->data[1+(picture->format == AV_PIX_FMT_NV12)] = another_chroma;
@@ -388,12 +388,12 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
             picture->linesize[2] = picture->linesize[1];
         }
         /* interlaced yv12 to yuy2 convertion */
-        output_linesize = picture->width * YUY2_SIZE;
+        output_linesize = ctx->width * YUY2_SIZE;
         static int ssse3_available = -1;
         if( ssse3_available == -1 )
             ssse3_available = check_ssse3();
         static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
-        func_yv12i_to_yuy2[ssse3_available]( buf, buf_linesize, picture->data, picture->linesize, output_linesize, picture->height );
+        func_yv12i_to_yuy2[ssse3_available]( buf, buf_linesize, picture->data, picture->linesize, output_linesize, ctx->height );
         if( another_chroma )
             av_free( another_chroma );
     }
@@ -401,8 +401,8 @@ int to_yuy2( AVCodecContext *video_ctx, struct SwsContext *sws_ctx, AVFrame *pic
     {
         uint8_t *dst_data    [4] = { buf, NULL, NULL, NULL };
         int      dst_linesize[4] = { buf_linesize, 0, 0, 0 };
-        sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, picture->height, dst_data, dst_linesize );
-        output_linesize = picture->width * YUY2_SIZE;
+        sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, ctx->height, dst_data, dst_linesize );
+        output_linesize = ctx->width * YUY2_SIZE;
     }
-    return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * picture->height;
+    return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * buf_height;
 }

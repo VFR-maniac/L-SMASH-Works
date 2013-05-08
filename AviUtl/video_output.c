@@ -204,21 +204,21 @@ int convert_colorspace
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
-     || vshp->input_width        != picture->width
-     || vshp->input_height       != picture->height
+     || vshp->input_width        != ctx->width
+     || vshp->input_height       != ctx->height
      || vshp->input_pixel_format != *input_pixel_format
      || vshp->input_colorspace   != ctx->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     picture->width, picture->height,
+                                                     ctx->width, ctx->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
                                                      ctx->colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return 0;
-        vshp->input_width        = picture->width;
-        vshp->input_height       = picture->height;
+        vshp->input_width        = ctx->width;
+        vshp->input_height       = ctx->height;
         vshp->input_pixel_format = *input_pixel_format;
         vshp->input_colorspace   = ctx->colorspace;
         vshp->input_yuv_range    = yuv_range;
