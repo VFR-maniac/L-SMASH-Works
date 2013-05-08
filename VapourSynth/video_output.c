@@ -458,7 +458,9 @@ int determine_colorspace_conversion
 VSFrameRef *new_output_video_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
+    int                        width,
+    int                        height,
+    enum AVPixelFormat         pixel_format,
     VSFrameContext            *frame_ctx,
     VSCore                    *core,
     const VSAPI               *vsapi
@@ -468,19 +470,19 @@ VSFrameRef *new_output_video_frame
     VSFrameRef                *vs_frame;
     if( vs_vohp->variable_info )
     {
-        if( determine_colorspace_conversion( vohp, (enum AVPixelFormat)av_frame->format ) )
+        if( determine_colorspace_conversion( vohp, pixel_format ) )
         {
             if( frame_ctx )
                 vsapi->setFilterError( "lsmas: failed to determin colorspace conversion.", frame_ctx );
             return NULL;
         }
         const VSFormat *vs_format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
-        vs_frame = vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
+        vs_frame = vsapi->newVideoFrame( vs_format, width, height, NULL, core );
     }
     else
     {
-        if( av_frame->format != vohp->scaler.input_pixel_format
-         && determine_colorspace_conversion( vohp, (enum AVPixelFormat)av_frame->format ) )
+        if( pixel_format != vohp->scaler.input_pixel_format
+         && determine_colorspace_conversion( vohp, pixel_format ) )
         {
             if( frame_ctx )
                 vsapi->setFilterError( "lsmas: failed to determin colorspace conversion.", frame_ctx );
@@ -494,6 +496,8 @@ VSFrameRef *new_output_video_frame
 static inline int convert_av_pixel_format
 (
     lw_video_scaler_handler_t *vshp,
+    int                        width,
+    int                        height,
     AVFrame                   *av_frame,
     AVPicture                 *av_picture
 )
@@ -507,11 +511,11 @@ static inline int convert_av_pixel_format
         }
         return 0;
     }
-    if( av_image_alloc( av_picture->data, av_picture->linesize, av_frame->width, av_frame->height, vshp->output_pixel_format, 16 ) < 0 )
+    if( av_image_alloc( av_picture->data, av_picture->linesize, width, height, vshp->output_pixel_format, 16 ) < 0 )
         return -1;
     int ret = sws_scale( vshp->sws_ctx,
                          (const uint8_t * const *)av_frame->data, av_frame->linesize,
-                         0, av_frame->height,
+                         0, height,
                          av_picture->data, av_picture->linesize );
     if( ret > 0 )
         return ret;
@@ -528,8 +532,8 @@ typedef struct
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
-    enum AVColorSpace          colorspace
+    AVCodecContext            *ctx,
+    AVFrame                   *av_frame
 )
 {
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -549,41 +553,41 @@ VSFrameRef *make_frame
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
+     || vshp->input_width        != ctx->width
+     || vshp->input_height       != ctx->height
      || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != colorspace
+     || vshp->input_colorspace   != ctx->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     av_frame->width, av_frame->height,
+                                                     ctx->width, ctx->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
-                                                     colorspace, yuv_range );
+                                                     ctx->colorspace, yuv_range );
         if( !vshp->sws_ctx )
         {
             if( frame_ctx )
                 vsapi->setFilterError( "lsmas: failed to update scaler settings.", frame_ctx );
             return NULL;
         }
-        vshp->input_width        = av_frame->width;
-        vshp->input_height       = av_frame->height;
+        vshp->input_width        = ctx->width;
+        vshp->input_height       = ctx->height;
         vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = colorspace;
+        vshp->input_colorspace   = ctx->colorspace;
         vshp->input_yuv_range    = yuv_range;
     }
     /* Make video frame. */
     AVPicture av_picture;
-    int ret = convert_av_pixel_format( vshp, av_frame, &av_picture );
+    int ret = convert_av_pixel_format( vshp, ctx->width, ctx->height, av_frame, &av_picture );
     if( ret < 0 )
     {
         if( frame_ctx )
             vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
         return NULL;
     }
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, ctx->width, ctx->height, *input_pixel_format, frame_ctx, core, vsapi );
     if( vs_frame )
-        vs_vohp->make_frame( &av_picture, av_frame->width, av_frame->height, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
+        vs_vohp->make_frame( &av_picture, ctx->width, ctx->height, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
     else if( frame_ctx )
         vsapi->setFilterError( "lsmas: failed to alloc a output video frame.", frame_ctx );
     if( ret > 0 )
@@ -711,7 +715,8 @@ static int vs_video_get_buffer
     av_frame->height = ctx->height;
     av_frame->format = ctx->pix_fmt;
     avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
-    VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame, vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
+    VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame->width, av_frame->height, pix_fmt,
+                                                          vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
     if( !vs_frame_buffer )
     {
         free( vs_vbhp );

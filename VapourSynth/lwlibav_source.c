@@ -212,7 +212,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
-    VSFrameRef *vs_frame = make_frame( vohp, av_frame, vdhp->ctx->colorspace );
+    VSFrameRef *vs_frame = make_frame( vohp, vdhp->ctx, av_frame );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );

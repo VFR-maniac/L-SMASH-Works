@@ -63,20 +63,11 @@ int determine_colorspace_conversion
     enum AVPixelFormat         input_pixel_format
 );
 
-VSFrameRef *new_output_video_frame
-(
-    lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
-    VSFrameContext            *frame_ctx,
-    VSCore                    *core,
-    const VSAPI               *vsapi
-);
-
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVFrame                   *av_frame,
-    enum AVColorSpace          colorspace
+    AVCodecContext            *ctx,
+    AVFrame                   *av_frame
 );
 
 func_get_buffer_t *setup_video_rendering
