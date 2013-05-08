@@ -90,6 +90,7 @@ int lwlibav_get_desired_video_track
 
 void lwlibav_setup_timestamp_info
 (
+    lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     int                            *framerate_num,

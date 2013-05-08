@@ -130,6 +130,7 @@ static int try_ntsc_framerate
 
 void lwlibav_setup_timestamp_info
 (
+    lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     int                            *framerate_num,
@@ -137,7 +138,10 @@ void lwlibav_setup_timestamp_info
 )
 {
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
-    if( vdhp->frame_count == 1 || !(vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED)) )
+    if( vdhp->frame_count == 1
+     || lwhp->raw_demuxer
+     || ((lwhp->format_flags & AVFMT_TS_DISCONT) && !(vdhp->lw_seek_flags & SEEK_DTS_BASED))
+     || !(vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
     {
         *framerate_num = video_stream->avg_frame_rate.num;
         *framerate_den = video_stream->avg_frame_rate.den;
@@ -148,7 +152,8 @@ void lwlibav_setup_timestamp_info
     int64_t  largest_ts;
     int64_t  second_largest_ts;
     uint64_t stream_timebase;
-    if( vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED) )
+    if( !(lwhp->format_flags & AVFMT_TS_DISCONT)
+     && (vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
     {
         first_ts          = info[1].pts;
         largest_ts        = info[2].pts;
@@ -160,32 +165,56 @@ void lwlibav_setup_timestamp_info
             {
                 if( vdhp->lh.show_log )
                     vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32, info[i].pts, i );
+                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32,
+                                       info[i].pts, i );
                 goto fail;
             }
-            stream_timebase = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
+            stream_timebase   = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
             second_largest_ts = largest_ts;
-            largest_ts = info[i].pts;
+            largest_ts        = info[i].pts;
         }
     }
     else
     {
-        first_ts          = info[1].dts;
-        largest_ts        = info[2].dts;
-        second_largest_ts = info[1].dts;
-        stream_timebase   = info[2].dts - info[1].dts;
+        uint32_t prev;
+        uint32_t curr;
+        if( vdhp->order_converter )
+        {
+            prev = vdhp->order_converter[1].decoding_to_presentation;
+            curr = vdhp->order_converter[2].decoding_to_presentation;
+        }
+        else
+        {
+            prev = 1;
+            curr = 2;
+        }
+        first_ts          = info[prev].dts;
+        largest_ts        = info[curr].dts;
+        second_largest_ts = info[prev].dts;
+        stream_timebase   = info[curr].dts - info[prev].dts;
         for( uint32_t i = 3; i <= vdhp->frame_count; i++ )
         {
-            if( info[i].dts == info[i - 1].dts )
+            if( vdhp->order_converter )
+            {
+                prev = vdhp->order_converter[i - 1].decoding_to_presentation;
+                curr = vdhp->order_converter[i    ].decoding_to_presentation;
+            }
+            else
+            {
+                prev = i - 1;
+                curr = i;
+            }
+            if( info[curr].dts == info[prev].dts )
             {
                 if( vdhp->lh.show_log )
                     vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32, info[i].dts, i );
+                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32,
+                                       info[curr].dts, curr );
                 goto fail;
             }
-            stream_timebase = get_gcd( stream_timebase, info[i].dts - info[i - 1].dts );
+            stream_timebase   = get_gcd( stream_timebase, info[curr].dts - info[prev].dts );
             second_largest_ts = largest_ts;
-            largest_ts = info[i].dts;
+            largest_ts        = info[curr].dts;
         }
     }
     stream_timebase *= video_stream->time_base.num;

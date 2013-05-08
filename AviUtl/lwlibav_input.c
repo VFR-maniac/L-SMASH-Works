@@ -155,7 +155,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         return -1;
     /* Set up timestamp info. */
     hp->uType = MB_OK;
-    lwlibav_setup_timestamp_info( vdhp, vohp, &h->framerate_num, &h->framerate_den );
+    lwlibav_setup_timestamp_info( &hp->lwh, vdhp, vohp, &h->framerate_num, &h->framerate_den );
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set up the initial input format. */
     vdhp->ctx->width      = vdhp->initial_width;

@@ -36,16 +36,6 @@ typedef struct
     int         field_dominance;
 } lwlibav_option_t;
 
-typedef struct
-{
-    char   *file_path;
-    char   *format_name;
-    int     format_flags;
-    int     raw_demuxer;
-    int     threads;
-    int64_t av_gap;
-} lwlibav_file_handler_t;
-
 int lwlibav_construct_index
 (
     lwlibav_file_handler_t         *lwhp,
