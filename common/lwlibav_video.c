@@ -295,6 +295,7 @@ static int decode_video_picture
     uint32_t                        rap_number
 )
 {
+    /* Get a packet containing a frame. */
     uint32_t frame_number = *current;
     AVPacket *pkt = &vdhp->packet;
     int ret = lwlibav_get_av_frame( vdhp->format, vdhp->stream_index, frame_number, pkt );
@@ -325,6 +326,7 @@ static int decode_video_picture
         *current = frame_number;
         --correction_distance;
     }
+    /* Decode a frame in a packet. */
     int64_t pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
     AVFrame *mov_frame = vdhp->movable_frame_buffer;
     av_frame_unref( mov_frame );

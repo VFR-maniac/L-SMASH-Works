@@ -249,15 +249,21 @@ static int decide_video_seek_method
     }
     /* Construct frame info about timestamp. */
     int no_pts_loss = !!(vdhp->lw_seek_flags & SEEK_PTS_BASED);
-    if( (vdhp->lw_seek_flags & SEEK_DTS_BASED) && !(vdhp->lw_seek_flags & SEEK_PTS_BASED)
+    if( (lwhp->raw_demuxer || ((vdhp->lw_seek_flags & SEEK_DTS_BASED) && !(vdhp->lw_seek_flags & SEEK_PTS_BASED)))
      && (vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
-      || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3) )
+      || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3
+      || vdhp->codec_id == AV_CODEC_ID_VC1IMAGE   || vdhp->codec_id == AV_CODEC_ID_WMV3IMAGE) )
     {
+        /* Generate pseudo-DTS if a raw demuxer doesn't return DTS for each frame. */
+        if( lwhp->raw_demuxer && !(vdhp->lw_seek_flags & SEEK_DTS_BASED) )
+            for( uint32_t i = 1; i <= sample_count; i++ )
+                info[i].dts = i;
         /* Generate PTS from DTS. */
         mpeg12_video_vc1_genarate_pts( vdhp );
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
         no_pts_loss = 1;
     }
+    /* Reorder in presentation order. */
     if( no_pts_loss && check_frame_reordering( info, sample_count ) )
     {
         /* Consider presentation order for keyframe detection.
