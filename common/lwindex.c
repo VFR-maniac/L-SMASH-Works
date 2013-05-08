@@ -960,25 +960,38 @@ static int get_picture_type
 static int get_audio_frame_length
 (
     lwindex_helper_t *helper,
-    AVCodecContext   *audio_ctx,
+    AVCodecContext   *ctx,
     AVPacket         *pkt
 )
 {
-    int frame_length = helper->parser_ctx
-                     ? helper->parser_ctx->duration
-                     : helper->delay_count == 0 ? audio_ctx->frame_size : 0;
+    int frame_length;
+    if( helper->parser_ctx )
+    {
+        /* Try to get from the parser. */
+        uint8_t *dummy;
+        int      dummy_size;
+        av_parser_parse2( helper->parser_ctx, ctx,
+                          &dummy, &dummy_size, pkt->data, pkt->size,
+                          pkt->pts, pkt->dts, pkt->pos );
+        frame_length = helper->parser_ctx->duration;
+    }
+    else
+        frame_length = 0;
+    if( frame_length == 0 && helper->delay_count == 0 )
+        frame_length = ctx->frame_size;
     if( frame_length == 0 )
     {
+        /* Try to get by actual decoding. */
         AVPacket temp = *pkt;
         int output_audio = 0;
         while( temp.size > 0 )
         {
             int decode_complete;
-            int consumed_bytes = helper->decode( audio_ctx, helper->picture, &decode_complete, &temp );
+            int consumed_bytes = helper->decode( ctx, helper->picture, &decode_complete, &temp );
             if( consumed_bytes < 0 )
             {
-                audio_ctx->channels    = av_get_channel_layout_nb_channels( helper->picture->channel_layout );
-                audio_ctx->sample_rate = helper->picture->sample_rate;
+                ctx->channels    = av_get_channel_layout_nb_channels( helper->picture->channel_layout );
+                ctx->sample_rate = helper->picture->sample_rate;
                 break;
             }
             temp.size -= consumed_bytes;
@@ -992,8 +1005,13 @@ static int get_audio_frame_length
         if( !output_audio )
         {
             frame_length = -1;
-            helper->parser_ctx = NULL;  /* Don't use the parser anymore because of asynchronization. */
             ++ helper->delay_count;
+            if( helper->parser_ctx )
+            {
+                /* Don't use the parser anymore because of asynchronization. */
+                av_parser_close( helper->parser_ctx );
+                helper->parser_ctx = NULL;
+            }
         }
     }
     return frame_length;
