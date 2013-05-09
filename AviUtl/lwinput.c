@@ -102,7 +102,7 @@ static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
 static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
 static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
                                        "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
-static const char *field_dominance_list[2] = { "Top -> Bottom", "Bottom -> Top" };
+static const char *field_dominance_list[3] = { "Obey source flags", "Top -> Bottom", "Bottom -> Top" };
 
 void au_message_box_desktop
 (
@@ -565,7 +565,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG ), BM_SETCHECK, (WPARAM) video_opt->apply_repeat_flag ? BST_CHECKED : BST_UNCHECKED, 0 );
             /* field_dominance */
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE );
-            for( int i = 0; i < 2; i++ )
+            for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)field_dominance_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
             /* audio_delay */

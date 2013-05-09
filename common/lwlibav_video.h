@@ -26,16 +26,24 @@ typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
 #define LW_VFRAME_FLAG_KEY     0x1
 #define LW_VFRAME_FLAG_LEADING 0x2
 
+typedef enum
+{
+    LW_FIELD_INFO_UNKNOWN = 0,  /* unknown */
+    LW_FIELD_INFO_TOP,          /* top field first or top field coded */
+    LW_FIELD_INFO_BOTTOM,       /* bottom field first or bottom field coded */
+} lw_field_info_t;
+
 typedef struct
 {
-    int64_t  pts;
-    int64_t  dts;
-    int64_t  file_offset;
-    uint32_t sample_number;     /* unique value in decoding order */
-    int      extradata_index;
-    int      flags;
-    int      pict_type;         /* may be stored as enum AVPictureType */
-    int      repeat_pict;
+    int64_t         pts;
+    int64_t         dts;
+    int64_t         file_offset;
+    uint32_t        sample_number;      /* unique value in decoding order */
+    int             extradata_index;
+    int             flags;
+    int             pict_type;          /* may be stored as enum AVPictureType */
+    int             repeat_pict;
+    lw_field_info_t field_info;
 } video_frame_info_t;
 
 typedef struct

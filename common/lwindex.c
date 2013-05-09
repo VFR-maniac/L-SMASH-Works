@@ -51,6 +51,7 @@ typedef struct
     AVBitStreamFilterContext   *bsf;
     AVFrame                    *picture;
     uint32_t                    delay_count;
+    lw_field_info_t             last_field_info;
     int                         mpeg12_video;   /* 0: neither MPEG-1 Video nor MPEG-2 Video
                                                  * 1: either MPEG-1 Video or MPEG-2 Video */
     int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
@@ -501,24 +502,37 @@ static void create_video_frame_order_list
     uint32_t            frame_count               = vdhp->frame_count;
     uint32_t            order_count               = 0;
     int                 no_support_frame_tripling = (vdhp->codec_id != AV_CODEC_ID_MPEG2VIDEO);
-    int                 specified_field_dominance = opt->field_dominance == 0 ? AV_FIELD_TT     /* Top -> Bottom */
-                                                  :                             AV_FIELD_BB;    /* Bottom -> Top */
+    int                 specified_field_dominance = opt->field_dominance == 0 ? LW_FIELD_INFO_UNKNOWN   /* Obey source flags. */
+                                                  : opt->field_dominance == 1 ? LW_FIELD_INFO_TOP       /* TFF: Top -> Bottom */
+                                                  :                             LW_FIELD_INFO_BOTTOM;   /* BFF: Bottom -> Top */
     /* Check repeat_pict and order_count. */
-    int               complete_frame       = 1;
-    int               repeat_field         = 1;
-    enum AVFieldOrder field_dominance = (enum AVFieldOrder)specified_field_dominance;
+    if( specified_field_dominance > 0 && (lw_field_info_t)specified_field_dominance != info[1].field_info )
+        ++order_count;
+    int             complete_frame  = 1;
+    int             repeat_field    = 1;
+    lw_field_info_t next_field_info = info[1].field_info;
     for( uint32_t i = 1; i <= frame_count; i++, order_count++ )
     {
-        int repeat_pict = info[i].repeat_pict;
+        int             repeat_pict = info[i].repeat_pict;
+        lw_field_info_t field_info  = info[i].field_info;
+        int             field_shift = !(repeat_pict & 1);
+        if( field_info == LW_FIELD_INFO_UNKNOWN )
+        {
+            /* Override with TFF or BFF. */
+            field_info = next_field_info;
+            info[i].field_info = field_info;
+        }
+        else if( field_info != next_field_info && (!repeat_field || !complete_frame) )
+            goto disable_repeat;
         switch( repeat_pict )
         {
-            case 5 :
+            case 5 :    /* frame tripling */
                 if( no_support_frame_tripling )
                     ++order_count;
-            case 3 :
+            case 3 :    /* frame doubling */
                 ++order_count;
                 break;
-            case 2 :
+            case 2 :    /* field tripling */
                 repeat_field ^= 1;
                 order_count += repeat_field;
                 break;
@@ -529,8 +543,8 @@ static void create_video_frame_order_list
             default :
                 break;
         }
-        if( (repeat_pict & 1) == 0 )
-            field_dominance = field_dominance == AV_FIELD_TT ? AV_FIELD_BB : AV_FIELD_TT;
+        if( field_shift )
+            next_field_info = field_info == LW_FIELD_INFO_TOP ? LW_FIELD_INFO_BOTTOM : LW_FIELD_INFO_TOP;
     }
     if( frame_count == order_count )
         goto disable_repeat;
@@ -553,12 +567,21 @@ static void create_video_frame_order_list
     int64_t  correction_ts = 0;
     uint32_t t_count       = 1;
     uint32_t b_count       = 1;
+    if( specified_field_dominance > 0 )
+    {
+        if( (lw_field_info_t)specified_field_dominance == LW_FIELD_INFO_TOP && info[1].field_info == LW_FIELD_INFO_BOTTOM )
+            order_list[t_count++].top = 1;
+        else if( (lw_field_info_t)specified_field_dominance == LW_FIELD_INFO_BOTTOM && info[1].field_info == LW_FIELD_INFO_TOP )
+            order_list[b_count++].bottom = 1;
+        if( t_count > 1 || b_count > 1 )
+            correction_ts = (info[2].pts - info[1].pts) / (info[1].repeat_pict + 1);
+    }
     complete_frame  = 1;
-    field_dominance = (enum AVFieldOrder)specified_field_dominance;
     for( uint32_t i = 1; i <= frame_count; i++ )
     {
         /* Check repeat_pict and field dominance. */
-        int repeat_pict = info[i].repeat_pict;
+        int             repeat_pict = info[i].repeat_pict;
+        lw_field_info_t field_info  = info[i].field_info;
         order_list[t_count++].top    = i;
         order_list[b_count++].bottom = i;
         switch( repeat_pict )
@@ -574,13 +597,13 @@ static void create_video_frame_order_list
                 order_list[b_count++].bottom = i;
                 break;
             case 2 :    /* field tripling */
-                if( field_dominance == AV_FIELD_TT )
+                if( field_info == LW_FIELD_INFO_TOP )
                     order_list[t_count++].top = i;
-                else if( field_dominance == AV_FIELD_BB )
+                else if( field_info == LW_FIELD_INFO_BOTTOM )
                     order_list[b_count++].bottom = i;
                 break;
             case 0 :    /* PAFF field coded picture */
-                if( field_dominance == AV_FIELD_BB )
+                if( field_info == LW_FIELD_INFO_BOTTOM )
                     --t_count;
                 else
                     --b_count;
@@ -588,8 +611,6 @@ static void create_video_frame_order_list
             default :
                 break;
         }
-        if( (repeat_pict & 1) == 0 )
-            field_dominance = field_dominance == AV_FIELD_TT ? AV_FIELD_BB : AV_FIELD_TT;
     }
     --t_count;
     --b_count;
@@ -1205,13 +1226,13 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=10>
+        <LibavReaderIndexFile=11>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,0,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
-        Key=1,Pic=1,Repeat=1,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
+        Key=1,Pic=1,Repeat=1,Field=0,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
@@ -1335,13 +1356,35 @@ static void create_index
                 goto fail_index;
             }
             /* Get field information. */
-            int repeat_pict;
+            int             repeat_pict;
+            lw_field_info_t field_info;
             if( helper->parser_ctx )
+            {
                 repeat_pict = pkt_ctx->ticks_per_frame == 2
                             ? helper->parser_ctx->repeat_pict
                             : 2 * helper->parser_ctx->repeat_pict + 1;
+                if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_TOP_FIELD )
+                    field_info = LW_FIELD_INFO_TOP;
+                else if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_BOTTOM_FIELD )
+                    field_info = LW_FIELD_INFO_BOTTOM;
+                else
+                {
+                    if( helper->parser_ctx->field_order == AV_FIELD_TT
+                     || helper->parser_ctx->field_order == AV_FIELD_TB )
+                        field_info = LW_FIELD_INFO_TOP;
+                    else if( helper->parser_ctx->field_order == AV_FIELD_BB
+                          || helper->parser_ctx->field_order == AV_FIELD_BT )
+                        field_info = LW_FIELD_INFO_BOTTOM;
+                    else
+                        field_info = helper->last_field_info;
+                }
+                helper->last_field_info = field_info;
+            }
             else
+            {
                 repeat_pict = 1;
+                field_info = helper->last_field_info;
+            }
             /* Set video frame info if this stream is active. */
             if( pkt.stream_index == vdhp->stream_index )
             {
@@ -1353,6 +1396,7 @@ static void create_index
                 video_info[video_sample_count].extradata_index = extradata_index;
                 video_info[video_sample_count].pict_type       = pict_type;
                 video_info[video_sample_count].repeat_pict     = repeat_pict;
+                video_info[video_sample_count].field_info      = field_info;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
                     video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
@@ -1398,11 +1442,11 @@ static void create_index
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                         "Key=%d,Pic=%d,Repeat=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                         "Key=%d,Pic=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts, extradata_index,
-                         !!(pkt.flags & AV_PKT_FLAG_KEY), pict_type, repeat_pict,
+                         !!(pkt.flags & AV_PKT_FLAG_KEY), pict_type, repeat_pict, field_info,
                          pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
@@ -1832,13 +1876,14 @@ static int parse_index
             {
                 int pict_type;
                 int repeat_pict;
+                int field_info;
                 int key;
                 int width;
                 int height;
                 int colorspace;
                 char pix_fmt[64];
-                if( sscanf( buf, "Key=%d,Pic=%d,Repeat=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
-                            &key, &pict_type, &repeat_pict, &width, &height, pix_fmt, &colorspace ) != 7 )
+                if( sscanf( buf, "Key=%d,Pic=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
+                            &key, &pict_type, &repeat_pict, &field_info, &width, &height, pix_fmt, &colorspace ) != 8 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
@@ -1875,6 +1920,7 @@ static int parse_index
                     video_info[video_sample_count].extradata_index = extradata_index;
                     video_info[video_sample_count].pict_type       = pict_type;
                     video_info[video_sample_count].repeat_pict     = repeat_pict;
+                    video_info[video_sample_count].field_info      = (lw_field_info_t)field_info;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
                         video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
                     if( key )

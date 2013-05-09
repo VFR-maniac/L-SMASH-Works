@@ -291,7 +291,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     set_option_int64 ( &variable_info,     0,    "variable",       in, vsapi );
     set_option_int64 ( &direct_rendering,  0,    "dr",             in, vsapi );
     set_option_int64 ( &apply_repeat_flag, 0,    "repeat",         in, vsapi );
-    set_option_int64 ( &field_dominance,   1,    "dominance",      in, vsapi );
+    set_option_int64 ( &field_dominance,   0,    "dominance",      in, vsapi );
     set_option_string( &format,            NULL, "format",         in, vsapi );
     /* Set options. */
     lwlibav_option_t opt;
@@ -304,7 +304,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
-    opt.field_dominance   = CLIP_VALUE( field_dominance, 1, 2 ) - 1;    /* 0: reserved, 1: TFF, 2: BFF */
+    opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );

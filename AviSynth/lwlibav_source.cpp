@@ -246,7 +246,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
     int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
     int         apply_repeat_flag      = args[7].AsBool( false ) ? 1 : 0;
-    int         field_dominance        = args[8].AsInt( 1 );
+    int         field_dominance        = args[8].AsInt( 0 );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -258,7 +258,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.force_audio       = 0;
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
-    opt.field_dominance   = CLIP_VALUE( field_dominance, 1, 2 ) - 1;    /* 0: reserved, 1: TFF, 2: BFF */
+    opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, env );
