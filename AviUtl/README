@@ -28,11 +28,11 @@
                 and
                   - you request to seek the M-th frame called f(M) from the N-th frame called f(N).
                 If M > N and M - N <= T, then
-                    the decoder tries to get f(N) by decoding frames from f(M) sequentially.
+                    the decoder tries to get f(M) by decoding frames from f(N) sequentially.
                 If M < N or M - N > T, then
                     check the closest RAP at the first.
                     After the check, if the closest RAP is identical with the last RAP, do the same as the case M > N and M - N <= T.
-                    Otherwise, the decoder tries to get f(N) by decoding frames from the frame which is the closest RAP sequentially.
+                    Otherwise, the decoder tries to get f(M) by decoding frames from the frame which is the closest RAP sequentially.
             + Seek mode : combo box (default : Normal)
                 How to process when any error occurs during decoding a video frame.
                     - Normal

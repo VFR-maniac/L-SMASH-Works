@@ -7,6 +7,7 @@
             LibavSMASHSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
                              int variable = 0, string format = "", int dr = 0)
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
+                * RAP is an abbreviation of random accessible point.
             [Arguments]
                 + source
                     The path of the source file.
@@ -29,17 +30,16 @@
                             This mode returns the last returned frame when any fatal decoding error occurs.
                 + seek_threshold (default : 10)
                     The threshold to decide whether a decoding starts from the closest RAP to get the requested video frame or doesn't.
-                        * RAP is an abbreviation of random accessible point.
                     Let's say
                       - the threshold is T,
                     and
                       - you request to seek the M-th frame called f(M) from the N-th frame called f(N).
                     If M > N and M - N <= T, then
-                        the decoder tries to get f(N) by decoding frames from f(M) sequentially.
+                        the decoder tries to get f(M) by decoding frames from f(N) sequentially.
                     If M < N or M - N > T, then
                         check the closest RAP at the first.
                         After the check, if the closest RAP is identical with the last RAP, do the same as the case M > N and M - N <= T.
-                        Otherwise, the decoder tries to get f(N) by decoding frames from the frame which is the closest RAP sequentially.
+                        Otherwise, the decoder tries to get f(M) by decoding frames from the frame which is the closest RAP sequentially.
                 + variable (default : 0)
                     Treat format, width and height of the video stream as variable if set to 1.
                 + format (default : "")
