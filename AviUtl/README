@@ -152,7 +152,7 @@
             + Apply repeat flag : check box (default : unchecked)
                 Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if checked and usable.
                 If unchecked, video frames consisting of two separated field coded pictures are displayed twice consecutively.
-            + Field dominance : combo box (default : Top -> Bottom)
+            + Field dominance : combo box (default : Obey source flags)
                 Which field, top or bottom, is displayed first.
                 This settings is enabled only if Apply repeat flag is checked.
         [Dummy reader]

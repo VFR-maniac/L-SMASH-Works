@@ -155,9 +155,9 @@
                 + repeat (default : false)
                     Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if set to true and usable.
                     If set to false, video frames consisting of two separated field coded pictures are displayed twice consecutively.
-                + dominance : (default : 1)
+                + dominance : (default : 0)
                     Which field, top or bottom, is displayed first.
-                        - 0 : reserved
+                        - 0 : Obey source flags
                         - 1 : TFF i.e. Top -> Bottom
                         - 2 : BFF i.e. Bottom -> Top
                     This option is enabled only if 'repeat' is set to true.

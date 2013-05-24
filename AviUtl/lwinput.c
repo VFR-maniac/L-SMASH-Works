@@ -202,6 +202,8 @@ static void get_settings( void )
         /* field_dominance */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "field_dominance=%d", &video_opt->field_dominance ) != 1 )
             video_opt->field_dominance = 0;
+        else
+            video_opt->field_dominance = CLIP_VALUE( video_opt->field_dominance, 0, 2 );
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
