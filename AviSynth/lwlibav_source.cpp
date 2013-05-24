@@ -141,6 +141,16 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
     return as_frame;
 }
 
+bool __stdcall LWLibavVideoSource::GetParity( int n )
+{
+    uint32_t frame_number = n + 1;     /* frame_number is 1-origin. */
+    if( !voh.repeat_control )
+        return vdh.frame_list[frame_number].field_info == LW_FIELD_INFO_TOP ? true : false;
+    uint32_t t = voh.frame_order_list[frame_number].top;
+    uint32_t b = voh.frame_order_list[frame_number].bottom;
+    return t < b ? true : false;
+}
+
 LWLibavAudioSource::LWLibavAudioSource
 (
     lwlibav_option_t   *opt,
