@@ -128,18 +128,42 @@ struct VideoInfo {
     CS_BGR = 1<<28,  
     CS_YUV = 1<<29,
     CS_INTERLEAVED = 1<<30,
-    CS_PLANAR = 1<<31
+    CS_PLANAR      = 1<<31,
+
+    CS_Shift_Sub_Width   =  0,
+    CS_Shift_Sub_Height  =  8,
+    CS_Shift_Sample_Bits = 16,
+
+    CS_Sub_Width_1       = 3 << CS_Shift_Sub_Width,
+    CS_Sub_Width_2       = 0 << CS_Shift_Sub_Width,
+    CS_Sub_Width_4       = 1 << CS_Shift_Sub_Width,
+
+    CS_VPlaneFirst       = 1 << 3,
+    CS_UPlaneFirst       = 1 << 4,
+
+    CS_Sub_Height_1      = 3 << CS_Shift_Sub_Height,
+    CS_Sub_Height_2      = 0 << CS_Shift_Sub_Height,
+    CS_Sub_Height_4      = 1 << CS_Shift_Sub_Height,
+
+    CS_Sample_Bits_8     = 0 << CS_Shift_Sample_Bits,
+    CS_Sample_Bits_16    = 1 << CS_Shift_Sample_Bits,
+    CS_Sample_Bits_32    = 2 << CS_Shift_Sample_Bits,
   };
 
   // Specific colorformats
-  enum { CS_UNKNOWN = 0,
-         CS_BGR24 = 1<<0 | CS_BGR | CS_INTERLEAVED,
-         CS_BGR32 = 1<<1 | CS_BGR | CS_INTERLEAVED,
-         CS_YUY2 = 1<<2 | CS_YUV | CS_INTERLEAVED,
-         CS_YV12 = 1<<3 | CS_YUV | CS_PLANAR,  // y-v-u, planar
-         CS_I420 = 1<<4 | CS_YUV | CS_PLANAR,  // y-u-v, planar
-         CS_IYUV = 1<<4 | CS_YUV | CS_PLANAR  // same as above
-         };
+  enum {
+    CS_UNKNOWN = 0,
+
+    CS_BGR24 = 1<<0 | CS_BGR | CS_INTERLEAVED,
+    CS_BGR32 = 1<<1 | CS_BGR | CS_INTERLEAVED,
+    CS_YUY2  = 1<<2 | CS_YUV | CS_INTERLEAVED,
+
+    CS_YV12  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_VPlaneFirst | CS_Sub_Height_2 | CS_Sub_Width_2,  // y-v-u, planar
+    CS_I420  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_UPlaneFirst | CS_Sub_Height_2 | CS_Sub_Width_2,  // y-u-v, planar
+    CS_IYUV  = CS_I420,                                                                                    // same as above
+    CS_YV16  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_VPlaneFirst | CS_Sub_Height_1 | CS_Sub_Width_2,  // y-v-u, 4:2:2 planar
+    CS_YV24  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_VPlaneFirst | CS_Sub_Height_1 | CS_Sub_Width_1,  // y-v-u, 4:4:4 planar
+  };
   int pixel_type;                // changed to int as of 2.5
   
 
