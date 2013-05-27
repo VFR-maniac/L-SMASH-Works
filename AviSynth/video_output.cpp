@@ -87,7 +87,7 @@ static void make_black_background_packed_yuv422
     }
 }
 
-static void make_black_background_rgba32
+static void make_black_background_packed_all_zero
 (
     PVideoFrame &frame,
     int          bitdepth_minus_8
@@ -132,7 +132,7 @@ static int make_frame_planar_yuv
     return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
 }
 
-static int make_frame_yuv422
+static int make_frame_packed_yuv
 (
     struct SwsContext *sws_ctx,
     int                height,
@@ -193,6 +193,7 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, 8 },
             { AV_PIX_FMT_YUV410P,     AV_PIX_FMT_YUV410P,     0 },
             { AV_PIX_FMT_YUV411P,     AV_PIX_FMT_YUV411P,     0 },
+            { AV_PIX_FMT_GRAY8,       AV_PIX_FMT_GRAY8,       0 },
             { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        0 },
@@ -223,7 +224,7 @@ static int determine_colorspace_conversion
             return 0;
         case AV_PIX_FMT_YUYV422     :   /* packed YUV 4:2:2, 16bpp */
             as_vohp->make_black_background = make_black_background_packed_yuv422;
-            as_vohp->make_frame            = make_frame_yuv422;
+            as_vohp->make_frame            = make_frame_packed_yuv;
             *output_pixel_type             = VideoInfo::CS_YUY2;
             return 0;
         case AV_PIX_FMT_YUV422P9LE  :   /* planar YUV 4:2:2, 18bpp, (1 Cr & Cb sample per 2x1 Y samples), little-endian */
@@ -251,8 +252,13 @@ static int determine_colorspace_conversion
             as_vohp->make_frame            = make_frame_planar_yuv;
             *output_pixel_type             = VideoInfo::CS_YV411;
             return 0;
+        case AV_PIX_FMT_GRAY8 :     /* Y, 8bpp */
+            as_vohp->make_black_background = make_black_background_packed_all_zero;
+            as_vohp->make_frame            = make_frame_packed_yuv;
+            *output_pixel_type             = VideoInfo::CS_Y8;
+            return 0;
         case AV_PIX_FMT_BGRA :      /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
-            as_vohp->make_black_background = make_black_background_rgba32;
+            as_vohp->make_black_background = make_black_background_packed_all_zero;
             as_vohp->make_frame            = make_frame_rgba32;
             *output_pixel_type             = VideoInfo::CS_BGR32;
             return 0;
@@ -338,6 +344,7 @@ static int as_check_dr_available
             AV_PIX_FMT_YUV444P16LE,
             AV_PIX_FMT_YUV410P,
             AV_PIX_FMT_YUV411P,
+            AV_PIX_FMT_GRAY8,
             AV_PIX_FMT_BGRA,
             AV_PIX_FMT_NONE
         };
@@ -434,7 +441,7 @@ static int as_video_get_buffer
             goto fail;                                                                              \
         av_frame->data[PLANE] = av_frame->buf[PLANE]->data;                                         \
     } while( 0 )
-    if( as_vohp->vi->pixel_type == VideoInfo::CS_BGR32 )
+    if( as_vohp->vi->pixel_type & VideoInfo::CS_INTERLEAVED )
         CREATE_PLANE_BUFFER( 0, );
     else
         for( int i = 0; i < 3; i++ )
