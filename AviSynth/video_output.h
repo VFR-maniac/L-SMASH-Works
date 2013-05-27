@@ -23,7 +23,11 @@
 
 #include "../common/video_output.h"
 
-typedef void func_make_black_background( PVideoFrame &frame );
+typedef void func_make_black_background
+(
+    PVideoFrame &frame,
+    int          bitdepth_minus_8
+);
 
 typedef int func_make_frame
 (
@@ -39,6 +43,7 @@ typedef struct
     func_make_frame            *make_frame;
     IScriptEnvironment         *env;
     VideoInfo                  *vi;
+    int                         bitdepth_minus_8;
 } as_video_output_handler_t;
 
 typedef struct
