@@ -47,8 +47,9 @@ static void make_black_background_planar_yuv
     }
     else
     {
-        uint8_t msb = (uint8_t)((0x80U << bitdepth_minus_8) >> 8);
-        for( int i = 0; i < frame->GetPitch( PLANAR_U ) * frame->GetHeight( PLANAR_U ); i++ )
+        uint8_t msb  = (uint8_t)((0x80U << bitdepth_minus_8) >> 8);
+        int     size = frame->GetPitch( PLANAR_U ) * frame->GetHeight( PLANAR_U );
+        for( int i = 0; i < size; i++ )
             if( i & 1 )
             {
                 *(frame->GetWritePtr( PLANAR_U ) + i) = msb;
@@ -278,6 +279,9 @@ static int as_check_dr_available
     static enum AVPixelFormat dr_support_pix_fmt[] =
         {
             AV_PIX_FMT_YUV420P,
+            AV_PIX_FMT_YUV420P9LE,
+            AV_PIX_FMT_YUV420P10LE,
+            AV_PIX_FMT_YUV420P16LE,
             AV_PIX_FMT_YUV422P,
             AV_PIX_FMT_BGRA,
             AV_PIX_FMT_NONE
