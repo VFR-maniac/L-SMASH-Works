@@ -187,6 +187,7 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  1 },
             { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, 2 },
             { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, 8 },
+            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     0 },
             { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        0 },
@@ -226,6 +227,11 @@ static int determine_colorspace_conversion
             as_vohp->make_black_background = make_black_background_planar_yuv;
             as_vohp->make_frame            = make_frame_planar_yuv;
             *output_pixel_type             = VideoInfo::CS_YV16;
+            return 0;
+        case AV_PIX_FMT_YUV444P     :   /* planar YUV 4:4:4, 24bpp, (1 Cr & Cb sample per 1x1 Y samples) */
+            as_vohp->make_black_background = make_black_background_planar_yuv;
+            as_vohp->make_frame            = make_frame_planar_yuv;
+            *output_pixel_type             = VideoInfo::CS_YV24;
             return 0;
         case AV_PIX_FMT_BGRA :      /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
             as_vohp->make_black_background = make_black_background_rgba32;
@@ -308,6 +314,7 @@ static int as_check_dr_available
             AV_PIX_FMT_YUV422P9LE,
             AV_PIX_FMT_YUV422P10LE,
             AV_PIX_FMT_YUV422P16LE,
+            AV_PIX_FMT_YUV444P,
             AV_PIX_FMT_BGRA,
             AV_PIX_FMT_NONE
         };
