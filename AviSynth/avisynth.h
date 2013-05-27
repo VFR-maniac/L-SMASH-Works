@@ -125,8 +125,8 @@ struct VideoInfo {
 
   // Colorspace properties.
   enum {
-    CS_BGR = 1<<28,  
-    CS_YUV = 1<<29,
+    CS_BGR         = 1<<28,
+    CS_YUV         = 1<<29,
     CS_INTERLEAVED = 1<<30,
     CS_PLANAR      = 1<<31,
 

@@ -63,16 +63,28 @@ static void make_black_background_planar_yuv
     }
 }
 
-static void make_black_background_yuv422
+static void make_black_background_packed_yuv422
 (
     PVideoFrame &frame,
     int          bitdepth_minus_8
 )
 {
-    uint32_t *p = (uint32_t *)frame->GetWritePtr();
-    int num_loops = frame->GetPitch() * frame->GetHeight() / 4;
-    for( int i = 0; i < num_loops; i++ )
-        *p++ = 0x00800080;
+    if( bitdepth_minus_8 == 0 )
+    {
+        uint32_t *dst = (uint32_t *)frame->GetWritePtr();
+        int num_loops = frame->GetPitch() * frame->GetHeight() / 4;
+        for( int i = 0; i < num_loops; i++ )
+            *dst++ = 0x00800080;
+    }
+    else
+    {
+        uint64_t *dst = (uint64_t *)frame->GetWritePtr();
+        int num_loops = frame->GetPitch() * frame->GetHeight() / 8;
+        uint64_t msb   = (0x80ULL << bitdepth_minus_8) >> 8;
+        uint64_t pixel = ((uint64_t)msb << 8) | ((uint64_t)msb << 40);
+        for( int i = 0; i < num_loops; i++ )
+            *dst++ = pixel;
+    }
 }
 
 static void make_black_background_rgba32
@@ -172,6 +184,9 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_YUYV422,     AV_PIX_FMT_YUYV422,     0 },
             { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUYV422,     0 },
             { AV_PIX_FMT_UYVY422,     AV_PIX_FMT_YUYV422,     0 },
+            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  1 },
+            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, 2 },
+            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, 8 },
             { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        0 },
@@ -200,10 +215,17 @@ static int determine_colorspace_conversion
             as_vohp->make_frame            = make_frame_planar_yuv;
             *output_pixel_type             = VideoInfo::CS_I420;
             return 0;
-        case AV_PIX_FMT_YUYV422 :   /* packed YUV 4:2:2, 16bpp */
-            as_vohp->make_black_background = make_black_background_yuv422;
+        case AV_PIX_FMT_YUYV422     :   /* packed YUV 4:2:2, 16bpp */
+            as_vohp->make_black_background = make_black_background_packed_yuv422;
             as_vohp->make_frame            = make_frame_yuv422;
             *output_pixel_type             = VideoInfo::CS_YUY2;
+            return 0;
+        case AV_PIX_FMT_YUV422P9LE  :   /* planar YUV 4:2:2, 18bpp, (1 Cr & Cb sample per 2x1 Y samples), little-endian */
+        case AV_PIX_FMT_YUV422P10LE :   /* planar YUV 4:2:2, 20bpp, (1 Cr & Cb sample per 2x1 Y samples), little-endian */
+        case AV_PIX_FMT_YUV422P16LE :   /* planar YUV 4:2:2, 32bpp, (1 Cr & Cb sample per 2x1 Y samples), little-endian */
+            as_vohp->make_black_background = make_black_background_planar_yuv;
+            as_vohp->make_frame            = make_frame_planar_yuv;
+            *output_pixel_type             = VideoInfo::CS_YV16;
             return 0;
         case AV_PIX_FMT_BGRA :      /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
             as_vohp->make_black_background = make_black_background_rgba32;
@@ -283,6 +305,9 @@ static int as_check_dr_available
             AV_PIX_FMT_YUV420P10LE,
             AV_PIX_FMT_YUV420P16LE,
             AV_PIX_FMT_YUV422P,
+            AV_PIX_FMT_YUV422P9LE,
+            AV_PIX_FMT_YUV422P10LE,
+            AV_PIX_FMT_YUV422P16LE,
             AV_PIX_FMT_BGRA,
             AV_PIX_FMT_NONE
         };
