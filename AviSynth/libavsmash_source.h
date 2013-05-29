@@ -47,6 +47,7 @@ private:
     void prepare_video_decoding
     (
         int                 direct_rendering,
+        int                 stacked_format,
         IScriptEnvironment *env
     );
 public:
@@ -58,6 +59,7 @@ public:
         int                 seek_mode,
         uint32_t            forward_seek_threshold,
         int                 direct_rendering,
+        int                 stacked_format,
         IScriptEnvironment *env
     );
     ~LSMASHVideoSource();

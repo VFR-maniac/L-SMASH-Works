@@ -43,6 +43,10 @@
                     Try direct rendering from the video decoder if set to true.
                     The output resolution will be aligned to be mod16-width and mod32-height by assuming two vertical 16x16 macroblock.
                     For H.264 streams, in addition, 2 lines could be added because of the optimized chroma MC.
+                + stacked (default : false)
+                    Use the stacked format for a hack of AviSynth high bit-depth support if set to true.
+                    The stacked format splits MSB and LSB into vertically, and MSB comes on top of output image.
+                    Note: direct rendering is not available at all if stacked format is used.
         [LSMASHAudioSource]
             LSMASHAudioSource(string source, int track = 0, bool skip_priming = true, string layout = "", int rate = 0)
                 * This function uses libavcodec as audio decoder and L-SMASH as demuxer.
@@ -161,6 +165,8 @@
                         - 1 : TFF i.e. Top -> Bottom
                         - 2 : BFF i.e. Bottom -> Top
                     This option is enabled only if 'repeat' is set to true.
+                + stacked (default : false)
+                    Same as 'stacked' of LSMASHVideoSource().
         [LWLibavAudioSource]
             LWLibavAudioSource(string source, int stream_index = -1, bool cache = true, bool av_sync = false, string layout = "", int rate = 0)
                 * This function uses libavcodec as audio decoder and libavformat as demuxer.

@@ -52,6 +52,7 @@ LSMASHVideoSource::LSMASHVideoSource
     int                 seek_mode,
     uint32_t            forward_seek_threshold,
     int                 direct_rendering,
+    int                 stacked_format,
     IScriptEnvironment *env
 )
 {
@@ -70,7 +71,7 @@ LSMASHVideoSource::LSMASHVideoSource
     voh.free_private_handler = free;
     get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vdh.root );
-    prepare_video_decoding( direct_rendering, env );
+    prepare_video_decoding( direct_rendering, direct_rendering, env );
 }
 
 LSMASHVideoSource::~LSMASHVideoSource()
@@ -231,6 +232,7 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
 void LSMASHVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
+    int                 stacked_format,
     IScriptEnvironment *env
 )
 {
@@ -244,7 +246,8 @@ void LSMASHVideoSource::prepare_video_decoding
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
     config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
-                                                   direct_rendering, config->prefer.width, config->prefer.height );
+                                                   direct_rendering, direct_rendering,
+                                                   config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
     if( libavsmash_find_first_valid_video_frame( &vdh, vi.num_frames ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
@@ -506,10 +509,12 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
     int         seek_mode              = args[3].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[4].AsInt( 10 );
     int         direct_rendering       = args[5].AsBool( false ) ? 1 : 0;
+    int         stacked_format         = args[6].AsBool( false ) ? 1 : 0;
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold, direct_rendering, env );
+    return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold,
+                                  direct_rendering, stacked_format, env );
 }
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )

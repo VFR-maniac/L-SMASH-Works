@@ -48,6 +48,7 @@ LWLibavVideoSource::LWLibavVideoSource
     int                 seek_mode,
     uint32_t            forward_seek_threshold,
     int                 direct_rendering,
+    int                 stacked_format,
     IScriptEnvironment *env
 )
 {
@@ -92,7 +93,7 @@ LWLibavVideoSource::LWLibavVideoSource
     lwlibav_setup_timestamp_info( &lwh, &vdh, &voh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
-    prepare_video_decoding( direct_rendering, env );
+    prepare_video_decoding( direct_rendering, stacked_format, env );
 }
 
 LWLibavVideoSource::~LWLibavVideoSource()
@@ -106,6 +107,7 @@ LWLibavVideoSource::~LWLibavVideoSource()
 void LWLibavVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
+    int                 stacked_format,
     IScriptEnvironment *env
 )
 {
@@ -119,7 +121,8 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
     vdh.ctx->colorspace = vdh.initial_colorspace;
     vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
-                                                   direct_rendering, vdh.max_width, vdh.max_height );
+                                                   direct_rendering, stacked_format,
+                                                   vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
     if( lwlibav_find_first_valid_video_frame( &vdh ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
@@ -257,6 +260,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
     int         apply_repeat_flag      = args[7].AsBool( false ) ? 1 : 0;
     int         field_dominance        = args[8].AsInt( 0 );
+    int         stacked_format         = args[9].AsBool( false ) ? 1 : 0;
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -271,7 +275,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, env );
+    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, stacked_format, env );
 }
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )

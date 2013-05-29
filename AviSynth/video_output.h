@@ -33,6 +33,7 @@ typedef int func_make_frame
 (
     struct SwsContext  *sws_ctx,
     int                 height,
+    int                 sub_height,
     AVFrame            *av_frame,
     PVideoFrame        &as_frame
 );
@@ -44,6 +45,8 @@ typedef struct
     IScriptEnvironment         *env;
     VideoInfo                  *vi;
     int                         bitdepth_minus_8;
+    int                         stacked_format;
+    int                         sub_height;
 } as_video_output_handler_t;
 
 typedef struct
@@ -66,6 +69,7 @@ func_get_buffer_t *as_setup_video_rendering
     AVCodecContext            *ctx,
     const char                *filter_name,
     int                        direct_rendering,
+    int                        stacked_format,
     int                        output_width,
     int                        output_height
 );
