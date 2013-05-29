@@ -31,11 +31,10 @@ typedef void func_make_black_background
 
 typedef int func_make_frame
 (
-    struct SwsContext  *sws_ctx,
-    int                 height,
-    int                 sub_height,
-    AVFrame            *av_frame,
-    PVideoFrame        &as_frame
+    lw_video_output_handler_t *vohp,
+    int                        height,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame
 );
 
 typedef struct
@@ -45,14 +44,21 @@ typedef struct
     IScriptEnvironment         *env;
     VideoInfo                  *vi;
     int                         bitdepth_minus_8;
+    /* for stacked format */
     int                         stacked_format;
     int                         sub_height;
+    AVPicture                   scaled;
 } as_video_output_handler_t;
 
 typedef struct
 {
     PVideoFrame as_frame_buffer;
 } as_video_buffer_handler_t;
+
+enum AVPixelFormat get_av_output_pixel_format
+(
+    const char *format_name
+);
 
 int make_frame
 (
@@ -63,6 +69,11 @@ int make_frame
     IScriptEnvironment        *env
 );
 
+void as_free_video_output_handler
+(
+    void *private_handler
+);
+
 func_get_buffer_t *as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
@@ -70,6 +81,7 @@ func_get_buffer_t *as_setup_video_rendering
     const char                *filter_name,
     int                        direct_rendering,
     int                        stacked_format,
+    enum AVPixelFormat         output_pixel_format,
     int                        output_width,
     int                        output_height
 );

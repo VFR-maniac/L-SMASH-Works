@@ -105,53 +105,70 @@ static inline int convert_av_pixel_format
     return ret > 0 ? ret : -1;
 }
 
+static inline void as_assign_planar_yuv
+(
+    PVideoFrame &as_frame,
+    AVPicture   *av_picture
+)
+{
+    av_picture->data    [0] = as_frame->GetWritePtr( PLANAR_Y );
+    av_picture->data    [1] = as_frame->GetWritePtr( PLANAR_U );
+    av_picture->data    [2] = as_frame->GetWritePtr( PLANAR_V );
+    av_picture->linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
+    av_picture->linesize[1] = as_frame->GetPitch   ( PLANAR_U );
+    av_picture->linesize[2] = as_frame->GetPitch   ( PLANAR_V );
+}
+
 static int make_frame_planar_yuv
 (
-    struct SwsContext *sws_ctx,
-    int                height,
-    int                sub_height,
-    AVFrame           *av_frame,
-    PVideoFrame       &as_frame
+    lw_video_output_handler_t *vohp,
+    int                        height,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
-    av_picture.data    [0] = as_frame->GetWritePtr( PLANAR_Y );
-    av_picture.data    [1] = as_frame->GetWritePtr( PLANAR_U );
-    av_picture.data    [2] = as_frame->GetWritePtr( PLANAR_V );
-    av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
-    av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
-    av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
-    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
+    as_assign_planar_yuv( as_frame, &av_picture );
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
 }
 
 static int make_frame_planar_yuv_stacked
 (
-    struct SwsContext *sws_ctx,
-    int                height,
-    int                sub_height,
-    AVFrame           *av_frame,
-    PVideoFrame       &as_frame
+    lw_video_output_handler_t *vohp,
+    int                        height,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame
 )
 {
-    AVPicture av_picture = { { { NULL } } };
-    av_picture.data    [0] = as_frame->GetWritePtr( PLANAR_Y );
-    av_picture.data    [1] = as_frame->GetWritePtr( PLANAR_U );
-    av_picture.data    [2] = as_frame->GetWritePtr( PLANAR_V );
-    av_picture.linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
-    av_picture.linesize[1] = as_frame->GetPitch   ( PLANAR_U );
-    av_picture.linesize[2] = as_frame->GetPitch   ( PLANAR_V );
+    AVPicture dst_picture = { { { NULL } } };
+    AVPicture src_picture = { { { NULL } } };
+    as_assign_planar_yuv( as_frame, &dst_picture );
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
+    if( vshp->input_pixel_format == vshp->output_pixel_format )
+        for( int i = 0; i < 3; i++ )
+        {
+            src_picture.data    [i] = av_frame->data    [i];
+            src_picture.linesize[i] = av_frame->linesize[i];
+        }
+    else
+    {
+        if( convert_av_pixel_format( vshp->sws_ctx, height, av_frame, &as_vohp->scaled ) < 0 )
+            return -1;
+        src_picture = as_vohp->scaled;
+    }
     for( int i = 0; i < 3; i++ )
     {
         int dst_offset = 0;
         int src_offset = 0;
-        int src_height = height >> (1 + (i ? sub_height : 0));
-        int linesize   = MIN( av_frame->linesize[i], av_picture.linesize[i] );
-        int lsb_offset = src_height * av_picture.linesize[i];
+        int src_height = height >> (i ? as_vohp->sub_height : 0);
+        int linesize   = MIN( src_picture.linesize[i], dst_picture.linesize[i] );
+        int lsb_offset = src_height * dst_picture.linesize[i];
         for( int j = 0; j < src_height; j++ )
         {
-            uint8_t *dst_msb = av_picture.data[i] + dst_offset;
+            uint8_t *dst_msb = dst_picture.data[i] + dst_offset;
             uint8_t *dst_lsb = dst_msb + lsb_offset;
-            uint8_t *src_lsb = av_frame->data[i]  + src_offset;
+            uint8_t *src_lsb = src_picture.data[i] + src_offset;
             uint8_t *src_msb = src_lsb + 1;
             for( int k = 0; k < linesize; k++ )
             {
@@ -160,8 +177,8 @@ static int make_frame_planar_yuv_stacked
                 *(dst_lsb++) = *(src_lsb);
                 src_lsb += 2;
             }
-            dst_offset += av_picture.linesize[i];
-            src_offset += av_frame->linesize[i];
+            dst_offset += dst_picture.linesize[i];
+            src_offset += src_picture.linesize[i];
         }
     }
     return 0;
@@ -169,38 +186,73 @@ static int make_frame_planar_yuv_stacked
 
 static int make_frame_packed_yuv
 (
-    struct SwsContext *sws_ctx,
-    int                height,
-    int                sub_height,
-    AVFrame           *av_frame,
-    PVideoFrame       &as_frame
+    lw_video_output_handler_t *vohp,
+    int                        height,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
     av_picture.data    [0] = as_frame->GetWritePtr();
     av_picture.linesize[0] = as_frame->GetPitch   ();
-    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
 }
 
 static int make_frame_rgba32
 (
-    struct SwsContext *sws_ctx,
-    int                height,
-    int                sub_height,
-    AVFrame           *av_frame,
-    PVideoFrame       &as_frame
+    lw_video_output_handler_t *vohp,
+    int                        height,
+    AVFrame                   *av_frame,
+    PVideoFrame               &as_frame
 )
 {
     AVPicture av_picture = { { { NULL } } };
     av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
     av_picture.linesize[0] = -as_frame->GetPitch();
-    return convert_av_pixel_format( sws_ctx, height, av_frame, &av_picture );
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
+}
+
+enum AVPixelFormat get_av_output_pixel_format
+(
+    const char *format_name
+)
+{
+    if( !format_name )
+        return AV_PIX_FMT_NONE;
+    static const struct
+    {
+        const char        *format_name;
+        enum AVPixelFormat av_output_pixel_format;
+    } format_table[] =
+        {
+            { "YUV420P8",  AV_PIX_FMT_YUV420P     },
+            { "YUV422P8",  AV_PIX_FMT_YUV422P     },
+            { "YUV444P8",  AV_PIX_FMT_YUV444P     },
+            { "YUV410P8",  AV_PIX_FMT_YUV410P     },
+            { "YUV411P8",  AV_PIX_FMT_YUV411P     },
+            { "YUV440P8",  AV_PIX_FMT_YUV440P     },
+            { "YUV420P9",  AV_PIX_FMT_YUV420P9LE  },
+            { "YUV422P9",  AV_PIX_FMT_YUV422P9LE  },
+            { "YUV444P9",  AV_PIX_FMT_YUV444P9LE  },
+            { "YUV420P10", AV_PIX_FMT_YUV420P10LE },
+            { "YUV422P10", AV_PIX_FMT_YUV422P10LE },
+            { "YUV444P10", AV_PIX_FMT_YUV444P10LE },
+            { "YUV420P16", AV_PIX_FMT_YUV420P16LE },
+            { "YUV422P16", AV_PIX_FMT_YUV422P16LE },
+            { "YUV444P16", AV_PIX_FMT_YUV444P16LE },
+            { NULL,        AV_PIX_FMT_NONE        }
+        };
+    for( int i = 0; format_table[i].format_name; i++ )
+        if( stricmp( format_name, format_table[i].format_name ) == 0 )
+            return format_table[i].av_output_pixel_format;
+    return AV_PIX_FMT_NONE;
 }
 
 static int determine_colorspace_conversion
 (
     lw_video_output_handler_t *vohp,
     enum AVPixelFormat         input_pixel_format,
+    enum AVPixelFormat         output_pixel_format,
     int                       *output_pixel_type
 )
 {
@@ -223,6 +275,7 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_YUYV422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
             { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
             { AV_PIX_FMT_UYVY422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
+            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     VideoInfo::CS_YV16,    0, 0 },
             { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  VideoInfo::CS_YV16,    1, 0 },
             { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, VideoInfo::CS_YV16,    2, 0 },
             { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, VideoInfo::CS_YV16,    8, 0 },
@@ -243,21 +296,31 @@ static int determine_colorspace_conversion
         };
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
-    vshp->output_pixel_format = AV_PIX_FMT_NONE;
-    *output_pixel_type        = VideoInfo::CS_UNKNOWN;
     as_vohp->bitdepth_minus_8 = 0;
-    for( int i = 0; conversion_table[i].input_pixel_format != AV_PIX_FMT_NONE; i++ )
-        if( conversion_table[i].input_pixel_format == input_pixel_format )
-        {
-            vshp->output_pixel_format = conversion_table[i].output_pixel_format;
-            *output_pixel_type        = conversion_table[i].output_pixel_type;
-            as_vohp->bitdepth_minus_8 = conversion_table[i].output_bitdepth_minus_8;
-            as_vohp->sub_height       = conversion_table[i].output_sub_height;
-            break;
-        }
+    vshp->output_pixel_format = output_pixel_format;
+    int i = 0;
+    if( vshp->output_pixel_format == AV_PIX_FMT_NONE )
+    {
+        for( i = 0; conversion_table[i].input_pixel_format != AV_PIX_FMT_NONE; i++ )
+            if( conversion_table[i].input_pixel_format == input_pixel_format )
+            {
+                vshp->output_pixel_format = conversion_table[i].output_pixel_format;
+                break;
+            }
+    }
+    else
+    {
+        for( i = 0; conversion_table[i].input_pixel_format != AV_PIX_FMT_NONE; i++ )
+            if( conversion_table[i].output_pixel_format == vshp->output_pixel_format )
+                break;
+    }
+    *output_pixel_type        = conversion_table[i].output_pixel_type;
+    as_vohp->bitdepth_minus_8 = conversion_table[i].output_bitdepth_minus_8;
+    as_vohp->sub_height       = conversion_table[i].output_sub_height;
     switch( vshp->output_pixel_format )
     {
         case AV_PIX_FMT_YUV420P     :   /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
+        case AV_PIX_FMT_YUV422P     :   /* planar YUV 4:2:2, 16bpp, (1 Cr & Cb sample per 2x1 Y samples) */
         case AV_PIX_FMT_YUV444P     :   /* planar YUV 4:4:4, 24bpp, (1 Cr & Cb sample per 1x1 Y samples) */
         case AV_PIX_FMT_YUV410P     :   /* planar YUV 4:1:0,  9bpp, (1 Cr & Cb sample per 4x4 Y samples) */
         case AV_PIX_FMT_YUV411P     :   /* planar YUV 4:1:1, 12bpp, (1 Cr & Cb sample per 4x1 Y samples) */
@@ -277,12 +340,16 @@ static int determine_colorspace_conversion
         case AV_PIX_FMT_YUV444P9LE  :   /* planar YUV 4:4:4, 27bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
         case AV_PIX_FMT_YUV444P10LE :   /* planar YUV 4:4:4, 30bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
         case AV_PIX_FMT_YUV444P16LE :   /* planar YUV 4:4:4, 48bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
-            as_vohp->make_black_background = as_vohp->stacked_format
-                                           ? make_black_background_planar_yuv
-                                           : make_black_background_planar_yuv_interleaved;
-            as_vohp->make_frame            = as_vohp->stacked_format
-                                           ? make_frame_planar_yuv_stacked
-                                           : make_frame_planar_yuv;
+            if( as_vohp->stacked_format )
+            {
+                as_vohp->make_black_background = make_black_background_planar_yuv;
+                as_vohp->make_frame            = make_frame_planar_yuv_stacked;
+            }
+            else
+            {
+                as_vohp->make_black_background = make_black_background_planar_yuv_interleaved;
+                as_vohp->make_frame            = make_frame_planar_yuv;
+            }
             return 0;
         case AV_PIX_FMT_GRAY8 :     /* Y, 8bpp */
             as_vohp->make_black_background = make_black_background_packed_all_zero;
@@ -319,34 +386,33 @@ int make_frame
     /* Convert pixel format. We don't change the presentation resolution. */
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
-    int yuv_range    = avoid_yuv_scale_conversion( input_pixel_format );
-    int input_width  = ctx->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0);
-    int input_height = ctx->height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0);
+    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
     if( !vshp->sws_ctx
-     || vshp->input_width        != input_width
-     || vshp->input_height       != input_height
+     || vshp->input_width        != ctx->width
+     || vshp->input_height       != ctx->height
      || vshp->input_pixel_format != *input_pixel_format
      || vshp->input_colorspace   != ctx->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     input_width, input_height,
+                                                     ctx->width, ctx->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
                                                      ctx->colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return -1;
-        vshp->input_width        = input_width;
-        vshp->input_height       = input_height;
+        vshp->input_width        = ctx->width;
+        vshp->input_height       = ctx->height;
         vshp->input_pixel_format = *input_pixel_format;
         vshp->input_colorspace   = ctx->colorspace;
         vshp->input_yuv_range    = yuv_range;
     }
     /* Render a video frame through the scaler from the decoder. */
     as_frame = env->NewVideoFrame( *as_vohp->vi, 32 );
-    if( vohp->output_width != input_width || vohp->output_height != input_height )
+    if( vohp->output_width  != (ctx->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0))
+     || vohp->output_height != (ctx->height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0)) )
         as_vohp->make_black_background( as_frame, as_vohp->bitdepth_minus_8 );
-    return as_vohp->make_frame( vshp->sws_ctx, input_height, as_vohp->sub_height, av_frame, as_frame );
+    return as_vohp->make_frame( vohp, ctx->height, av_frame, as_frame );
 }
 
 static int as_check_dr_available
@@ -496,6 +562,19 @@ fail:
     return AVERROR( ENOMEM );
 }
 
+void as_free_video_output_handler
+(
+    void *private_handler
+)
+{
+    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)private_handler;
+    if( !as_vohp )
+        return;
+    if( as_vohp->scaled.data[0] )
+        av_freep( &as_vohp->scaled.data[0] );
+    free( as_vohp );
+}
+
 func_get_buffer_t *as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
@@ -503,6 +582,7 @@ func_get_buffer_t *as_setup_video_rendering
     const char                *filter_name,
     int                        direct_rendering,
     int                        stacked_format,
+    enum AVPixelFormat         output_pixel_format,
     int                        output_width,
     int                        output_height
 )
@@ -511,15 +591,22 @@ func_get_buffer_t *as_setup_video_rendering
     IScriptEnvironment        *env     = as_vohp->env;
     VideoInfo                 *vi      = as_vohp->vi;
     as_vohp->stacked_format = stacked_format;
-    if( determine_colorspace_conversion( vohp, ctx->pix_fmt, &vi->pixel_type ) < 0 )
+    if( determine_colorspace_conversion( vohp, ctx->pix_fmt, output_pixel_format, &vi->pixel_type ) < 0 )
         env->ThrowError( "%s: %s is not supported", filter_name, av_get_pix_fmt_name( ctx->pix_fmt ) );
     vi->width  = output_width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0);
     vi->height = output_height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0);
     enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &input_pixel_format );
     direct_rendering &= as_check_dr_available( ctx, input_pixel_format, as_vohp->stacked_format );
-    if( initialize_scaler_handler( &vohp->scaler, ctx, !direct_rendering, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
+    if( initialize_scaler_handler( vshp, ctx, !direct_rendering, SWS_FAST_BILINEAR, vshp->output_pixel_format ) < 0 )
         env->ThrowError( "%s: failed to initialize scaler handler.", filter_name );
+    /* Allocate temporally scaled image if stacked format could be required.*/
+    if( as_vohp->stacked_format
+     && av_image_alloc( as_vohp->scaled.data, as_vohp->scaled.linesize,
+                        vi->width, vi->height, vshp->output_pixel_format, 32 ) < 0 )
+        env->ThrowError( "%s: failed to allocate temporally scaled image.", filter_name );
+    /* Set up direct rendering if available. */
     if( direct_rendering )
     {
         /* Align output width and height for direct rendering. */

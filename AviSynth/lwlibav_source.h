@@ -40,6 +40,7 @@ private:
     (
         int                 direct_rendering,
         int                 stacked_format,
+        enum AVPixelFormat  pixel_format,
         IScriptEnvironment *env
     );
 public:
@@ -50,6 +51,7 @@ public:
         uint32_t            forward_seek_threshold,
         int                 direct_rendering,
         int                 stacked_format,
+        enum AVPixelFormat  pixel_format,
         IScriptEnvironment *env
     );
     ~LWLibavVideoSource();

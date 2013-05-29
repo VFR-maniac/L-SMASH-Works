@@ -49,6 +49,7 @@ LWLibavVideoSource::LWLibavVideoSource
     uint32_t            forward_seek_threshold,
     int                 direct_rendering,
     int                 stacked_format,
+    enum AVPixelFormat  pixel_format,
     IScriptEnvironment *env
 )
 {
@@ -64,7 +65,7 @@ LWLibavVideoSource::LWLibavVideoSource
     as_vohp->vi  = &vi;
     as_vohp->env = env;
     voh.private_handler      = as_vohp;
-    voh.free_private_handler = free;
+    voh.free_private_handler = as_free_video_output_handler;
     /* Set up error handler. */
     lw_log_handler_t lh;
     lh.level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
@@ -88,12 +89,14 @@ LWLibavVideoSource::LWLibavVideoSource
         env->ThrowError( "LWLibavVideoSource: failed to get the video track." );
     vdh.lh = lh;
     vi.num_frames = voh.frame_count;
+    /* Set average framerate. */
     int fps_num;
     int fps_den;
     lwlibav_setup_timestamp_info( &lwh, &vdh, &voh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
-    prepare_video_decoding( direct_rendering, stacked_format, env );
+    /* */
+    prepare_video_decoding( direct_rendering, stacked_format, pixel_format, env );
 }
 
 LWLibavVideoSource::~LWLibavVideoSource()
@@ -108,6 +111,7 @@ void LWLibavVideoSource::prepare_video_decoding
 (
     int                 direct_rendering,
     int                 stacked_format,
+    enum AVPixelFormat  pixel_format,
     IScriptEnvironment *env
 )
 {
@@ -121,7 +125,7 @@ void LWLibavVideoSource::prepare_video_decoding
     vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
     vdh.ctx->colorspace = vdh.initial_colorspace;
     vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
-                                                   direct_rendering, stacked_format,
+                                                   direct_rendering, stacked_format, pixel_format,
                                                    vdh.max_width, vdh.max_height );
     /* Find the first valid video sample. */
     if( lwlibav_find_first_valid_video_frame( &vdh ) < 0 )
@@ -261,6 +265,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         apply_repeat_flag      = args[7].AsBool( false ) ? 1 : 0;
     int         field_dominance        = args[8].AsInt( 0 );
     int         stacked_format         = args[9].AsBool( false ) ? 1 : 0;
+    enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[10].AsString( NULL ) );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -275,7 +280,8 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
-    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, stacked_format, env );
+    direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
+    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, stacked_format, pixel_format, env );
 }
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
