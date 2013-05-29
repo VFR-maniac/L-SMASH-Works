@@ -64,6 +64,7 @@
                         "YUV420P16"
                         "YUV422P16"
                         "YUV444P16"
+                        "RGB24"
                     Note: direct rendering is not available at all if pixel format is forced.
         [LSMASHAudioSource]
             LSMASHAudioSource(string source, int track = 0, bool skip_priming = true, string layout = "", int rate = 0)

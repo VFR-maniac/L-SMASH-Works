@@ -198,7 +198,7 @@ static int make_frame_packed_yuv
     return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
 }
 
-static int make_frame_rgba32
+static int make_frame_packed_rgb
 (
     lw_video_output_handler_t *vohp,
     int                        height,
@@ -240,6 +240,7 @@ enum AVPixelFormat get_av_output_pixel_format
             { "YUV420P16", AV_PIX_FMT_YUV420P16LE },
             { "YUV422P16", AV_PIX_FMT_YUV422P16LE },
             { "YUV444P16", AV_PIX_FMT_YUV444P16LE },
+            { "RGB24",     AV_PIX_FMT_BGR24       },
             { NULL,        AV_PIX_FMT_NONE        }
         };
     for( int i = 0; format_table[i].format_name; i++ )
@@ -286,12 +287,12 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_YUV410P,     AV_PIX_FMT_YUV410P,     VideoInfo::CS_YUV9,    0, 2 },
             { AV_PIX_FMT_YUV411P,     AV_PIX_FMT_YUV411P,     VideoInfo::CS_YV411,   0, 0 },
             { AV_PIX_FMT_GRAY8,       AV_PIX_FMT_GRAY8,       VideoInfo::CS_Y8,      0, 0 },
+            { AV_PIX_FMT_RGB24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0 },
+            { AV_PIX_FMT_BGR24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0 },
             { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_BGRA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
-            { AV_PIX_FMT_RGB24,       AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
-            { AV_PIX_FMT_BGR24,       AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        VideoInfo::CS_UNKNOWN, 0, 0 }
         };
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
@@ -355,9 +356,10 @@ static int determine_colorspace_conversion
             as_vohp->make_black_background = make_black_background_packed_all_zero;
             as_vohp->make_frame            = make_frame_packed_yuv;
             return 0;
-        case AV_PIX_FMT_BGRA :      /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
+        case AV_PIX_FMT_BGR24 :     /* packed RGB 8:8:8, 24bpp, BGRBGR... */
+        case AV_PIX_FMT_BGRA  :     /* packed BGRA 8:8:8:8, 32bpp, BGRABGRA... */
             as_vohp->make_black_background = make_black_background_packed_all_zero;
-            as_vohp->make_frame            = make_frame_rgba32;
+            as_vohp->make_frame            = make_frame_packed_rgb;
             return 0;
         default :
             as_vohp->make_black_background = NULL;
@@ -445,6 +447,7 @@ static int as_check_dr_available
             { AV_PIX_FMT_YUV410P,     0 },
             { AV_PIX_FMT_YUV411P,     0 },
             { AV_PIX_FMT_GRAY8,       0 },
+            { AV_PIX_FMT_BGR24,       0 },
             { AV_PIX_FMT_BGRA,        0 },
             { AV_PIX_FMT_NONE,        0 }
         };
