@@ -64,6 +64,7 @@
                         "YUV420P16"
                         "YUV422P16"
                         "YUV444P16"
+                        "YUY2"
                         "RGB24"
                     Note: direct rendering is not available at all if pixel format is forced.
         [LSMASHAudioSource]

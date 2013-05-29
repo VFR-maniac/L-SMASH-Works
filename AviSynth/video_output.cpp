@@ -240,6 +240,7 @@ enum AVPixelFormat get_av_output_pixel_format
             { "YUV420P16", AV_PIX_FMT_YUV420P16LE },
             { "YUV422P16", AV_PIX_FMT_YUV422P16LE },
             { "YUV444P16", AV_PIX_FMT_YUV444P16LE },
+            { "YUY2",      AV_PIX_FMT_YUYV422     },
             { "RGB24",     AV_PIX_FMT_BGR24       },
             { NULL,        AV_PIX_FMT_NONE        }
         };
@@ -446,6 +447,7 @@ static int as_check_dr_available
             { AV_PIX_FMT_YUV444P16LE, 1 },
             { AV_PIX_FMT_YUV410P,     0 },
             { AV_PIX_FMT_YUV411P,     0 },
+            { AV_PIX_FMT_YUYV422,     0 },
             { AV_PIX_FMT_GRAY8,       0 },
             { AV_PIX_FMT_BGR24,       0 },
             { AV_PIX_FMT_BGRA,        0 },
