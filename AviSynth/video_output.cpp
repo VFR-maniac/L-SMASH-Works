@@ -33,6 +33,12 @@ extern "C"
 
 #include "video_output.h"
 
+#if (LIBAVUTIL_VERSION_MICRO >= 100) && (LIBSWSCALE_VERSION_MICRO >= 100)
+#define FFMPEG_HIGH_DEPTH_SUPPORT 1
+#else
+#define FFMPEG_HIGH_DEPTH_SUPPORT 0
+#endif
+
 static void make_black_background_planar_yuv
 (
     PVideoFrame &frame,
@@ -242,6 +248,14 @@ enum AVPixelFormat get_av_output_pixel_format
             { "YUV444P16", AV_PIX_FMT_YUV444P16LE },
             { "YUY2",      AV_PIX_FMT_YUYV422     },
             { "RGB24",     AV_PIX_FMT_BGR24       },
+#if FFMPEG_HIGH_DEPTH_SUPPORT
+            { "YUV420P12", AV_PIX_FMT_YUV420P12LE },
+            { "YUV420P14", AV_PIX_FMT_YUV420P14LE },
+            { "YUV422P12", AV_PIX_FMT_YUV422P12LE },
+            { "YUV422P14", AV_PIX_FMT_YUV422P14LE },
+            { "YUV444P12", AV_PIX_FMT_YUV444P12LE },
+            { "YUV444P14", AV_PIX_FMT_YUV444P14LE },
+#endif
             { NULL,        AV_PIX_FMT_NONE        }
         };
     for( int i = 0; format_table[i].format_name; i++ )
@@ -294,6 +308,14 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
             { AV_PIX_FMT_BGRA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
+#if FFMPEG_HIGH_DEPTH_SUPPORT
+            { AV_PIX_FMT_YUV420P12LE, AV_PIX_FMT_YUV420P12LE, VideoInfo::CS_I420,    4, 1 },
+            { AV_PIX_FMT_YUV420P14LE, AV_PIX_FMT_YUV420P14LE, VideoInfo::CS_I420,    6, 1 },
+            { AV_PIX_FMT_YUV422P12LE, AV_PIX_FMT_YUV422P12LE, VideoInfo::CS_YV16,    4, 0 },
+            { AV_PIX_FMT_YUV422P14LE, AV_PIX_FMT_YUV422P14LE, VideoInfo::CS_YV16,    6, 0 },
+            { AV_PIX_FMT_YUV444P12LE, AV_PIX_FMT_YUV444P12LE, VideoInfo::CS_YV24,    4, 0 },
+            { AV_PIX_FMT_YUV444P14LE, AV_PIX_FMT_YUV444P14LE, VideoInfo::CS_YV24,    6, 0 },
+#endif
             { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        VideoInfo::CS_UNKNOWN, 0, 0 }
         };
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
@@ -342,6 +364,14 @@ static int determine_colorspace_conversion
         case AV_PIX_FMT_YUV444P9LE  :   /* planar YUV 4:4:4, 27bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
         case AV_PIX_FMT_YUV444P10LE :   /* planar YUV 4:4:4, 30bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
         case AV_PIX_FMT_YUV444P16LE :   /* planar YUV 4:4:4, 48bpp, (1 Cr & Cb sample per 1x1 Y samples), little-endian */
+#if FFMPEG_HIGH_DEPTH_SUPPORT
+        case AV_PIX_FMT_YUV420P12LE :
+        case AV_PIX_FMT_YUV420P14LE :
+        case AV_PIX_FMT_YUV422P12LE :
+        case AV_PIX_FMT_YUV422P14LE :
+        case AV_PIX_FMT_YUV444P12LE :
+        case AV_PIX_FMT_YUV444P14LE :
+#endif
             if( as_vohp->stacked_format )
             {
                 as_vohp->make_black_background = make_black_background_planar_yuv;
@@ -451,6 +481,14 @@ static int as_check_dr_available
             { AV_PIX_FMT_GRAY8,       0 },
             { AV_PIX_FMT_BGR24,       0 },
             { AV_PIX_FMT_BGRA,        0 },
+#if FFMPEG_HIGH_DEPTH_SUPPORT
+            { AV_PIX_FMT_YUV420P12LE, 1 },
+            { AV_PIX_FMT_YUV420P14LE, 1 },
+            { AV_PIX_FMT_YUV422P12LE, 1 },
+            { AV_PIX_FMT_YUV422P14LE, 1 },
+            { AV_PIX_FMT_YUV444P12LE, 1 },
+            { AV_PIX_FMT_YUV444P14LE, 1 },
+#endif
             { AV_PIX_FMT_NONE,        0 }
         };
     for( int i = 0; dr_support_table[i].pixel_format != AV_PIX_FMT_NONE; i++ )
