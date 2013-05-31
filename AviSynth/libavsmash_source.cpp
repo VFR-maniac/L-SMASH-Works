@@ -72,7 +72,7 @@ LSMASHVideoSource::LSMASHVideoSource
     voh.free_private_handler = as_free_video_output_handler;
     get_video_track( source, track_number, threads, env );
     lsmash_discard_boxes( vdh.root );
-    prepare_video_decoding( direct_rendering, direct_rendering, pixel_format, env );
+    prepare_video_decoding( direct_rendering, stacked_format, pixel_format, env );
 }
 
 LSMASHVideoSource::~LSMASHVideoSource()
@@ -248,7 +248,7 @@ void LSMASHVideoSource::prepare_video_decoding
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
     config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
-                                                   direct_rendering, direct_rendering, pixel_format,
+                                                   direct_rendering, stacked_format, pixel_format,
                                                    config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
     if( libavsmash_find_first_valid_video_frame( &vdh, vi.num_frames ) < 0 )
