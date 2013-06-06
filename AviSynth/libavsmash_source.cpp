@@ -401,28 +401,30 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         for( i = 1; i <= itunes_metadata_count; i++ )
         {
             lsmash_itunes_metadata_t metadata;
-            if( lsmash_get_itunes_metadata( adh.root, i, &metadata ) )
+            if( lsmash_get_itunes_metadata( adh.root, i, &metadata ) < 0 )
                 continue;
             if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM
              || (metadata.type != ITUNES_METADATA_TYPE_STRING && metadata.type != ITUNES_METADATA_TYPE_BINARY)
              || !metadata.meaning || !metadata.name
              || memcmp( "com.apple.iTunes", metadata.meaning, strlen( metadata.meaning ) )
              || memcmp( "iTunSMPB", metadata.name, strlen( metadata.name ) ) )
+            {
+                lsmash_cleanup_itunes_metadata( &metadata );
                 continue;
-            char *value;
+            }
+            char *value = NULL;
             if( metadata.type == ITUNES_METADATA_TYPE_STRING )
             {
                 int length = strlen( metadata.value.string );
-                if( length < 116 )
-                    continue;
-                value = duplicate_as_string( metadata.value.string, length );
+                if( length >= 116 )
+                    value = duplicate_as_string( metadata.value.string, length );
             }
             else    /* metadata.type == ITUNES_METADATA_TYPE_BINARY */
             {
-                if( metadata.value.binary.size < 116 )
-                    continue;
-                value = duplicate_as_string( metadata.value.binary.data, metadata.value.binary.size );
+                if( metadata.value.binary.size >= 116 )
+                    value = duplicate_as_string( metadata.value.binary.data, metadata.value.binary.size );
             }
+            lsmash_cleanup_itunes_metadata( &metadata );
             if( !value )
                 continue;
             uint32_t dummy[9];
