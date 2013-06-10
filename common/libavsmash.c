@@ -128,6 +128,8 @@ static enum AVCodecID get_codec_id_from_description( lsmash_summary_t *summary )
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_UTVIDEO,    QT_CODEC_TYPE_ULRG_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_UTVIDEO,    QT_CODEC_TYPE_ULY0_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_UTVIDEO,    QT_CODEC_TYPE_ULY2_VIDEO );
+        ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_UTVIDEO,    QT_CODEC_TYPE_ULH0_VIDEO );
+        ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_UTVIDEO,    QT_CODEC_TYPE_ULH2_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_V210,       QT_CODEC_TYPE_V210_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_V410,       QT_CODEC_TYPE_V410_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_RAWVIDEO,   QT_CODEC_TYPE_2VUY_VIDEO );
@@ -325,7 +327,9 @@ static lsmash_codec_specific_data_type get_codec_specific_data_type( lsmash_code
     else if( lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULRA_VIDEO )
           || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULRG_VIDEO )
           || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULY0_VIDEO )
-          || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULY2_VIDEO ) )
+          || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULY2_VIDEO )
+          || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULH0_VIDEO )
+          || lsmash_check_codec_type_identical( codec_type, QT_CODEC_TYPE_ULH2_VIDEO ) )
     {
         *format1 = LSMASH_CODEC_SPECIFIC_FORMAT_STRUCTURED;
         return LSMASH_CODEC_SPECIFIC_DATA_TYPE_CODEC_GLOBAL_HEADER;
