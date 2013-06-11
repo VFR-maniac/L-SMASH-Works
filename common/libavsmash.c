@@ -611,10 +611,11 @@ void libavsmash_flush_buffers( codec_configuration_t *config )
 
 void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )
 {
+    uint32_t new_index = config->queue.index ? config->queue.index : 1;
     if( !config->update_pending || config->queue.codec_id == AV_CODEC_ID_NONE )
     {
         /* Don't update the decoder configuration if L-SMASH cannot recognize CODEC or extract its specific info correctly. */
-        config->index = config->queue.index;
+        config->index = new_index;
         libavsmash_flush_buffers( config );
         /* Set up the maximum presentation width and height. */
         libavsmash_summary_t *entry   = config->index <= config->count ? &config->entries[ config->index - 1 ] : NULL;
@@ -653,7 +654,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         goto fail;
     }
     /* Set up decoder basic settings. */
-    lsmash_summary_t *summary = config->entries[ config->queue.index - 1 ].summary;
+    lsmash_summary_t *summary = config->entries[new_index - 1].summary;
     if( codec->type == AVMEDIA_TYPE_VIDEO )
     {
         lsmash_video_summary_t *video = (lsmash_video_summary_t *)summary;
@@ -698,7 +699,7 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;
     }
-    config->index             = config->queue.index;
+    config->index             = new_index;
     config->update_pending    = 0;
     config->delay_count       = 0;
     config->queue.delay_count = 0;
