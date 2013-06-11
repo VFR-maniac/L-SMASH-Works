@@ -44,10 +44,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     if( h->audio_pcm_sample_count == 0 || h->audio_format.Format.nSamplesPerSec == 0 )
         return -1;  /* Only available if audio stream is present. */
-    if( opt->framerate_den == 0 )
+    if( opt->dummy.framerate_den == 0 )
         return -1;
-    h->framerate_num = opt->framerate_num;
-    h->framerate_den = opt->framerate_den;
+    h->framerate_num = opt->dummy.framerate_num;
+    h->framerate_den = opt->dummy.framerate_den;
     h->video_sample_count = ((uint64_t)h->framerate_num * h->audio_pcm_sample_count - 1)
                           / ((uint64_t)h->framerate_den * h->audio_format.Format.nSamplesPerSec) + 1;
     static const struct
@@ -60,22 +60,22 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
             { RGB24_SIZE, OUTPUT_TAG_RGB  },
             { YC48_SIZE,  OUTPUT_TAG_YC48 }
         };
-    int linesize = MAKE_AVIUTL_PITCH( opt->width * (colorspace_table[ opt->colorspace ].pixel_size << 3) );
+    int linesize = MAKE_AVIUTL_PITCH( opt->dummy.width * (colorspace_table[ opt->dummy.colorspace ].pixel_size << 3) );
     dummy_handler_t *hp = (dummy_handler_t *)h->video_private;
-    hp->dummy_size = linesize * opt->height;
+    hp->dummy_size = linesize * opt->dummy.height;
     if( hp->dummy_size <= 0 )
         return -1;
     hp->dummy_data = lw_malloc_zero( hp->dummy_size );
     if( !hp->dummy_data )
         return -1;
     uint8_t *pic = hp->dummy_data;
-    switch( colorspace_table[ opt->colorspace ].compression )
+    switch( colorspace_table[ opt->dummy.colorspace ].compression )
     {
         case OUTPUT_TAG_YC48 :
         case OUTPUT_TAG_RGB :
             break;
         case OUTPUT_TAG_YUY2 :
-            for( int i = 0; i < opt->height; i++ )
+            for( int i = 0; i < opt->dummy.height; i++ )
             {
                 for( int j = 0; j < linesize; j += 2 )
                 {
@@ -91,10 +91,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     }
     /* BITMAPINFOHEADER */
     h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    h->video_format.biWidth       = opt->width;
-    h->video_format.biHeight      = opt->height;
-    h->video_format.biBitCount    = colorspace_table[ opt->colorspace ].pixel_size << 3;
-    h->video_format.biCompression = colorspace_table[ opt->colorspace ].compression;
+    h->video_format.biWidth       = opt->dummy.width;
+    h->video_format.biHeight      = opt->dummy.height;
+    h->video_format.biBitCount    = colorspace_table[ opt->dummy.colorspace ].pixel_size << 3;
+    h->video_format.biCompression = colorspace_table[ opt->dummy.colorspace ].compression;
     return 0;
 }
 

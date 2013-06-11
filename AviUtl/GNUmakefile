@@ -11,8 +11,9 @@ vpath %.rc $(SRCDIR)
 OBJ_INPUT = $(SRC_INPUT:%.c=%.o) lwinput.res
 OBJ_MUXER = $(SRC_MUXER:%.c=%.o) lwmuxer.res
 OBJ_DUMPER = $(SRC_DUMPER:%.c=%.o)
+OBJ_COLOR = $(SRC_COLOR:%.c=%.o)
 
-SRC_ALL = $(SRC_INPUT) $(SRC_MUXER) $(SRC_DUMPER)
+SRC_ALL = $(SRC_INPUT) $(SRC_MUXER) $(SRC_DUMPER) $(SRC_COLOR)
 
 RCFLAGS = -J rc -O coff
 
@@ -20,15 +21,17 @@ ifneq ($(STRIP),)
 LDFLAGS += -Wl,-s
 endif
 
-.PHONY: all input muxer dumper clean distclean dep
+.PHONY: all input muxer dumper color clean distclean dep
 
-all: input muxer dumper
+all: input muxer dumper color
 
 input: lwinput.aui
 
 muxer: lwmuxer.auf
 
 dumper: lwdumper.auf
+
+color: lwcolor.auc
 
 lwinput.aui: $(OBJ_INPUT)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -39,6 +42,9 @@ lwmuxer.auf: $(OBJ_MUXER)
 lwdumper.auf: $(OBJ_DUMPER)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+lwcolor.auc: $(OBJ_COLOR)
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 %.o: %.c .depend
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -46,7 +52,7 @@ lwdumper.auf: $(OBJ_DUMPER)
 	$(RC) $(RCFLAGS) $< -o $@
 
 clean:
-	$(RM) *.auf *.aui *.o *.res .depend
+	$(RM) *.auf *.aui *.auc *.o *.res .depend
 
 distclean: clean
 	$(RM) config.*

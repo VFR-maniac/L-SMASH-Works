@@ -30,12 +30,8 @@
 
 #include "input.h"
 
+#include "lwcolor.h"
 #include "../common/utils.h"
-
-#define YUY2_SIZE  2
-#define RGB24_SIZE 3
-#define RGBA_SIZE  4
-#define YC48_SIZE  6
 
 #define MAKE_AVIUTL_PITCH( x ) ((((x) + 31) & ~31) >> 3)
 
@@ -75,22 +71,6 @@ typedef enum
     DUMMY_READER      = 4,
 } reader_type;
 
-typedef enum
-{
-    OUTPUT_YUY2  = 0,
-    OUTPUT_RGB24 = 1,
-    OUTPUT_RGBA  = 2,
-    OUTPUT_YC48  = 3,
-} output_colorspace_index;
-
-typedef enum
-{
-    OUTPUT_TAG_YUY2 = MAKEFOURCC( 'Y', 'U', 'Y', '2' ),
-    OUTPUT_TAG_RGB  = 0x00000000,
-    OUTPUT_TAG_RGBA = 0x00000000,
-    OUTPUT_TAG_YC48 = MAKEFOURCC( 'Y', 'C', '4', '8' ),
-} output_colorspace_tag;
-
 typedef struct
 {
     int seek_mode;
@@ -98,12 +78,14 @@ typedef struct
     int scaler;
     int apply_repeat_flag;
     int field_dominance;
-    /* for dummy reader */
-    int width;
-    int height;
-    int framerate_num;
-    int framerate_den;
-    output_colorspace_index colorspace;
+    struct
+    {
+        int width;
+        int height;
+        int framerate_num;
+        int framerate_den;
+        output_colorspace_index colorspace;
+    } dummy;
 } video_option_t;
 
 enum

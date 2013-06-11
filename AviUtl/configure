@@ -91,6 +91,7 @@ SRC_INPUT="lwinput.c libavsmash_input.c lwlibav_input.c avs_input.c dummy_input.
            ../common/video_output.c ../common/utils.c"
 SRC_MUXER="lwmuxer.c progress_dlg.c ../common/utils.c"
 SRC_DUMPER="lwdumper.c"
+SRC_COLOR="lwcolor.c"
 
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log
@@ -242,6 +243,7 @@ SRCDIR = $SRCDIR
 SRC_INPUT = $SRC_INPUT
 SRC_MUXER = $SRC_MUXER
 SRC_DUMPER = $SRC_DUMPER
+SRC_COLOR = $SRC_COLOR
 EOF
 
 cat >> config.log << EOF
@@ -274,4 +276,5 @@ type 'make'        : compile all plugins
 type 'make input'  : compile lwinput.aui
 type 'make muxer'  : compile lwmuxer.auf
 type 'make dumper' : compile lwdumper.auf
+type 'make color'  : compile lwcolor.auc
 EOF

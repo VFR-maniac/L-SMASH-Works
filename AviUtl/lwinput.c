@@ -238,30 +238,32 @@ static void get_settings( void )
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d",      &reader_disabled[2] ) != 1 )
             reader_disabled[2] = 0;
         /* dummy reader */
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_resolution=%dx%d", &video_opt->width, &video_opt->height ) != 2 )
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "dummy_resolution=%dx%d", &video_opt->dummy.width, &video_opt->dummy.height ) != 2 )
         {
-            video_opt->width  = 720;
-            video_opt->height = 480;
+            video_opt->dummy.width  = 720;
+            video_opt->dummy.height = 480;
         }
         else
         {
-            video_opt->width  = MAX( video_opt->width,  32 );
-            video_opt->height = MAX( video_opt->height, 32 );
+            video_opt->dummy.width  = MAX( video_opt->dummy.width,  32 );
+            video_opt->dummy.height = MAX( video_opt->dummy.height, 32 );
         }
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_framerate=%d/%d", &video_opt->framerate_num, &video_opt->framerate_den ) != 2 )
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "dummy_framerate=%d/%d", &video_opt->dummy.framerate_num, &video_opt->dummy.framerate_den ) != 2 )
         {
-            video_opt->framerate_num = 24;
-            video_opt->framerate_den = 1;
+            video_opt->dummy.framerate_num = 24;
+            video_opt->dummy.framerate_den = 1;
         }
         else
         {
-            video_opt->framerate_num = MAX( video_opt->framerate_num, 1 );
-            video_opt->framerate_den = MAX( video_opt->framerate_den, 1 );
+            video_opt->dummy.framerate_num = MAX( video_opt->dummy.framerate_num, 1 );
+            video_opt->dummy.framerate_den = MAX( video_opt->dummy.framerate_den, 1 );
         }
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&video_opt->colorspace ) != 1 )
-            video_opt->colorspace = OUTPUT_YUY2;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "dummy_colorspace=%d", (int *)&video_opt->dummy.colorspace ) != 1 )
+            video_opt->dummy.colorspace = OUTPUT_YUY2;
         else
-            video_opt->colorspace = CLIP_VALUE( video_opt->colorspace, 0, 2 );
+            video_opt->dummy.colorspace = CLIP_VALUE( video_opt->dummy.colorspace, 0, 2 );
         fclose( ini );
     }
     else
@@ -283,11 +285,11 @@ static void get_settings( void )
         video_opt->scaler                 = 0;
         video_opt->apply_repeat_flag      = 0;
         video_opt->field_dominance        = 0;
-        video_opt->width                  = 720;
-        video_opt->height                 = 480;
-        video_opt->framerate_num          = 24;
-        video_opt->framerate_den          = 1;
-        video_opt->colorspace             = OUTPUT_YUY2;
+        video_opt->dummy.width            = 720;
+        video_opt->dummy.height           = 480;
+        video_opt->dummy.framerate_num    = 24;
+        video_opt->dummy.framerate_den    = 1;
+        video_opt->dummy.colorspace       = OUTPUT_YUY2;
         audio_opt->channel_layout         = 0;
         audio_opt->sample_rate            = 0;
         audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
@@ -618,18 +620,18 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* dummy reader */
-            sprintf( edit_buf, "%d", video_opt->width );
+            sprintf( edit_buf, "%d", video_opt->dummy.width );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->height );
+            sprintf( edit_buf, "%d", video_opt->dummy.height );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->framerate_num );
+            sprintf( edit_buf, "%d", video_opt->dummy.framerate_num );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->framerate_den );
+            sprintf( edit_buf, "%d", video_opt->dummy.framerate_den );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPCTSTR)edit_buf );
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
-            SendMessage( hcombo, CB_SETCURSEL, video_opt->colorspace, 0 );
+            SendMessage( hcombo, CB_SETCURSEL, video_opt->dummy.colorspace, 0 );
             /* Library informations */
             if( plugin_information[0] == 0 )
                 get_plugin_information();
@@ -761,17 +763,17 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->width = MAX( atoi( edit_buf ), 32 );
+                    video_opt->dummy.width = MAX( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->height = MAX( atoi( edit_buf ), 32 );
+                    video_opt->dummy.height = MAX( atoi( edit_buf ), 32 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->framerate_num = MAX( atoi( edit_buf ), 1 );
+                    video_opt->dummy.framerate_num = MAX( atoi( edit_buf ), 1 );
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->framerate_den = MAX( atoi( edit_buf ), 1 );
-                    video_opt->colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
-                    fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->width, video_opt->height );
-                    fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->framerate_num, video_opt->framerate_den );
-                    fprintf( ini, "dummy_colorspace=%d\n", video_opt->colorspace );
+                    video_opt->dummy.framerate_den = MAX( atoi( edit_buf ), 1 );
+                    video_opt->dummy.colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
+                    fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->dummy.width, video_opt->dummy.height );
+                    fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->dummy.framerate_num, video_opt->dummy.framerate_den );
+                    fprintf( ini, "dummy_colorspace=%d\n", video_opt->dummy.colorspace );
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );
