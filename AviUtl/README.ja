@@ -2,6 +2,7 @@
     lwinput.aui     : AviUtl用 入力プラグイン
     lwmuxer.auf     : AviUtl用 MUXER エクスポートプラグイン
     lwdumper.auf    : AviUtl用 ファイル解析 エクスポートプラグイン
+    lwcolor.auc     : AviUtl用 色変換プラグイン
 
 [lwinput.aui: L-SMASH Works File Reader]
     [設定]
@@ -50,6 +51,12 @@
                 色差アップサンプリング用のスケーリングアルゴリズムを指定します。
                 この設定はプログレッシヴ、または非YUV4:2:0なフレームに適用されます。
                 インターレースなYUV4:2:0なフレームに対しては、MPEG-2ビデオの色差位置に基づいた5-3-7-1 インターレースド YUV4:2:0補間を適用します。
+            + LW48 output : チェックボックス (デフォルト値 : 無効)
+                LW48はL-SMASH Worksで定義される色空間です。
+                LW48は各コンポーネントがリトルエンディアンで16bitであるYUVがパックされた形式で構成されます。(16Y 16Cb 16Cr ...)
+                YC48との違いは、各コンポーネントの全ての範囲が標準的に使われるということです。
+                このオプションを有効にする場合、LW48からAviUtl内部YC48への直接コピーを有効にすべきです。
+                注: LW48はAviUtl側からは、ビデオ展開形式: RGBとして表示されます。
         [音声ポストプロセッサ]
             + Audio delay : エディットボックス (デフォルト値 : 0)
                 映像ストリーム対する音声遅延量をPCMサンプル数単位で指定します。
@@ -176,10 +183,14 @@
             全てのiTunes MP4 (M4AやM4Vといったもの) または QuickTimeファイル形式 (MOVとして知られる) では参照チャプタートラックが書き込まれます。
         + Optimize for Progressive Download : チェックボックス (デフォルト値 : 有効)
             チェックされていた場合、Muxの最後に、サンプルにアクセスしデコードするために必要な全てのデータを出力ファイルの出来るだけ先頭に移動します。
-[lwdumper: L-SMASH Works Dumper]
+[lwdumper.auf: L-SMASH Works Dumper]
     このエクスポートプラグインは ISO Base Media (ISO/IEC 14496-12) または QuickTime (MOV) 派生のファイル形式のみ現在サポートしています。
     保存ダイアログを開くには、"ファイル" -> "エクスポート" -> "L-SMASH Works Dumper" と進みます。
         + Dump File (*.txt)
             ボックス構造を示したテキストファイルを書き出します。
         + Timecode v2 File (*.tmc)
             mkvmerge timecode v2 fileを書き出します。
+[lwcolor.auc: L-SMASH Works Color Space Converter]
+    このプラグインはLW48形式からAviUtl内部YC48形式への直接コピー、またその逆に使用されます。
+    また、このプラグインは "設定" -> "色変換の設定" -> "LW ColorSpace" により有効に出来ます。
+    有効にした場合、LW48<->YC48変換においてコピー以外の演算は使用されません。
