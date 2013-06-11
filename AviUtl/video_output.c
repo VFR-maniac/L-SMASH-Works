@@ -142,6 +142,13 @@ func_get_buffer_t *au_setup_video_rendering
     vohp->free_private_handler = au_free_video_output_handler;
     enum AVPixelFormat output_pixel_format;
     output_colorspace_index index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
+    if( opt->colorspace == 0 )
+        index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
+    else
+    {
+        output_pixel_format = AV_PIX_FMT_YUV444P16LE;
+        index               = OUTPUT_LW48;
+    }
     if( initialize_scaler_handler( &vohp->scaler, ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
@@ -152,12 +159,13 @@ func_get_buffer_t *au_setup_video_rendering
         func_convert_colorspace *convert_colorspace;
         int                      pixel_size;
         output_colorspace_tag    compression;
-    } colorspace_table[4] =
+    } colorspace_table[5] =
         {
             { to_yuy2,            YUY2_SIZE,  OUTPUT_TAG_YUY2 },
             { to_rgb24,           RGB24_SIZE, OUTPUT_TAG_RGB  },
             { to_rgba,            RGBA_SIZE,  OUTPUT_TAG_RGBA },
-            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 }
+            { to_yuv16le_to_yc48, YC48_SIZE,  OUTPUT_TAG_YC48 },
+            { to_yuv16le_to_lw48, LW48_SIZE,  OUTPUT_TAG_LW48 }
         };
     au_vohp->convert_colorspace = colorspace_table[index].convert_colorspace;
     /* BITMAPINFOHEADER */

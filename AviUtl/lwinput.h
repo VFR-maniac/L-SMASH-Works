@@ -78,6 +78,7 @@ typedef struct
     int scaler;
     int apply_repeat_flag;
     int field_dominance;
+    output_colorspace_index colorspace;
     struct
     {
         int width;

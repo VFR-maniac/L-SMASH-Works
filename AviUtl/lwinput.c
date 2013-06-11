@@ -204,6 +204,11 @@ static void get_settings( void )
             video_opt->field_dominance = 0;
         else
             video_opt->field_dominance = CLIP_VALUE( video_opt->field_dominance, 0, 2 );
+        /* LW48 output */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "colorspace=%d", (int *)&video_opt->colorspace ) != 1 )
+            video_opt->colorspace = 0;
+        else
+            video_opt->colorspace = video_opt->colorspace ? OUTPUT_LW48 : 0;
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -285,6 +290,7 @@ static void get_settings( void )
         video_opt->scaler                 = 0;
         video_opt->apply_repeat_flag      = 0;
         video_opt->field_dominance        = 0;
+        video_opt->colorspace             = 0;
         video_opt->dummy.width            = 720;
         video_opt->dummy.height           = 480;
         video_opt->dummy.framerate_num    = 24;
@@ -572,6 +578,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)field_dominance_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
+            /* LW48 output */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_SETCHECK, (WPARAM) video_opt->colorspace == 0 ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -737,6 +745,9 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* field_dominance */
                     video_opt->field_dominance = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "field_dominance=%d\n", video_opt->field_dominance );
+                    /* LW48 output */
+                    video_opt->colorspace = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_GETCHECK, 0, 0 )) ? OUTPUT_LW48 : 0;
+                    fprintf( ini, "colorspace=%d\n", video_opt->colorspace );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );
