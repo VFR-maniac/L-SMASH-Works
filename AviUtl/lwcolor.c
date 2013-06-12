@@ -54,6 +54,7 @@ BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
 {
     if( cpip->format != OUTPUT_TAG_LW48 )
         return FALSE;
+    /* LW48->LW48 */
     PIXEL_LW48 *pixelp = (PIXEL_LW48 *)cpip->pixelp;
     for( int y = 0; y < cpip->h; y++ )
     {
@@ -64,16 +65,46 @@ BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
     return TRUE;
 }
 
+#define CLIP_BYTE( value ) ((value) > 255 ? 255 : (value) < 0 ? 0 : (value))
+
 BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
 {
-    if( cpip->format != OUTPUT_TAG_LW48 )
-        return FALSE;
-    PIXEL_LW48 *pixelp = (PIXEL_LW48 *)cpip->pixelp;
-    for( int y = 0; y < cpip->h; y++ )
+    if( cpip->format == OUTPUT_TAG_LW48 )
     {
-        PIXEL_YC *ycp = (PIXEL_YC *)((BYTE *)cpip->ycp + y * cpip->line_size);
-        for( int x = 0; x < cpip->w; x++ )
-            *(pixelp++) = *((PIXEL_LW48 *)ycp++);
+        /* LW48->LW48 */
+        PIXEL_LW48 *pixelp = (PIXEL_LW48 *)cpip->pixelp;
+        for( int y = 0; y < cpip->h; y++ )
+        {
+            PIXEL_YC *ycp = (PIXEL_YC *)((BYTE *)cpip->ycp + y * cpip->line_size);
+            for( int x = 0; x < cpip->w; x++ )
+                *(pixelp++) = *((PIXEL_LW48 *)ycp++);
+        }
+        return TRUE;
     }
-    return TRUE;
+    else if( cpip->format == 0 )
+    {
+        /* LW48->RGB */
+        BYTE *pixelp = (BYTE *)cpip->pixelp;
+        BYTE *_ycp   = (BYTE *)cpip->ycp + (cpip->h - 1) * cpip->line_size;
+        for( int y = 0; y < cpip->h; y++ )
+        {
+            PIXEL_YC *ycp = (PIXEL_YC *)(_ycp - y * cpip->line_size);
+            for( int x = 0; x < cpip->w; x++ )
+            {
+                double _y  = 1.164 * ((unsigned char)(ycp->y >> 8) - 16);
+                double _cb = (unsigned char)(ycp->cb >> 8) - 128;
+                double _cr = (unsigned char)(ycp->cr >> 8) - 128;
+                ++ycp;
+                double r = _y               + 1.596 * _cr;
+                double g = _y - 0.391 * _cb - 0.813 * _cr;
+                double b = _y + 2.018 * _cb;
+                pixelp[0] = CLIP_BYTE( b );
+                pixelp[1] = CLIP_BYTE( g );
+                pixelp[2] = CLIP_BYTE( r );
+                pixelp += 3;
+            }
+        }
+        return TRUE;
+    }
+    return FALSE;
 }
