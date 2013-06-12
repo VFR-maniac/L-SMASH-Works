@@ -71,7 +71,7 @@ static void convert_yuv16le_to_lw48( uint8_t *buf, int buf_linesize, uint8_t **d
     {
         uint8_t *p_buf = buf;
         uint8_t *p_dst[3] = { dst_data[0] + offset, dst_data[1] + offset, dst_data[2] + offset };
-        for( int i = 0; i < output_linesize; i += YC48_SIZE )
+        for( int i = 0; i < output_linesize; i += LW48_SIZE )
         {
             p_buf[0] = p_dst[0][0];
             p_buf[1] = p_dst[0][1];

@@ -55,12 +55,14 @@ BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
     if( cpip->format != OUTPUT_TAG_LW48 )
         return FALSE;
     /* LW48->LW48 */
-    PIXEL_LW48 *pixelp = (PIXEL_LW48 *)cpip->pixelp;
+    BYTE *ycp    = (BYTE *)cpip->ycp;
+    BYTE *pixelp = (BYTE *)cpip->pixelp;
+    int linesize = LW48_SIZE * cpip->w;
     for( int y = 0; y < cpip->h; y++ )
     {
-        PIXEL_YC *ycp = (PIXEL_YC *)((BYTE *)cpip->ycp + y * cpip->line_size);
-        for( int x = 0; x < cpip->w; x++ )
-            *(ycp++) = *((PIXEL_YC *)pixelp++);
+        memcpy( ycp, pixelp, linesize );
+        ycp    += cpip->line_size;
+        pixelp += linesize;
     }
     return TRUE;
 }
@@ -72,12 +74,14 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
     if( cpip->format == OUTPUT_TAG_LW48 )
     {
         /* LW48->LW48 */
-        PIXEL_LW48 *pixelp = (PIXEL_LW48 *)cpip->pixelp;
+        BYTE *ycp    = (BYTE *)cpip->ycp;
+        BYTE *pixelp = (BYTE *)cpip->pixelp;
+        int linesize = LW48_SIZE * cpip->w;
         for( int y = 0; y < cpip->h; y++ )
         {
-            PIXEL_YC *ycp = (PIXEL_YC *)((BYTE *)cpip->ycp + y * cpip->line_size);
-            for( int x = 0; x < cpip->w; x++ )
-                *(pixelp++) = *((PIXEL_LW48 *)ycp++);
+            memcpy( pixelp, ycp, linesize );
+            ycp    += cpip->line_size;
+            pixelp += linesize;
         }
         return TRUE;
     }
@@ -88,7 +92,7 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
         BYTE *_ycp   = (BYTE *)cpip->ycp + (cpip->h - 1) * cpip->line_size;
         for( int y = 0; y < cpip->h; y++ )
         {
-            PIXEL_YC *ycp = (PIXEL_YC *)(_ycp - y * cpip->line_size);
+            PIXEL_YC *ycp = (PIXEL_YC *)_ycp;
             for( int x = 0; x < cpip->w; x++ )
             {
                 double _y  = 1.164 * ((unsigned char)(ycp->y >> 8) - 16);
@@ -103,6 +107,7 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
                 pixelp[2] = CLIP_BYTE( r );
                 pixelp += 3;
             }
+            _ycp -= cpip->line_size;
         }
         return TRUE;
     }
