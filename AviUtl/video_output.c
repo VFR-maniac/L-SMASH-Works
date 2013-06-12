@@ -140,8 +140,8 @@ func_get_buffer_t *au_setup_video_rendering
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = au_free_video_output_handler;
-    enum AVPixelFormat output_pixel_format;
-    output_colorspace_index index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
+    enum AVPixelFormat      output_pixel_format;
+    output_colorspace_index index;
     if( opt->colorspace == 0 )
         index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
     else

@@ -27,7 +27,7 @@
 #define LW48_SIZE  6
 
 /* Packed YUV 16:16:16, 48bpp 16Y 16Cb 16Cr,
- * the 2-byte value for each Y/U/V component is stored as little-endian */
+ * the 2-byte value for each Y/Cb/Cr component is stored as little-endian */
 typedef	struct
 {
     short y;
