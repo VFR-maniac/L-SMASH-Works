@@ -20,10 +20,24 @@ endif
 all: $(SONAME)
 
 $(SONAME): $(OBJ_SOURCE)
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(LD) $(SOFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+	-@ $(if $(STRIP), $(STRIP) -x $@)
 
 %.o: %.c .depend
 	$(CC) $(CFLAGS) -c $< -o $@
+
+install: all
+	install -d $(DESTDIR)$(libdir) $(DESTDIR)$(vsplugindir)
+ifneq ($(IMPLIB),)
+	install -m 644 $(IMPLIB) $(DESTDIR)$(libdir)
+else
+	install -m 644 $(SONAME) $(DESTDIR)$(libdir)/$(SONAME)
+	$(if $(SONAME), ln -f -s $(DESTDIR)$(libdir)/$(SONAME) $(DESTDIR)$(vsplugindir)/$(SONAME_LN))
+endif
+
+#All objects should be deleted regardless of configure when uninstall/clean/distclean.
+uninstall:
+	$(RM) $(addprefix $(DESTDIR), $(libdir)/$(SONAME) $(vsplugindir)/$(SONAME_LN))
 
 clean:
 	$(RM) $(SONAME) *.o .depend
