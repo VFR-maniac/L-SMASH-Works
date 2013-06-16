@@ -11,9 +11,13 @@ Usage: [PKG_CONFIG_PATH=/foo/bar/lib/pkgconfig] ./configure [options]
 options:
   -h, --help               print help (this)
 
-  --prefix=PREFIX          set dir for headers and libs [NONE]
-  --libdir=DIR             set dir for libs    [NONE]
-  --includedir=DIR         set dir for headers [NONE]
+  --prefix=PREFIX          install architecture-independent files into PREFIX
+                           [/usr/local]
+  --exec-prefix=EPREFIX    install architecture-dependent files into EPREFIX
+                           [PREFIX]
+  --libdir=DIR             install libs in DIR [EPREFIX/lib]
+  --vs-plugindir=DIR       location of VapourSynth plugin directory,
+                              default is [libdir]/vapoursynth
 
   --extra-cflags=XCFLAGS   add XCFLAGS to CFLAGS
   --extra-ldflags=XLDFLAGS add XLDFLAGS to LDFLAGS
@@ -82,8 +86,10 @@ LD="gcc"
 STRIP="strip"
 
 prefix=""
-includedir=""
+exec_prefix=""
 libdir=""
+vsplugindir=""
+DESTDIR=""
 
 CFLAGS="-Wall -std=gnu99 -I. -I$SRCDIR"
 LDFLAGS="-L."
@@ -104,11 +110,17 @@ for opt; do
         --prefix=*)
             prefix="$optarg"
             ;;
+        --exec-prefix=*)
+            exec_prefix="$optarg"
+            ;;
         --libdir=*)
             libdir="$optarg"
             ;;
-        --includedir=*)
-            includedir="$optarg"
+        --vs-plugindir=*)
+            vsplugindir="$optarg"
+            ;;
+        --destdir=*)
+            DESTDIR="$optarg"
             ;;
         --extra-cflags=*)
             XCFLAGS="$optarg"
@@ -134,6 +146,11 @@ for opt; do
             ;;
     esac
 done
+
+test -n "$prefix" || prefix="/usr/local"
+test -n "$exec_prefix" || exec_prefix='${prefix}'
+test -n "$libdir" || libdir='${exec_prefix}/lib'
+test -n "$vsplugindir" || vsplugindir='${libdir}/vapoursynth'
 
 BASENAME="vslsmashsource"
 
@@ -169,7 +186,6 @@ if test -n "$prefix"; then
     CFLAGS="$CFLAGS -I$prefix/include"
     LDFLAGS="$LDFLAGS -L$prefix/lib"
 fi
-test -n "$includedir" && CFLAGS="$CFLAGS -I$includedir"
 test -n "$libdir" && LDFLAGS="$LDFLAGS -L$libdir"
 
 CFLAGS="$CFLAGS $XCFLAGS"
@@ -255,6 +271,11 @@ CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
 LIBS = $LIBS
 SRCDIR = $SRCDIR
+DESTDIR = $DESTDIR
+prefix = $prefix
+exec_prefix = $exec_prefix
+libdir = $libdir
+vsplugindir = $vsplugindir
 SRC_SOURCE = $SRC_SOURCE
 BASENAME=$BASENAME
 SONAME=$SONAME
@@ -281,6 +302,8 @@ LDFLAGS     = $LDFLAGS
 LIBS        = $LIBS
 SONAME      = $SONAME
 SOFLAGS     = $SOFLAGS
+PREFIX      = $prefix
+VSPLUGINDIR = $vsplugindir
 EOF
 
 test "$SRCDIR" = "." || cp -f $SRCDIR/GNUmakefile .
