@@ -92,7 +92,7 @@ SRC_INPUT="lwinput.c libavsmash_input.c lwlibav_input.c avs_input.c dummy_input.
            ../common/video_output.c ../common/utils.c"
 SRC_MUXER="lwmuxer.c progress_dlg.c ../common/utils.c"
 SRC_DUMPER="lwdumper.c"
-SRC_COLOR="lwcolor.c"
+SRC_COLOR="lwcolor.c lwcolor_simd.c lwsimd.c"
 
 # -- options ----------------------------------------------------------------------------------
 echo all command lines: > config.log

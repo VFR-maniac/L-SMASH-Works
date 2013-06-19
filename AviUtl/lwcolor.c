@@ -25,7 +25,15 @@
 #include "color.h"
 
 #include "lwcolor.h"
+#include "lwcolor_simd.h"
+#include "lwsimd.h"
 #include "config.h"
+
+typedef void (*func_convert_lw48)( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
+
+static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
+
+static func_convert_lw48 func_convert_lw48_to_rgb24 = NULL;
 
 COLOR_PLUGIN_TABLE color_plugin_table =
 {
@@ -33,7 +41,7 @@ COLOR_PLUGIN_TABLE color_plugin_table =
     "LW ColorSpace",                        /* Name of plugin */
     "L-SMASH Works Color Space Converter"   /* Information of plugin */
     " r" LSMASHWORKS_REV "\0",
-    NULL,                                   /* Pointer to function called when opening DLL (If NULL, won't be called.) */
+    func_init,                              /* Pointer to function called when opening DLL (If NULL, won't be called.) */
     NULL,                                   /* Pointer to function called when closing DLL (If NULL, won't be called.) */
     func_pixel2yc,                          /* Convert DIB format image into PIXEL_YC format image (If NULL, won't be called.) */
     func_yc2pixel,                          /* Convert PIXEL_YC format image into DIB format image (If NULL, won't be called.) */
@@ -48,6 +56,15 @@ EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTabl
 EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTableYUY2( void )
 {
 	return &color_plugin_table;
+}
+
+BOOL func_init()
+{
+    if( check_sse41() )
+        func_convert_lw48_to_rgb24 = convert_lw48_to_rgb24_sse41;
+    else
+        func_convert_lw48_to_rgb24 = convert_lw48_to_rgb24;
+    return TRUE;
 }
 
 BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
@@ -108,32 +125,40 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
     else if( cpip->format == OUTPUT_TAG_RGB )
     {
         /* LW48 -> RGB24 */
-        BYTE *ycp_line   = (BYTE *)cpip->ycp + (cpip->h - 1) * cpip->line_size;
-        BYTE *pixel_line = (BYTE *)cpip->pixelp;
-        int rgb_linesize = (cpip->w * 3 + 3) & ~3;
-        for( int y = 0; y < cpip->h; y++ )
-        {
-            PIXEL_LW48 *ycp = (PIXEL_LW48 *)ycp_line;
-            BYTE *pixelp = pixel_line;
-            for( int x = 0; x < cpip->w; x++ )
-            {
-                int _y = (ycp->y - 4096) * 9539;
-                int _cb = ycp->cb - 32768;
-                int _cr = ycp->cr - 32768;
-                ++ycp;
-                int r = (_y               + 13074 * _cr + (1<<20)) >> 21;
-                int g = (_y -  3203 * _cb -  6808 * _cr + (1<<20)) >> 21;
-                int b = (_y + 16531 * _cb               + (1<<20)) >> 21;
-                pixelp[0] = CLIP_BYTE( b );
-                pixelp[1] = CLIP_BYTE( g );
-                pixelp[2] = CLIP_BYTE( r );
-                pixelp += 3;
-            }
-            ycp_line   -= cpip->line_size;
-            pixel_line += rgb_linesize;
-        }
+        func_convert_lw48_to_rgb24( (BYTE *)cpip->pixelp, (BYTE *)cpip->ycp, cpip->line_size, cpip->w, cpip->h );
     }
     else
         return FALSE;
     return TRUE;
+}
+
+#define CLIP_BYTE( value ) ((value) > 255 ? 255 : (value) < 0 ? 0 : (value))
+
+static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+{
+    /* LW48 -> RGB24 */
+    BYTE *ycp_line   = src + (h - 1) * src_linesize;
+    BYTE *pixel_line = pixelp;
+    int rgb_linesize = (w * 3 + 3) & ~3;
+    for( int y = 0; y < h; y++ )
+    {
+        PIXEL_LW48 *ycp = (PIXEL_LW48 *)ycp_line;
+        BYTE *rgb_ptr = pixel_line;
+        for( int x = 0; x < w; x++ )
+        {
+            int _y  = (ycp->y - 4096) * 9539;
+            int _cb = ycp->cb - 32768;
+            int _cr = ycp->cr - 32768;
+            ++ycp;
+            int r = (_y               + 13074 * _cr + (1<<20)) >> 21;
+            int g = (_y -  3203 * _cb -  6808 * _cr + (1<<20)) >> 21;
+            int b = (_y + 16531 * _cb               + (1<<20)) >> 21;
+            rgb_ptr[0] = CLIP_BYTE( b );
+            rgb_ptr[1] = CLIP_BYTE( g );
+            rgb_ptr[2] = CLIP_BYTE( r );
+            rgb_ptr += 3;
+        }
+        ycp_line   -= src_linesize;
+        pixel_line += rgb_linesize;
+    }
 }
