@@ -108,11 +108,13 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
     else if( cpip->format == OUTPUT_TAG_RGB )
     {
         /* LW48 -> RGB24 */
-        BYTE *pixelp = (BYTE *)cpip->pixelp;
-        BYTE *_ycp   = (BYTE *)cpip->ycp + (cpip->h - 1) * cpip->line_size;
+        BYTE *ycp_line   = (BYTE *)cpip->ycp + (cpip->h - 1) * cpip->line_size;
+        BYTE *pixel_line = (BYTE *)cpip->pixelp;
+        int rgb_linesize = (cpip->w * 3 + 3) & ~3;
         for( int y = 0; y < cpip->h; y++ )
         {
-            PIXEL_LW48 *ycp = (PIXEL_LW48 *)_ycp;
+            PIXEL_LW48 *ycp = (PIXEL_LW48 *)ycp_line;
+            BYTE *pixelp = pixel_line;
             for( int x = 0; x < cpip->w; x++ )
             {
                 double _y  = 1.164 * ((unsigned char)(ycp->y >> 8) - 16);
@@ -127,7 +129,8 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
                 pixelp[2] = CLIP_BYTE( r );
                 pixelp += 3;
             }
-            _ycp -= cpip->line_size;
+            ycp_line   -= cpip->line_size;
+            pixel_line += rgb_linesize;
         }
     }
     else
