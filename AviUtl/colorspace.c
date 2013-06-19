@@ -32,37 +32,7 @@
 #include <libavutil/mem.h>
 
 #include "colorspace_simd.h"
-
-#ifdef __GNUC__
-static void __cpuid(int CPUInfo[4], int prm)
-{
-    asm volatile ( "cpuid" :"=a"(CPUInfo[0]), "=b"(CPUInfo[1]), "=c"(CPUInfo[2]), "=d"(CPUInfo[3]) :"a"(prm) );
-    return;
-}
-#else
-#include <intrin.h>
-#endif /* __GNUC__ */
-
-static int check_sse2()
-{
-    int CPUInfo[4];
-    __cpuid(CPUInfo, 1);
-    return (CPUInfo[3] & 0x04000000) != 0;
-}
-
-static int check_ssse3()
-{
-    int CPUInfo[4];
-    __cpuid(CPUInfo, 1);
-    return (CPUInfo[2] & 0x00000200) != 0;
-}
-
-static int check_sse41()
-{
-    int CPUInfo[4];
-    __cpuid(CPUInfo, 1);
-    return (CPUInfo[2] & 0x00080000) != 0;
-}
+#include "lwsimd.h"
 
 static void convert_yuv16le_to_lw48( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
 {

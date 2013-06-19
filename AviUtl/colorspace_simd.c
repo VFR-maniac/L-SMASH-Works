@@ -25,29 +25,20 @@
 #include <stdint.h>
 
 #include "../common/utils.h"
-
-#ifdef __GNUC__
-#define AUI_ALIGN(x) __attribute__((aligned(x)))
-#define AUI_FUNC_ALIGN __attribute__((force_align_arg_pointer))
-#define AUI_FORCEINLINE inline __attribute__((always_inline))
-#else
-#define AUI_ALIGN(x) __declspec(align(x))
-#define AUI_FUNC_ALIGN
-#define AUI_FORCEINLINE __forceinline
-#endif
+#include "lwsimd.h"
 
 #ifdef __GNUC__
 #pragma GCC target ("ssse3")
 #endif
 #include <tmmintrin.h>
 /* SSSE3 version of func convert_yv12i_to_yuy2 */
-void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
-    static const uint8_t AUI_ALIGN(16) Array_5371[4][16] = {
+    static const uint8_t LW_ALIGN(16) Array_5371[4][16] = {
         { 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3 }, { 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1 },
         { 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7 }, { 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5 },
     };
-    static const int16_t AUI_ALIGN(16) Array_4[8] = { 4, 4, 4, 4, 4, 4, 4, 4 };
+    static const int16_t LW_ALIGN(16) Array_4[8] = { 4, 4, 4, 4, 4, 4, 4, 4 };
     uint8_t *ptr_y, *ptr_u, *ptr_v, *ptr_dst, *ptr_dst_fin;
     __m128i x0, x1, x2, x3, x4, x5, x6, x7;
     const int y_pitch  = pic_linesize[0];
@@ -211,7 +202,7 @@ void AUI_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize,
 #include <smmintrin.h>
 
 /* the inner loop branch should be deleted by forced inline expansion and "bit_depth" constant propagation. */
-static void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height, const int bit_depth )
+static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height, const int bit_depth )
 {
     const int lshft = 16 - bit_depth;
     /* copy luma */
@@ -247,7 +238,7 @@ static void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_ss
         }
     }
 
-    static const uint16_t AUI_ALIGN(16) Array_5371[4][8] = {
+    static const uint16_t LW_ALIGN(16) Array_5371[4][8] = {
         { 5, 3, 5, 3, 5, 3, 5, 3 }, { 7, 1, 7, 1, 7, 1, 7, 1 },
         { 1, 7, 1, 7, 1, 7, 1, 7 }, { 3, 5, 3, 5, 3, 5, 3, 5 },
     };
@@ -472,17 +463,17 @@ static void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_ss
     }
 }
 
-void AUI_FUNC_ALIGN convert_yuv420p9le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p9le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 9 );
 }
 
-void AUI_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 10 );
 }
 
-void AUI_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
 {
     convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 16 );
 }
@@ -490,7 +481,7 @@ void AUI_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, c
 /* SIMD version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16.
  * the inner loop branch should be deleted by forced inline expansion and "use_sse41" constant propagation. */
-void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range, const int use_sse41 )
+void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range, const int use_sse41 )
 {
     uint8_t *ycp, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -503,19 +494,19 @@ void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, 
 #define Y_OFFSET_FULL  ((-299)+((Y_COEF_FULL)>>1))
 #define UV_OFFSET      32768
 #define UV_OFFSET_FULL 589824
-    static const int AUI_ALIGN(16) aY_coef[2][4] = {
+    static const int LW_ALIGN(16) aY_coef[2][4] = {
         { Y_COEF,      Y_COEF,      Y_COEF,      Y_COEF      },
         { Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL, Y_COEF_FULL }
     };
-    static const int AUI_ALIGN(16) aUV_coef[2][4] = {
+    static const int LW_ALIGN(16) aUV_coef[2][4] = {
         { UV_COEF,      UV_COEF,      UV_COEF,      UV_COEF      },
         { UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL, UV_COEF_FULL }
     };
-    static const int16_t AUI_ALIGN(16) aY_offest[2][8] = {
+    static const int16_t LW_ALIGN(16) aY_offest[2][8] = {
         { Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET,      Y_OFFSET      },
         { Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL, Y_OFFSET_FULL }
     };
-    static const int AUI_ALIGN(16) aUV_offest[2][4] = {
+    static const int LW_ALIGN(16) aUV_offest[2][4] = {
         { UV_OFFSET,      UV_OFFSET,      UV_OFFSET,      UV_OFFSET      },
         { UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL, UV_OFFSET_FULL }
     };
@@ -527,7 +518,7 @@ void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, 
 #undef Y_OFFSET_FULL
 #undef UV_OFFSET
 #undef UV_OFFSET_FULL
-    static const uint8_t AUI_ALIGN(16) a_shuffle[16] = {
+    static const uint8_t LW_ALIGN(16) a_shuffle[16] = {
         0x00, 0x01, 0x06, 0x07, 0x0C, 0x0D, 0x02, 0x03, 0x08, 0x09, 0x0E, 0x0F, 0x04, 0x05, 0x0A, 0x0B
     };
     x3 = _mm_setzero_si128();   /* Initialize to avoid warning and some weird gcc optimization. */
@@ -671,12 +662,12 @@ void AUI_FUNC_ALIGN AUI_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, 
         }
 }
 
-void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
 {
     convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 0 );
 }
 
-void AUI_FUNC_ALIGN convert_yuv16le_to_yc48_sse4_1( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse4_1( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
 {
     convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 1 );
 }
