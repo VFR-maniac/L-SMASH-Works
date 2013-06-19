@@ -1,5 +1,5 @@
 /*****************************************************************************
- * lwcoler.h
+ * lwcolor.h
  *****************************************************************************
  * Copyright (C) 2011-2013 L-SMASH Works project
  *
@@ -30,9 +30,9 @@
  * the 2-byte value for each Y/Cb/Cr component is stored as little-endian */
 typedef	struct
 {
-    short y;
-    short cb;
-    short cr;
+    unsigned short y;
+    unsigned short cb;
+    unsigned short cr;
 } PIXEL_LW48;
 
 typedef enum

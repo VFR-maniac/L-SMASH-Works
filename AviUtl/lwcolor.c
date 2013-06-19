@@ -117,13 +117,13 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
             BYTE *pixelp = pixel_line;
             for( int x = 0; x < cpip->w; x++ )
             {
-                double _y  = 1.164 * ((unsigned char)(ycp->y >> 8) - 16);
-                double _cb = (unsigned char)(ycp->cb >> 8) - 128;
-                double _cr = (unsigned char)(ycp->cr >> 8) - 128;
+                int _y = (ycp->y - 4096) * 9539;
+                int _cb = ycp->cb - 32768;
+                int _cr = ycp->cr - 32768;
                 ++ycp;
-                double r = _y               + 1.596 * _cr;
-                double g = _y - 0.391 * _cb - 0.813 * _cr;
-                double b = _y + 2.018 * _cb;
+                int r = (_y               + 13074 * _cr + (1<<20)) >> 21;
+                int g = (_y -  3203 * _cb -  6808 * _cr + (1<<20)) >> 21;
+                int b = (_y + 16531 * _cb               + (1<<20)) >> 21;
                 pixelp[0] = CLIP_BYTE( b );
                 pixelp[1] = CLIP_BYTE( g );
                 pixelp[2] = CLIP_BYTE( r );
