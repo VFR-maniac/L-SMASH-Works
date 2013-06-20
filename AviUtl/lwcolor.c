@@ -31,8 +31,10 @@
 
 typedef void (*func_convert_lw48)( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
 
+static void convert_lw48_to_yuy2( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
 static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
 
+static func_convert_lw48 func_convert_lw48_to_yuy2  = NULL;
 static func_convert_lw48 func_convert_lw48_to_rgb24 = NULL;
 
 COLOR_PLUGIN_TABLE color_plugin_table =
@@ -61,9 +63,15 @@ EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTabl
 BOOL func_init()
 {
     if( check_sse41() )
+    {
+        func_convert_lw48_to_yuy2  = convert_lw48_to_yuy2_sse41;
         func_convert_lw48_to_rgb24 = convert_lw48_to_rgb24_sse41;
+    }
     else
+    {
+        func_convert_lw48_to_yuy2  = convert_lw48_to_yuy2;
         func_convert_lw48_to_rgb24 = convert_lw48_to_rgb24;
+    }
     return TRUE;
 }
 
@@ -104,23 +112,7 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
     else if( cpip->format == OUTPUT_TAG_YUY2 )
     {
         /* LW48 -> YUY2 */
-        BYTE *pixelp = (BYTE *)cpip->pixelp;
-        BYTE *_ycp   = (BYTE *)cpip->ycp;
-        for( int y = 0; y < cpip->h; y++ )
-        {
-            PIXEL_LW48 *ycp = (PIXEL_LW48 *)_ycp;
-            for( int x = 0; x < cpip->w; x += 2 )
-            {
-                pixelp[0] = ycp->y  >> 8;
-                pixelp[1] = ycp->cb >> 8;
-                pixelp[3] = ycp->cr >> 8;
-                ++ycp;
-                pixelp[2] = ycp->y  >> 8;
-                ++ycp;
-                pixelp += 4;
-            }
-            _ycp += cpip->line_size;
-        }
+        func_convert_lw48_to_yuy2( (BYTE *)cpip->pixelp, (BYTE *)cpip->ycp, cpip->line_size, cpip->w, cpip->h );
     }
     else if( cpip->format == OUTPUT_TAG_RGB )
     {
@@ -130,6 +122,26 @@ BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
     else
         return FALSE;
     return TRUE;
+}
+
+static void convert_lw48_to_yuy2( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+{
+    /* LW48 -> YUY2 */
+    for( int y = 0; y < h; y++ )
+    {
+        PIXEL_LW48 *ycp = (PIXEL_LW48 *)src;
+        for( int x = 0; x < w; x += 2 )
+        {
+            pixelp[0] = ycp->y  >> 8;
+            pixelp[1] = ycp->cb >> 8;
+            pixelp[3] = ycp->cr >> 8;
+            ++ycp;
+            pixelp[2] = ycp->y  >> 8;
+            ++ycp;
+            pixelp += 4;
+        }
+        src += src_linesize;
+    }
 }
 
 #define CLIP_BYTE( value ) ((value) > 255 ? 255 : (value) < 0 ? 0 : (value))

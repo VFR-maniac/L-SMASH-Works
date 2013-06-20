@@ -20,4 +20,5 @@
 
 /* This file is available under an ISC license. */
 
+void convert_lw48_to_yuy2_sse41( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
 void convert_lw48_to_rgb24_sse41( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
