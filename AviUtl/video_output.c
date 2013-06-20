@@ -187,11 +187,23 @@ func_get_buffer_t *au_setup_video_rendering
         uint8_t *pic = au_vohp->back_ground;
         for( int i = 0; i < vohp->output_height; i++ )
         {
-            for( int j = 0; j < vohp->output_linesize; j += 2 )
+            for( int j = 0; j < vohp->output_linesize; j += YUY2_SIZE )
             {
                 pic[j    ] = 0;
                 pic[j + 1] = 128;
             }
+            pic += vohp->output_linesize;
+        }
+    }
+    else if( format->biCompression == OUTPUT_TAG_LW48 )
+    {
+        const PIXEL_LW48 black_pix = { 4096, 32768, 32768 };
+        uint8_t *pic = au_vohp->back_ground;
+        for( int i = 0; i < vohp->output_height; i++ )
+        {
+            PIXEL_LW48 *pix = (PIXEL_LW48 *)pic;
+            for( int j = 0; j < vohp->output_linesize; j += LW48_SIZE )
+                *(pix++) = black_pix;
             pic += vohp->output_linesize;
         }
     }
