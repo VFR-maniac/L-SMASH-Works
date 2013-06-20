@@ -60,7 +60,7 @@ EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTabl
 	return &color_plugin_table;
 }
 
-BOOL func_init()
+BOOL func_init( void )
 {
     if( check_sse41() )
     {
