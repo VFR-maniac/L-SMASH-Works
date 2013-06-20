@@ -92,8 +92,6 @@ BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
     return TRUE;
 }
 
-#define CLIP_BYTE( value ) ((value) > 255 ? 255 : (value) < 0 ? 0 : (value))
-
 BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
 {
     if( cpip->format == OUTPUT_TAG_LW48 )
