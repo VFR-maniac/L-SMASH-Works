@@ -26,8 +26,14 @@
 #define YC48_SIZE  6
 #define LW48_SIZE  6
 
-/* Packed YUV 16:16:16, 48bpp 16Y 16Cb 16Cr,
- * the 2-byte value for each Y/Cb/Cr component is stored as little-endian */
+/* LW48 pixel format / LW48 color space.
+ * As a pixel format, a LW48 pixel consists of packed YUV 16:16:16, 48bpp 16Y 16Cb 16Cr, and
+ * the 2-byte value for each Y/Cb/Cr component is stored as little-endian.
+ * As a color space, the derivation of luminance and color-difference signals refers to Rec. ITU-R BT.601.
+ *   - Luminance signal
+ *     The black level corresponding to 4096 and the peak white level corresponding to 60160.
+ *   - Color-difference signal
+ *     The achromatic level corresponding to 32768 and the peak levels corresponding to 4096 and 61440. */
 typedef	struct
 {
     unsigned short y;
