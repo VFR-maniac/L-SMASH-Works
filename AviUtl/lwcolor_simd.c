@@ -20,6 +20,10 @@
 
 /* This file is available under an ISC license. */
 
+#include <windows.h>
+
+#include "color.h"
+
 #include "lwsimd.h"
 
 #ifndef BYTE
@@ -121,14 +125,18 @@ static LW_FORCEINLINE void fill_rgb_buffer_sse41( BYTE *rgb_buffer, BYTE *lw48_p
     _mm_store_si128((__m128i*)(rgb_buffer +  0), x7);
 }
 
-void LW_FUNC_ALIGN convert_lw48_to_rgb24_sse41( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+void LW_FUNC_ALIGN convert_lw48_to_rgb24_sse41( int thread_id, int thread_num, void *param1, void *param2 )
 {
     /* LW48 -> RGB24 using SSE4.1 */
-    BYTE *ycp_line   = src + (h - 1) * src_linesize;
-    BYTE *pixel_line = pixelp;
+    COLOR_PROC_INFO *cpip = (COLOR_PROC_INFO *)param1;
+    int start = (cpip->h *  thread_id     ) / thread_num;
+    int end   = (cpip->h * (thread_id + 1)) / thread_num;
+    int w     = cpip->w;
     int rgb_linesize = (w * 3 + 3) & ~3;
+    BYTE *ycp_line   = (BYTE *)cpip->ycp + (end - 1) * cpip->line_size;
+    BYTE *pixel_line = (BYTE *)cpip->pixelp + (cpip->h - end) * rgb_linesize;
     BYTE LW_ALIGN(16) rgb_buffer[96];
-    for( int y = 0; y < h; y++ )
+    for( int y = start; y < end; y++ )
     {
         BYTE *lw48_ptr = (BYTE *)ycp_line;
         BYTE *rgb_ptr  = pixel_line;
@@ -176,20 +184,25 @@ void LW_FUNC_ALIGN convert_lw48_to_rgb24_sse41( BYTE *pixelp, BYTE *src, int src
             i_step = (remain >= 16);
             i_step = (i_step<<4) + (remain & ((~(0-i_step)) & 0x0f));
         }
-        ycp_line   -= src_linesize;
+        ycp_line   -= cpip->line_size;
         pixel_line += rgb_linesize;
     }
 }
 
-void LW_FUNC_ALIGN convert_lw48_to_yuy2_sse41( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+void LW_FUNC_ALIGN convert_lw48_to_yuy2_sse41( int thread_id, int thread_num, void *param1, void *param2 )
 {
     /* LW48 -> YUY2 using SSE4.1 */
-    BYTE *pixel_line = pixelp;
+    COLOR_PROC_INFO *cpip = (COLOR_PROC_INFO *)param1;
+    int start = (cpip->h *  thread_id     ) / thread_num;
+    int end   = (cpip->h * (thread_id + 1)) / thread_num;
+    int w     = cpip->w;
+    BYTE *ycp_line   = (BYTE *)cpip->ycp    + start * cpip->line_size;
+    BYTE *pixel_line = (BYTE *)cpip->pixelp + start * w * 2;
     __m128i x0, x1, x2, x3, x5, x6, x7;
     static const char LW_ALIGN(16) SHUFFLE_Y[16] = { 0, 1, 6, 7, 12, 13, 2, 3, 8, 9, 14, 15, 4, 5, 10, 11 };
-    for( int y = 0; y < h; y++ )
+    for( int y = start; y < end; y++ )
     {
-        BYTE *ycp = src;
+        BYTE *ycp      = ycp_line;
         BYTE *yuy2_ptr = pixel_line;
         for( int x = 0, i_step = 0; x < w; x += i_step, ycp += i_step*6, yuy2_ptr += i_step*2 )
         {
@@ -237,7 +250,7 @@ void LW_FUNC_ALIGN convert_lw48_to_yuy2_sse41( BYTE *pixelp, BYTE *src, int src_
             i_step = (remain >= 16);
             i_step = (i_step<<4) + (remain & ((~(0-i_step)) & 0x0f));
         }
-        src += src_linesize;
+        ycp_line   += cpip->line_size;
         pixel_line += w*2;
     }
 }

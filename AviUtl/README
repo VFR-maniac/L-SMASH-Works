@@ -60,7 +60,7 @@
                     The black level corresponding to 4096 and the peak white level corresponding to 60160.
                   - Color-difference signal
                     The achromatic level corresponding to 32768 and the peak levels corresponding to 4096 and 61440.
-                You should enable direct copying of LW48 into AviUtl internal YC48 if enabling this option,
+                You should enable all function of lwcolor.auc if enabling this option,
                 Note: LW48 is displayed as "Color Space : RGB" from the AviUtl side.
         [Audio postprocessors]
             + Audio delay : edit box (default : 0)

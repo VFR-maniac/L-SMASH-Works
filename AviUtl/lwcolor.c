@@ -29,13 +29,11 @@
 #include "lwsimd.h"
 #include "config.h"
 
-typedef void (*func_convert_lw48)( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
+static void convert_lw48_to_yuy2( int thread_id, int thread_num, void *param1, void *param2 );
+static void convert_lw48_to_rgb24( int thread_id, int thread_num, void *param1, void *param2 );
 
-static void convert_lw48_to_yuy2( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
-static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h );
-
-static func_convert_lw48 func_convert_lw48_to_yuy2  = NULL;
-static func_convert_lw48 func_convert_lw48_to_rgb24 = NULL;
+static MULTI_THREAD_FUNC func_convert_lw48_to_yuy2  = NULL;
+static MULTI_THREAD_FUNC func_convert_lw48_to_rgb24 = NULL;
 
 COLOR_PLUGIN_TABLE color_plugin_table =
 {
@@ -48,7 +46,6 @@ COLOR_PLUGIN_TABLE color_plugin_table =
     func_pixel2yc,                          /* Convert DIB format image into PIXEL_YC format image (If NULL, won't be called.) */
     func_yc2pixel,                          /* Convert PIXEL_YC format image into DIB format image (If NULL, won't be called.) */
 };
-
 
 EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTable( void )
 {
@@ -75,11 +72,15 @@ BOOL func_init( void )
     return TRUE;
 }
 
+/****************************************************************************
+ * INPUT
+ ****************************************************************************/
+
 BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
 {
     if( cpip->format != OUTPUT_TAG_LW48 )
         return FALSE;
-    /* LW48->LW48 */
+    /* LW48 -> LW48 */
     BYTE *ycp    = (BYTE *)cpip->ycp;
     BYTE *pixelp = (BYTE *)cpip->pixelp;
     int linesize = LW48_SIZE * cpip->w;
@@ -92,69 +93,51 @@ BOOL func_pixel2yc( COLOR_PROC_INFO *cpip )
     return TRUE;
 }
 
-BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
-{
-    if( cpip->format == OUTPUT_TAG_LW48 )
-    {
-        /* LW48 -> LW48 */
-        BYTE *ycp    = (BYTE *)cpip->ycp;
-        BYTE *pixelp = (BYTE *)cpip->pixelp;
-        int linesize = LW48_SIZE * cpip->w;
-        for( int y = 0; y < cpip->h; y++ )
-        {
-            memcpy( pixelp, ycp, linesize );
-            ycp    += cpip->line_size;
-            pixelp += linesize;
-        }
-    }
-    else if( cpip->format == OUTPUT_TAG_YUY2 )
-    {
-        /* LW48 -> YUY2 */
-        func_convert_lw48_to_yuy2( (BYTE *)cpip->pixelp, (BYTE *)cpip->ycp, cpip->line_size, cpip->w, cpip->h );
-    }
-    else if( cpip->format == OUTPUT_TAG_RGB )
-    {
-        /* LW48 -> RGB24 */
-        func_convert_lw48_to_rgb24( (BYTE *)cpip->pixelp, (BYTE *)cpip->ycp, cpip->line_size, cpip->w, cpip->h );
-    }
-    else
-        return FALSE;
-    return TRUE;
-}
+/****************************************************************************
+ * OUTPUT
+ ****************************************************************************/
 
-static void convert_lw48_to_yuy2( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+static void convert_lw48_to_yuy2( int thread_id, int thread_num, void *param1, void *param2 )
 {
     /* LW48 -> YUY2 */
-    for( int y = 0; y < h; y++ )
+    COLOR_PROC_INFO *cpip = (COLOR_PROC_INFO *)param1;
+    int start = (cpip->h *  thread_id     ) / thread_num;
+    int end   = (cpip->h * (thread_id + 1)) / thread_num;
+    BYTE *src = (BYTE *)cpip->ycp    + start * cpip->line_size;
+    BYTE *dst = (BYTE *)cpip->pixelp + start * cpip->w * 2;
+    for( int y = start; y < end; y++ )
     {
         PIXEL_LW48 *ycp = (PIXEL_LW48 *)src;
-        for( int x = 0; x < w; x += 2 )
+        for( int x = 0; x < cpip->w; x += 2 )
         {
-            pixelp[0] = ycp->y  >> 8;
-            pixelp[1] = ycp->cb >> 8;
-            pixelp[3] = ycp->cr >> 8;
+            dst[0] = ycp->y  >> 8;
+            dst[1] = ycp->cb >> 8;
+            dst[3] = ycp->cr >> 8;
             ++ycp;
-            pixelp[2] = ycp->y  >> 8;
+            dst[2] = ycp->y  >> 8;
             ++ycp;
-            pixelp += 4;
+            dst += 4;
         }
-        src += src_linesize;
+        src += cpip->line_size;
     }
 }
 
 #define CLIP_BYTE( value ) ((value) > 255 ? 255 : (value) < 0 ? 0 : (value))
 
-static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, int w, int h )
+static void convert_lw48_to_rgb24( int thread_id, int thread_num, void *param1, void *param2 )
 {
     /* LW48 -> RGB24 */
-    BYTE *ycp_line   = src + (h - 1) * src_linesize;
-    BYTE *pixel_line = pixelp;
-    int rgb_linesize = (w * 3 + 3) & ~3;
-    for( int y = 0; y < h; y++ )
+    COLOR_PROC_INFO *cpip = (COLOR_PROC_INFO *)param1;
+    int start = (cpip->h *  thread_id     ) / thread_num;
+    int end   = (cpip->h * (thread_id + 1)) / thread_num;
+    int rgb_linesize = (cpip->w * 3 + 3) & ~3;
+    BYTE *src_line = (BYTE *)cpip->ycp + (end - 1) * cpip->line_size;
+    BYTE *dst_line = (BYTE *)cpip->pixelp + (cpip->h - end) * rgb_linesize;
+    for( int y = start; y < end; y++ )
     {
-        PIXEL_LW48 *ycp = (PIXEL_LW48 *)ycp_line;
-        BYTE *rgb_ptr = pixel_line;
-        for( int x = 0; x < w; x++ )
+        PIXEL_LW48 *ycp     = (PIXEL_LW48 *)src_line;
+        BYTE       *rgb_ptr = dst_line;
+        for( int x = 0; x < cpip->w; x++ )
         {
             int _y  = (ycp->y - 4096) * 9539;
             int _cb = ycp->cb - 32768;
@@ -168,7 +151,38 @@ static void convert_lw48_to_rgb24( BYTE *pixelp, BYTE *src, int src_linesize, in
             rgb_ptr[2] = CLIP_BYTE( r );
             rgb_ptr += 3;
         }
-        ycp_line   -= src_linesize;
-        pixel_line += rgb_linesize;
+        src_line -= cpip->line_size;
+        dst_line += rgb_linesize;
+    }
+}
+
+BOOL func_yc2pixel( COLOR_PROC_INFO *cpip )
+{
+    switch( cpip->format )
+    {
+        case OUTPUT_TAG_LW48 :
+        {
+            /* LW48 -> LW48 */
+            BYTE *ycp    = (BYTE *)cpip->ycp;
+            BYTE *pixelp = (BYTE *)cpip->pixelp;
+            int linesize = LW48_SIZE * cpip->w;
+            for( int y = 0; y < cpip->h; y++ )
+            {
+                memcpy( pixelp, ycp, linesize );
+                ycp    += cpip->line_size;
+                pixelp += linesize;
+            }
+            return TRUE;
+        }
+        case OUTPUT_TAG_YUY2 :
+            /* LW48 -> YUY2 */
+            cpip->exec_multi_thread_func( func_convert_lw48_to_yuy2, (void *)cpip, NULL );
+            return TRUE;
+        case OUTPUT_TAG_RGB :
+            /* LW48 -> RGB24 */
+            cpip->exec_multi_thread_func( func_convert_lw48_to_rgb24, (void *)cpip, NULL );
+            return TRUE;
+        default :
+            return FALSE;
     }
 }
