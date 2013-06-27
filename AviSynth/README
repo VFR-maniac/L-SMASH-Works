@@ -4,7 +4,8 @@
 [LSMASHSource.dll: LSMASHSource]
     [Functions]
         [LSMASHVideoSource]
-            LSMASHVideoSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10, bool dr = false)
+            LSMASHVideoSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
+                              bool dr = false, bool stacked = false, string format = "")
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
                 * RAP is an abbreviation of random accessible point.
             [Arguments]
@@ -162,7 +163,7 @@
         [LWLibavVideoSource]
             LWLibavVideoSource(string source, int stream_index = -1, int threads = 0, bool cache = true,
                                int seek_mode = 0, int seek_threshold = 10, bool dr = false,
-                               bool repeat = false, int dominance = 1)
+                               bool repeat = false, int dominance = 0, bool stacked = false, string format = "")
                 * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
                 + source
