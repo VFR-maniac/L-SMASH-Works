@@ -660,10 +660,12 @@ void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configu
         lsmash_video_summary_t *video = (lsmash_video_summary_t *)summary;
         ctx->width  = video->width;
         ctx->height = video->height;
-        if( codec->id == AV_CODEC_ID_RAWVIDEO )
-            /* Here, expect appropriate pixel format will be picked in avcodec_open2(). */
+        /* Here, expect appropriate pixel format will be picked in avcodec_open2(). */
+        if( video->depth >= QT_VIDEO_DEPTH_GRAYSCALE_1 && video->depth <= QT_VIDEO_DEPTH_GRAYSCALE_8 )
+            config->queue.bits_per_sample = video->depth & 0x1f;
+        else
             config->queue.bits_per_sample = video->depth;
-        if( config->queue.bits_per_sample )
+        if( config->queue.bits_per_sample > 0 )
             ctx->bits_per_coded_sample = config->queue.bits_per_sample;
     }
     else
