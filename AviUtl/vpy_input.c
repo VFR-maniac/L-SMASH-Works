@@ -139,7 +139,7 @@ static int read_video
     {
         int src_stride   = hp->vsapi->getStride( frame, 0 );
         int src_offset   = 0;
-        int dst_offset   = 0;
+        int dst_offset   = hp->buf_linesize * (hp->vi->height - 1);
         int dst_row_size = hp->vi->width * format->bytesPerSample * format->numPlanes;
         const uint8_t *r = hp->vsapi->getReadPtr( frame, 0 );
         const uint8_t *g = hp->vsapi->getReadPtr( frame, 1 );
@@ -156,7 +156,7 @@ static int read_video
                 (*dst_data++) = *(src_data[2]++);
             }
             src_offset += src_stride;
-            dst_offset += hp->buf_linesize;
+            dst_offset -= hp->buf_linesize;
         }
     }
     else
