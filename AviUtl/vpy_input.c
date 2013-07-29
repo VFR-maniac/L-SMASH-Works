@@ -148,10 +148,11 @@ static int prepare_video_decoding
     h->framerate_num      = hp->vi->fpsNum;
     h->framerate_den      = hp->vi->fpsDen;
     /* Set up the initial input format. */
-    hp->ctx->width      = hp->vi->width;
-    hp->ctx->height     = hp->vi->height;
-    hp->ctx->pix_fmt    = vs_to_av_input_pixel_format( hp->vi->format->id );
-    hp->ctx->colorspace = AVCOL_SPC_UNSPECIFIED;
+    hp->ctx->width       = hp->vi->width;
+    hp->ctx->height      = hp->vi->height;
+    hp->ctx->pix_fmt     = vs_to_av_input_pixel_format( hp->vi->format->id );
+    hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
+    hp->ctx->colorspace  = AVCOL_SPC_UNSPECIFIED;
     /* Set up video rendering. */
     if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->vi->width, hp->vi->height ) )
         return -1;
@@ -189,6 +190,9 @@ static int read_video
         hp->av_frame->data    [j] = (uint8_t *)hp->vsapi->getReadPtr( vs_frame, i );
         hp->av_frame->linesize[j] = hp->vsapi->getStride( vs_frame, i );
     }
+    const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
+    hp->ctx->color_range = hp->vsapi->propGetInt( props, "_ColorRange", 0, NULL ) ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
+    hp->ctx->colorspace  = hp->vsapi->propGetInt( props, "_ColorSpace", 0, NULL );
     hp->av_frame->format = hp->ctx->pix_fmt;
     int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
     hp->vsapi->freeFrame( vs_frame );
