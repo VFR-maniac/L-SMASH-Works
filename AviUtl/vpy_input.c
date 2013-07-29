@@ -41,10 +41,10 @@
 
 typedef struct
 {
-    const VSAPI       *vsapi;
-    VSScript          *vsscript;
-    VSNodeRef         *node;
-    const VSVideoInfo *vi;
+    const VSAPI              *vsapi;
+    VSScript                 *vsscript;
+    VSNodeRef                *node;
+    const VSVideoInfo        *vi;
     /* Video stuff */
     AVFrame                  *av_frame;
     AVCodecContext           *ctx;
@@ -58,11 +58,7 @@ static void *open_file
 )
 {
     /* Check file extension. */
-    int file_name_length = strlen( file_name );
-    if( file_name_length < 5 )
-        return NULL;
-    char *ext = &file_name[file_name_length - 4];
-    if( ext[0] != '.' || ext[1] != 'v' || ext[2] != 'p' || ext[3] != 'y' )
+    if( lw_check_file_extension( file_name, "vpy" ) < 0 )
         return NULL;
     /* Try to open the file as VapourSynth script. */
     vpy_handler_t *hp = lw_malloc_zero( sizeof(vpy_handler_t) );
@@ -205,7 +201,10 @@ static int read_video
     return frame_size;
 }
 
-static void video_cleanup( lsmash_handler_t *h )
+static void video_cleanup
+(
+    lsmash_handler_t *h
+)
 {
     vpy_handler_t *hp = (vpy_handler_t *)h->video_private;
     if( !hp )

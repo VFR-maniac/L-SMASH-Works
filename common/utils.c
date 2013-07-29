@@ -94,3 +94,17 @@ int lw_log_write_message
     sprintf( message, "[%s]: %s", prefix, temp );
     return 1;
 }
+
+int lw_check_file_extension
+(
+    const char *file_name,
+    const char *extension
+)
+{
+    int extension_length = strlen( extension );
+    int file_name_length = strlen( file_name );
+    if( file_name_length - extension_length <= 1 )
+        return -1;
+    const char *ext = &file_name[file_name_length - extension_length];
+    return ext[-1] != '.' || memcmp( extension, ext, extension_length ) ? -1 : 0;
+}

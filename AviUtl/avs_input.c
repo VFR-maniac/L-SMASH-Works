@@ -152,11 +152,7 @@ static void close_avisynth_dll( avs_handler_t *hp )
 static void *open_file( char *file_name, reader_option_t *opt )
 {
     /* Check file extension. */
-    int file_name_length = strlen( file_name );
-    if( file_name_length < 5 )
-        return NULL;
-    char *ext = &file_name[file_name_length - 4];
-    if( ext[0] != '.' || ext[1] != 'a' || ext[2] != 'v' || ext[3] != 's' )
+    if( lw_check_file_extension( file_name, "avs" ) < 0 )
         return NULL;
     /* Try to open the file as avisynth script. */
     avs_handler_t *hp = lw_malloc_zero( sizeof(avs_handler_t) );

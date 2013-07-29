@@ -50,9 +50,15 @@ struct lw_log_handler_tag
     void (*show_log)( lw_log_handler_t *, lw_log_level, const char *format, ... );
 };
 
-void *lw_malloc_zero( size_t size );
+void *lw_malloc_zero
+(
+    size_t size
+);
 
-void  lw_freep( void *pointer );
+void  lw_freep
+(
+    void *pointer
+);
 
 void *lw_memdup
 (
@@ -98,3 +104,9 @@ static inline uint64_t reduce_fraction
     *b /= reduce;
     return reduce;
 }
+
+int lw_check_file_extension
+(
+    const char *file_name,
+    const char *extension
+);
