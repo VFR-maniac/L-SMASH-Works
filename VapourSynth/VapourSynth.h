@@ -47,7 +47,7 @@
 #	define VS_EXTERNAL_API(ret) VS_EXTERN_C ret VS_CC
 #endif
 
-#if !defined(VSCORE_EXPORTS) && defined(_WIN32)
+#if !defined(VS_CORE_EXPORTS) && defined(_WIN32)
 #	define VS_API(ret) VS_EXTERN_C __declspec(dllimport) ret VS_CC
 #else
 #	define VS_API(ret) VS_EXTERNAL_API(ret)
@@ -145,17 +145,17 @@ typedef struct VSFormat {
     int numPlanes; // implicit from colorFamily
 } VSFormat;
 
-typedef enum NodeFlags {
+typedef enum VSNodeFlags {
     nfNoCache = 1,
 } NodeFlags;
 
-typedef enum GetPropErrors {
+typedef enum VSGetPropErrors {
     peUnset = 1,
     peType  = 2,
     peIndex = 4
 } GetPropErrors;
 
-typedef enum PropAppendMode {
+typedef enum VSPropAppendMode {
     paReplace = 0,
     paAppend  = 1,
     paTouch   = 2
@@ -180,7 +180,7 @@ typedef struct VSVideoInfo {
     int flags;
 } VSVideoInfo;
 
-typedef enum ActivationReason {
+typedef enum VSActivationReason {
     arInitial = 0,
     arFrameReady = 1,
     arAllFramesReady = 2,
@@ -249,7 +249,7 @@ typedef const char *(VS_CC *VSPropGetKey)(const VSMap *map, int index);
 typedef int (VS_CC *VSPropNumElements)(const VSMap *map, const char *key);
 typedef char(VS_CC *VSPropGetType)(const VSMap *map, const char *key);
 
-typedef VSMap *(VS_CC *VSNewMap)(void);
+typedef VSMap *(VS_CC *VSCreateMap)(void);
 typedef void (VS_CC *VSFreeMap)(VSMap *map);
 typedef void (VS_CC *VSClearMap)(VSMap *map);
 
@@ -337,7 +337,7 @@ struct VSAPI {
     VSCallFunc callFunc;
 
     //property access functions
-    VSNewMap newMap;
+    VSCreateMap createMap;
     VSFreeMap freeMap;
     VSClearMap clearMap;
 
