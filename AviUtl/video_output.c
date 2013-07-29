@@ -222,6 +222,8 @@ int convert_colorspace
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&picture->format;
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
+    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != ctx->width
@@ -246,7 +248,7 @@ int convert_colorspace
     }
     if( au_vohp->convert_colorspace( vshp->sws_ctx, picture, buf,
                                      vohp->output_linesize, vohp->output_height,
-                                     ctx->width, ctx->height, ctx->color_range == AVCOL_RANGE_JPEG ) < 0 )
+                                     ctx->width, ctx->height, yuv_range ) < 0 )
         return 0;
     return vohp->output_frame_size;
 }
