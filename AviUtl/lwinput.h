@@ -67,8 +67,9 @@ typedef enum
     READER_NONE       = 0,
     LIBAVSMASH_READER = 1,
     AVS_READER        = 2,
-    LIBAV_READER      = 3,
-    DUMMY_READER      = 4,
+    VPY_READER        = 3,
+    LIBAV_READER      = 4,
+    DUMMY_READER      = 5,
 } reader_type;
 
 typedef struct

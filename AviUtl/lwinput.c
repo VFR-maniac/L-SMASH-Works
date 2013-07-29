@@ -316,12 +316,14 @@ INPUT_HANDLE func_open( LPSTR file )
         reader_opt.threads = get_auto_threads();
     extern lsmash_reader_t libavsmash_reader;
     extern lsmash_reader_t avs_reader;
+    extern lsmash_reader_t vpy_reader;
     extern lsmash_reader_t libav_reader;
     extern lsmash_reader_t dummy_reader;
     static lsmash_reader_t *lsmash_reader_table[] =
     {
         &libavsmash_reader,
         &avs_reader,
+        &vpy_reader,
         &libav_reader,
         &dummy_reader,
         NULL
