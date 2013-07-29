@@ -244,7 +244,9 @@ int convert_colorspace
         vshp->input_yuv_range    = yuv_range;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( au_vohp->convert_colorspace( ctx, vshp->sws_ctx, picture, buf, vohp->output_linesize, vohp->output_height ) < 0 )
+    if( au_vohp->convert_colorspace( vshp->sws_ctx, picture, buf,
+                                     vohp->output_linesize, vohp->output_height,
+                                     ctx->width, ctx->height, ctx->color_range == AVCOL_RANGE_JPEG ) < 0 )
         return 0;
     return vohp->output_frame_size;
 }

@@ -22,12 +22,17 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
-typedef int func_convert_colorspace( AVCodecContext *video_ctx,
-                                     struct SwsContext *sws_ctx,
-                                     AVFrame *picture,
-                                     uint8_t *buf,
-                                     int buf_linesize,
-                                     int buf_height );
+typedef int func_convert_colorspace
+(
+    struct SwsContext *sws_ctx,
+    AVFrame           *picture,
+    uint8_t           *buf,
+    int                buf_linesize,
+    int                buf_height,
+    int                width,
+    int                height,
+    int                full_range
+);
 
 func_convert_colorspace to_yuv16le_to_lw48;
 func_convert_colorspace to_yuv16le_to_yc48;
