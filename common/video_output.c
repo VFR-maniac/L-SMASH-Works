@@ -74,6 +74,8 @@ int initialize_scaler_handler
     if( flags != SWS_FAST_BILINEAR )
         flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND | SWS_BITEXACT;
     int yuv_range = avoid_yuv_scale_conversion( &ctx->pix_fmt );
+    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
     vshp->sws_ctx = update_scaler_configuration( NULL, flags,
                                                  ctx->width, ctx->height,
                                                  ctx->pix_fmt, output_pixel_format,
