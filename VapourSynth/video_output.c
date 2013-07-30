@@ -551,6 +551,8 @@ VSFrameRef *make_frame
     /* Convert pixel format if needed. We don't change the presentation resolution. */
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
+    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
      || vshp->input_width        != ctx->width
