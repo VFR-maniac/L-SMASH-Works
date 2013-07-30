@@ -64,7 +64,7 @@ static void *open_file
         return NULL;
     }
     hp->vsapi = vsscript_getVSApi();
-    if( !hp->vsapi || vsscript_evaluateFile( &hp->vsscript, file_name ) )
+    if( !hp->vsapi || vsscript_evaluateFile( &hp->vsscript, file_name, efSetWorkingDir ) )
         goto fail;
     hp->node = vsscript_getOutput( hp->vsscript, 0 );
     if( !hp->node )
