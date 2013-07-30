@@ -420,6 +420,8 @@ int make_frame
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
+    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
     if( !vshp->sws_ctx
      || vshp->input_width        != ctx->width
      || vshp->input_height       != ctx->height
