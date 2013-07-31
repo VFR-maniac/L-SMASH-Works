@@ -94,7 +94,7 @@ EXTERN_C INPUT_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetInputPluginTabl
 static reader_option_t reader_opt = { 0 };
 static video_option_t *video_opt = &reader_opt.video_opt;
 static audio_option_t *audio_opt = &reader_opt.audio_opt;
-static int reader_disabled[4] = { 0 };
+static int reader_disabled[5] = { 0 };
 static int audio_delay = 0;
 static char *settings_path = NULL;
 static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
@@ -240,8 +240,10 @@ static void get_settings( void )
             reader_disabled[0] = 0;
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "avs_disabled=%d",        &reader_disabled[1] ) != 1 )
             reader_disabled[1] = 0;
-        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d",      &reader_disabled[2] ) != 1 )
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "vpy_disabled=%d",        &reader_disabled[2] ) != 1 )
             reader_disabled[2] = 0;
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "libav_disabled=%d",      &reader_disabled[3] ) != 1 )
+            reader_disabled[3] = 0;
         /* dummy reader */
         if( !fgets( buf, sizeof(buf), ini )
          || sscanf( buf, "dummy_resolution=%dx%d", &video_opt->dummy.width, &video_opt->dummy.height ) != 2 )
@@ -284,6 +286,7 @@ static void get_settings( void )
         reader_disabled[0]                = 0;
         reader_disabled[1]                = 0;
         reader_disabled[2]                = 0;
+        reader_disabled[3]                = 0;
         audio_delay                       = 0;
         video_opt->seek_mode              = 0;
         video_opt->forward_seek_threshold = 10;
@@ -628,7 +631,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             /* readers */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_VPY_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[3] ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* dummy reader */
             sprintf( edit_buf, "%d", video_opt->dummy.width );
             SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
@@ -770,10 +774,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* readers */
                     reader_disabled[0] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 ));
                     reader_disabled[1] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_GETCHECK, 0, 0 ));
-                    reader_disabled[2] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 ));
+                    reader_disabled[2] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_VPY_INPUT        ), BM_GETCHECK, 0, 0 ));
+                    reader_disabled[3] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 ));
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
                     fprintf( ini, "avs_disabled=%d\n",        reader_disabled[1] );
-                    fprintf( ini, "libav_disabled=%d\n",      reader_disabled[2] );
+                    fprintf( ini, "vpy_disabled=%d\n",        reader_disabled[2] );
+                    fprintf( ini, "libav_disabled=%d\n",      reader_disabled[3] );
                     /* dummy reader */
                     GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     video_opt->dummy.width = MAX( atoi( edit_buf ), 32 );
