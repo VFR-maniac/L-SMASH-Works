@@ -74,12 +74,13 @@ typedef struct {
 
 static int load_avisynth_dll( avs_handler_t *hp )
 {
-#define LOAD_AVS_FUNC( name, ignore_fail ) \
-{ \
-    hp->func.name = (name##_func)GetProcAddress( hp->library, #name ); \
-    if( !ignore_fail && !hp->func.name ) \
-        goto fail; \
-}
+#define LOAD_AVS_FUNC( name, ignore_fail )                                 \
+    do                                                                     \
+    {                                                                      \
+        hp->func.name = (name##_func)GetProcAddress( hp->library, #name ); \
+        if( !ignore_fail && !hp->func.name )                               \
+            goto fail;                                                     \
+    } while( 0 )
     hp->library = LoadLibrary( "avisynth" );
     if( !hp->library )
         return -1;
@@ -109,7 +110,7 @@ static AVS_Value invoke_filter( avs_handler_t *hp, AVS_Value before, const char 
     AVS_Value after = hp->func.avs_invoke( hp->env, filter, before, NULL );
     hp->func.avs_release_value( before );
     hp->clip = hp->func.avs_take_clip( after, hp->env );
-    hp->vi = hp->func.avs_get_video_info( hp->clip );
+    hp->vi   = hp->func.avs_get_video_info( hp->clip );
     return after;
 }
 
@@ -201,6 +202,15 @@ static enum AVPixelFormat as_to_av_input_pixel_format
     int *input_width
 )
 {
+    if( as_input_bit_depth > 8 && (*input_width & 1) )
+    {
+        UINT uType = MB_ICONERROR | MB_OK;
+        lw_log_handler_t lh = { 0 };
+        lh.level = LW_LOG_FATAL;
+        lh.priv  = &uType;
+        au_message_box_desktop( &lh, LW_LOG_FATAL, "Width of interleaved fake high bit-depth format must be mod2." );
+        return AV_PIX_FMT_NONE;
+    }
     static const struct
     {
         int                as_input_pixel_format;
@@ -237,7 +247,8 @@ static enum AVPixelFormat as_to_av_input_pixel_format
         if( as_input_pixel_format == format_table[i].as_input_pixel_format
          && as_input_bit_depth    == format_table[i].as_input_bit_depth )
         {
-            *input_width >>= (as_input_bit_depth > 8 ? 1 : 0);
+            if( as_input_bit_depth > 8 )
+                *input_width >>= 1;
             return format_table[i].av_input_pixel_format;
         }
     return AV_PIX_FMT_NONE;
