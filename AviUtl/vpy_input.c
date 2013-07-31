@@ -85,24 +85,25 @@ static int load_vsscript_dll
     hp->library = LoadLibrary( "vsscript" );
     if( !hp->library )
         return 0;
-    hp->vsscript.func.init = (vsscript_init_func)GetProcAddress( hp->library, "_vsscript_init@0" );
-    if( !hp->vsscript.func.init )
-        goto fail;
-    hp->vsscript.func.finalize = (vsscript_finalize_func)GetProcAddress( hp->library, "_vsscript_finalize@0" );
-    if( !hp->vsscript.func.finalize )
-        goto fail;
-    hp->vsscript.func.evaluateFile = (vsscript_evaluateFile_func)GetProcAddress( hp->library, "_vsscript_evaluateFile@12" );
-    if( !hp->vsscript.func.evaluateFile )
-        goto fail;
-    hp->vsscript.func.freeScript = (vsscript_freeScript_func)GetProcAddress( hp->library, "_vsscript_freeScript@4" );
-    if( !hp->vsscript.func.freeScript )
-        goto fail;
-    hp->vsscript.func.getOutput = (vsscript_getOutput_func)GetProcAddress( hp->library, "_vsscript_getOutput@8" );
-    if( !hp->vsscript.func.getOutput )
-        goto fail;
-    hp->vsscript.func.getVSApi = (vsscript_getVSApi_func)GetProcAddress( hp->library, "_vsscript_getVSApi@0" );
-    if( !hp->vsscript.func.getVSApi )
-        goto fail;
+#define SYM_INT( name, size ) LW_STRINGFY_VAR( _vsscript_##name ) "@" LW_STRINGFY_VAR( size )
+#define SYM( name, size ) SYM_INT( name, size )
+#define LOAD_VSSCRIPT_FUNC( name, size )                                              \
+    do                                                                                \
+    {                                                                                 \
+        hp->vsscript.func.name =                                                      \
+            (vsscript_##name##_func)GetProcAddress( hp->library, SYM( name, size ) ); \
+        if( !hp->vsscript.func.name )                                                 \
+            goto fail;                                                                \
+    } while( 0 )
+    LOAD_VSSCRIPT_FUNC( init,         0  );
+    LOAD_VSSCRIPT_FUNC( finalize,     0  );
+    LOAD_VSSCRIPT_FUNC( evaluateFile, 12 );
+    LOAD_VSSCRIPT_FUNC( freeScript,   4  );
+    LOAD_VSSCRIPT_FUNC( getOutput,    8  );
+    LOAD_VSSCRIPT_FUNC( getVSApi,     0  );
+#undef SYM_INT
+#undef SYM
+#undef LOAD_VSSCRIPT_FUNC
     return 0;
 fail:
     FreeLibrary( hp->library );

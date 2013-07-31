@@ -33,6 +33,9 @@
 #define _countof( _Array ) ( sizeof(_Array) / sizeof(_Array[0]) )
 #endif
 
+#define LW_STRINGFY_VAR( s ) LW_STRINGFY( s )
+#define LW_STRINGFY( s ) #s
+
 typedef enum
 {
     LW_LOG_INFO = 0,
