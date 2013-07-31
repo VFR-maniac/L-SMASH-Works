@@ -39,31 +39,34 @@ typedef enum VSEvalFlags
     efSetWorkingDir = 1,
 } VSEvalFlags;
 
-#define VSSCRIPT_API( ret, name ) typedef ret (VS_CC *name##_func)
-VSSCRIPT_API( int,           vsscript_init         )( void );
-VSSCRIPT_API( int,           vsscript_finalize     )( void );
-VSSCRIPT_API( int,           vsscript_evaluateFile )( VSScript **handle, const char *scriptFilename, int flags );
-VSSCRIPT_API( void,          vsscript_freeScript   )( VSScript *handle );
-VSSCRIPT_API( VSNodeRef *,   vsscript_getOutput    )( VSScript *handle, int index );
-VSSCRIPT_API( const VSAPI *, vsscript_getVSApi     )( void );
+#define VSSCRIPT_API( ret, name ) typedef ret (VS_CC *vsscript_##name##_func)
+VSSCRIPT_API( int,           init         )( void );
+VSSCRIPT_API( int,           finalize     )( void );
+VSSCRIPT_API( int,           evaluateFile )( VSScript **handle, const char *scriptFilename, int flags );
+VSSCRIPT_API( void,          freeScript   )( VSScript *handle );
+VSSCRIPT_API( VSNodeRef *,   getOutput    )( VSScript *handle, int index );
+VSSCRIPT_API( const VSAPI *, getVSApi     )( void );
 #undef VSSCRIPT_API
 
 typedef struct
 {
     /* VSScript */
     HMODULE                   library;
-    VSScript                 *vsscript;
     struct
     {
-#define VSSCRIPT_DECLARE_FUNC( name ) name##_func name
-        VSSCRIPT_DECLARE_FUNC( vsscript_init         );
-        VSSCRIPT_DECLARE_FUNC( vsscript_finalize     );
-        VSSCRIPT_DECLARE_FUNC( vsscript_evaluateFile );
-        VSSCRIPT_DECLARE_FUNC( vsscript_freeScript   );
-        VSSCRIPT_DECLARE_FUNC( vsscript_getOutput    );
-        VSSCRIPT_DECLARE_FUNC( vsscript_getVSApi     );
-#undef VSSCRIPT_DECLARE_FUNC
-    } func;
+        VSScript *handle;
+        struct
+        {
+    #define VSSCRIPT_DECLARE_FUNC( name ) vsscript_##name##_func name
+            VSSCRIPT_DECLARE_FUNC( init         );
+            VSSCRIPT_DECLARE_FUNC( finalize     );
+            VSSCRIPT_DECLARE_FUNC( evaluateFile );
+            VSSCRIPT_DECLARE_FUNC( freeScript   );
+            VSSCRIPT_DECLARE_FUNC( getOutput    );
+            VSSCRIPT_DECLARE_FUNC( getVSApi     );
+    #undef VSSCRIPT_DECLARE_FUNC
+        } func;
+    } vsscript;
     /* VapourSynth */
     const VSAPI              *vsapi;
     VSNodeRef                *node;
@@ -82,23 +85,23 @@ static int load_vsscript_dll
     hp->library = LoadLibrary( "vsscript" );
     if( !hp->library )
         return 0;
-    hp->func.vsscript_init = (vsscript_init_func)GetProcAddress( hp->library, "_vsscript_init@0" );
-    if( !hp->func.vsscript_init )
+    hp->vsscript.func.init = (vsscript_init_func)GetProcAddress( hp->library, "_vsscript_init@0" );
+    if( !hp->vsscript.func.init )
         goto fail;
-    hp->func.vsscript_finalize = (vsscript_finalize_func)GetProcAddress( hp->library, "_vsscript_finalize@0" );
-    if( !hp->func.vsscript_finalize )
+    hp->vsscript.func.finalize = (vsscript_finalize_func)GetProcAddress( hp->library, "_vsscript_finalize@0" );
+    if( !hp->vsscript.func.finalize )
         goto fail;
-    hp->func.vsscript_evaluateFile = (vsscript_evaluateFile_func)GetProcAddress( hp->library, "_vsscript_evaluateFile@12" );
-    if( !hp->func.vsscript_evaluateFile )
+    hp->vsscript.func.evaluateFile = (vsscript_evaluateFile_func)GetProcAddress( hp->library, "_vsscript_evaluateFile@12" );
+    if( !hp->vsscript.func.evaluateFile )
         goto fail;
-    hp->func.vsscript_freeScript = (vsscript_freeScript_func)GetProcAddress( hp->library, "_vsscript_freeScript@4" );
-    if( !hp->func.vsscript_freeScript )
+    hp->vsscript.func.freeScript = (vsscript_freeScript_func)GetProcAddress( hp->library, "_vsscript_freeScript@4" );
+    if( !hp->vsscript.func.freeScript )
         goto fail;
-    hp->func.vsscript_getOutput = (vsscript_getOutput_func)GetProcAddress( hp->library, "_vsscript_getOutput@8" );
-    if( !hp->func.vsscript_getOutput )
+    hp->vsscript.func.getOutput = (vsscript_getOutput_func)GetProcAddress( hp->library, "_vsscript_getOutput@8" );
+    if( !hp->vsscript.func.getOutput )
         goto fail;
-    hp->func.vsscript_getVSApi = (vsscript_getVSApi_func)GetProcAddress( hp->library, "_vsscript_getVSApi@0" );
-    if( !hp->func.vsscript_getVSApi )
+    hp->vsscript.func.getVSApi = (vsscript_getVSApi_func)GetProcAddress( hp->library, "_vsscript_getVSApi@0" );
+    if( !hp->vsscript.func.getVSApi )
         goto fail;
     return 0;
 fail:
@@ -114,9 +117,9 @@ static void close_vsscript_dll
     assert( hp->library );
     if( hp->node )
         hp->vsapi->freeNode( hp->node );
-    if( hp->vsscript )
-        hp->func.vsscript_freeScript( hp->vsscript );
-    hp->func.vsscript_finalize();
+    if( hp->vsscript.handle )
+        hp->vsscript.func.freeScript( hp->vsscript.handle );
+    hp->vsscript.func.finalize();
     FreeLibrary( hp->library );
 }
 
@@ -138,12 +141,12 @@ static void *open_file
         free( hp );
         return NULL;
     }
-    if( hp->func.vsscript_init() == 0 )
+    if( hp->vsscript.func.init() == 0 )
         goto fail;
-    hp->vsapi = hp->func.vsscript_getVSApi();
-    if( !hp->vsapi || hp->func.vsscript_evaluateFile( &hp->vsscript, file_name, efSetWorkingDir ) )
+    hp->vsapi = hp->vsscript.func.getVSApi();
+    if( !hp->vsapi || hp->vsscript.func.evaluateFile( &hp->vsscript.handle, file_name, efSetWorkingDir ) )
         goto fail;
-    hp->node = hp->func.vsscript_getOutput( hp->vsscript, 0 );
+    hp->node = hp->vsscript.func.getOutput( hp->vsscript.handle, 0 );
     if( !hp->node )
         goto fail;
     hp->vi = hp->vsapi->getVideoInfo( hp->node );
