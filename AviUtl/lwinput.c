@@ -103,6 +103,7 @@ static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
 static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
                                        "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
 static const char *field_dominance_list[3] = { "Obey source flags", "Top -> Bottom", "Bottom -> Top" };
+static const char *avs_bit_depth_list[4] = { "8", "9", "10", "16" };
 
 void au_message_box_desktop
 (
@@ -209,6 +210,15 @@ static void get_settings( void )
             video_opt->colorspace = 0;
         else
             video_opt->colorspace = video_opt->colorspace ? OUTPUT_LW48 : 0;
+        /* AVS bit-depth */
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "avs_bit_depth=%d", &video_opt->avs.bit_depth ) != 1 )
+            video_opt->avs.bit_depth = 8;
+        else
+        {
+            video_opt->avs.bit_depth = CLIP_VALUE( video_opt->avs.bit_depth, 8, 16 );
+            if( video_opt->avs.bit_depth > 10 )
+                video_opt->avs.bit_depth = 16;
+        }
         /* audio_delay */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "audio_delay=%d", &audio_delay ) != 1 )
             audio_delay = 0;
@@ -299,6 +309,7 @@ static void get_settings( void )
         video_opt->dummy.framerate_num    = 24;
         video_opt->dummy.framerate_den    = 1;
         video_opt->dummy.colorspace       = OUTPUT_YUY2;
+        video_opt->avs.bit_depth          = 8;
         audio_opt->channel_layout         = 0;
         audio_opt->sample_rate            = 0;
         audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
@@ -585,6 +596,14 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
             /* LW48 output */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_SETCHECK, (WPARAM) video_opt->colorspace == 0 ? BST_UNCHECKED : BST_CHECKED, 0 );
+            /* AVS bit-depth */
+            hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_AVS_BITDEPTH );
+            for( int i = 0; i < 4; i++ )
+            {
+                SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)avs_bit_depth_list[i] );
+                if( video_opt->avs.bit_depth == atoi( avs_bit_depth_list[i] ) )
+                    SendMessage( hcombo, CB_SETCURSEL, i, 0 );
+            }
             /* audio_delay */
             sprintf( edit_buf, "%d", audio_delay );
             SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
@@ -754,6 +773,10 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* LW48 output */
                     video_opt->colorspace = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_GETCHECK, 0, 0 )) ? OUTPUT_LW48 : 0;
                     fprintf( ini, "colorspace=%d\n", video_opt->colorspace );
+                    /* AVS bit-depth */
+                    video_opt->avs.bit_depth = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_AVS_BITDEPTH ), CB_GETCURSEL, 0, 0 );
+                    video_opt->avs.bit_depth = atoi( avs_bit_depth_list[ video_opt->avs.bit_depth ] );
+                    fprintf( ini, "avs_bit_depth=%d\n", video_opt->avs.bit_depth );
                     /* audio_delay */
                     GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
                     audio_delay = atoi( edit_buf );

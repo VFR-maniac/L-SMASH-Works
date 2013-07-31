@@ -88,6 +88,10 @@ typedef struct
         int framerate_den;
         output_colorspace_index colorspace;
     } dummy;
+    struct
+    {
+        int bit_depth;
+    } avs;
 } video_option_t;
 
 enum

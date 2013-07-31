@@ -196,30 +196,50 @@ static int get_audio_track( lsmash_handler_t *h )
 
 static enum AVPixelFormat as_to_av_input_pixel_format
 (
-    int as_input_pixel_format
+    int  as_input_pixel_format,
+    int  as_input_bit_depth,
+    int *input_width
 )
 {
     static const struct
     {
         int                as_input_pixel_format;
         enum AVPixelFormat av_input_pixel_format;
+        int                as_input_bit_depth;
     } format_table[] =
         {
-            { AVS_CS_I420,    AV_PIX_FMT_YUV420P },
-            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P },
-            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P },
-            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P },
-            { AVS_CS_YUV9,    AV_PIX_FMT_YUV410P },
-            { AVS_CS_YV411,   AV_PIX_FMT_YUV411P },
-            { AVS_CS_BGR24,   AV_PIX_FMT_BGR24   },
-            { AVS_CS_BGR32,   AV_PIX_FMT_BGRA    },
-            { AVS_CS_YUY2,    AV_PIX_FMT_YUYV422 },
-            { AVS_CS_Y8,      AV_PIX_FMT_GRAY8   },
-            { AVS_CS_UNKNOWN, AV_PIX_FMT_NONE    }
+            { AVS_CS_I420,    AV_PIX_FMT_YUV420P,     8 },
+            { AVS_CS_I420,    AV_PIX_FMT_YUV420P9LE,  9 },
+            { AVS_CS_I420,    AV_PIX_FMT_YUV420P10LE,10 },
+            { AVS_CS_I420,    AV_PIX_FMT_YUV420P16LE,16 },
+            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P,     8 },
+            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P9LE,  9 },
+            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P10LE,10 },
+            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P16LE,16 },
+            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P,     8 },
+            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P9LE,  9 },
+            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P10LE,10 },
+            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P16LE,16 },
+            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P,     8 },
+            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P9LE,  9 },
+            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P10LE,10 },
+            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P16LE,16 },
+            { AVS_CS_YUV9,    AV_PIX_FMT_YUV410P,     8 },
+            { AVS_CS_YV411,   AV_PIX_FMT_YUV411P,     8 },
+            { AVS_CS_BGR24,   AV_PIX_FMT_BGR24,       8 },
+            { AVS_CS_BGR32,   AV_PIX_FMT_BGRA,        8 },
+            { AVS_CS_YUY2,    AV_PIX_FMT_YUYV422,     8 },
+            { AVS_CS_Y8,      AV_PIX_FMT_GRAY8,       8 },
+            { AVS_CS_Y8,      AV_PIX_FMT_GRAY16LE,   16 },
+            { AVS_CS_UNKNOWN, AV_PIX_FMT_NONE,        0 }
         };
     for( int i = 0; format_table[i].as_input_pixel_format != AVS_CS_UNKNOWN; i++ )
-        if( as_input_pixel_format == format_table[i].as_input_pixel_format )
+        if( as_input_pixel_format == format_table[i].as_input_pixel_format
+         && as_input_bit_depth    == format_table[i].as_input_bit_depth )
+        {
+            *input_width >>= (as_input_bit_depth > 8 ? 1 : 0);
             return format_table[i].av_input_pixel_format;
+        }
     return AV_PIX_FMT_NONE;
 }
 
@@ -232,11 +252,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Set up the initial input format. */
     hp->ctx->width       = hp->vi->width;
     hp->ctx->height      = hp->vi->height;
-    hp->ctx->pix_fmt     = as_to_av_input_pixel_format( hp->vi->pixel_type );
+    hp->ctx->pix_fmt     = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &hp->ctx->width );
     hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
     hp->ctx->colorspace  = AVCOL_SPC_UNSPECIFIED;
     /* Set up video rendering. */
-    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->vi->width, hp->vi->height ) )
+    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->ctx->width, hp->ctx->height ) )
         return -1;
     return 0;
 }
