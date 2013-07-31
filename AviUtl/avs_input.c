@@ -37,6 +37,12 @@
 
 #define AVS_INTERFACE_25 2
 
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+
+#include "colorspace.h"
+#include "video_output.h"
+
 typedef struct {
     AVS_Clip              *clip;
     AVS_ScriptEnvironment *env;
@@ -60,6 +66,10 @@ typedef struct {
         AVSC_DECLARE_FUNC( avs_take_clip );
 #undef AVSC_DECLARE_FUNC
     } func;
+    /* Video stuff */
+    AVFrame                  *av_frame;
+    AVCodecContext           *ctx;
+    lw_video_output_handler_t voh;
 } avs_handler_t;
 
 static int load_avisynth_dll( avs_handler_t *hp )
@@ -124,20 +134,10 @@ static AVS_Value initialize_avisynth( avs_handler_t *hp, char *input )
         res = temp;
     }
     hp->clip = hp->func.avs_take_clip( res, hp->env );
-    hp->vi = hp->func.avs_get_video_info( hp->clip );
-    if( avs_is_planar( hp->vi ) )
-    {
-        if( !(hp->vi->width & 1) )
-            res = invoke_filter( hp, res, "ConvertToYUY2" );
-        else
-        {
-            hp->func.avs_release_value( res );
-            return avs_void;
-        }
-    }
+    hp->vi   = hp->func.avs_get_video_info( hp->clip );
     if( hp->vi->sample_type & AVS_SAMPLE_FLOAT )
         res = invoke_filter( hp, res, "ConvertAudioTo16bit" );
-    return avs_is_rgb32( hp->vi ) ? invoke_filter( hp, res, "ConvertToRGB24" ) : res;
+    return res;
 }
 
 static void close_avisynth_dll( avs_handler_t *hp )
@@ -173,7 +173,19 @@ static void *open_file( char *file_name, reader_option_t *opt )
 static int get_video_track( lsmash_handler_t *h )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
-    return hp->vi->num_frames > 0 ? 0 : -1;
+    if( hp->vi->num_frames <= 0 || hp->vi->width <= 0 || hp->vi->height <= 0 )
+        return -1;
+    hp->ctx = avcodec_alloc_context3( NULL );
+    if( !hp->ctx )
+        return -1;
+    hp->av_frame = av_frame_alloc();
+    if( !hp->av_frame )
+    {
+        avcodec_close( hp->ctx );
+        hp->ctx = NULL;
+        return -1;
+    }
+    return 0;
 }
 
 static int get_audio_track( lsmash_handler_t *h )
@@ -182,18 +194,50 @@ static int get_audio_track( lsmash_handler_t *h )
     return hp->vi->num_audio_samples > 0 ? 0 : -1;
 }
 
+static enum AVPixelFormat as_to_av_input_pixel_format
+(
+    int as_input_pixel_format
+)
+{
+    static const struct
+    {
+        int                as_input_pixel_format;
+        enum AVPixelFormat av_input_pixel_format;
+    } format_table[] =
+        {
+            { AVS_CS_I420,    AV_PIX_FMT_YUV420P },
+            { AVS_CS_YV12,    AV_PIX_FMT_YUV420P },
+            { AVS_CS_YV16,    AV_PIX_FMT_YUV422P },
+            { AVS_CS_YV24,    AV_PIX_FMT_YUV444P },
+            { AVS_CS_YUV9,    AV_PIX_FMT_YUV410P },
+            { AVS_CS_YV411,   AV_PIX_FMT_YUV411P },
+            { AVS_CS_BGR24,   AV_PIX_FMT_BGR24   },
+            { AVS_CS_BGR32,   AV_PIX_FMT_BGRA    },
+            { AVS_CS_YUY2,    AV_PIX_FMT_YUYV422 },
+            { AVS_CS_Y8,      AV_PIX_FMT_GRAY8   },
+            { AVS_CS_UNKNOWN, AV_PIX_FMT_NONE    }
+        };
+    for( int i = 0; format_table[i].as_input_pixel_format != AVS_CS_UNKNOWN; i++ )
+        if( as_input_pixel_format == format_table[i].as_input_pixel_format )
+            return format_table[i].av_input_pixel_format;
+    return AV_PIX_FMT_NONE;
+}
+
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
     h->video_sample_count = hp->vi->num_frames;
     h->framerate_num      = hp->vi->fps_numerator;
     h->framerate_den      = hp->vi->fps_denominator;
-    /* BITMAPINFOHEADER */
-    h->video_format.biSize        = sizeof( BITMAPINFOHEADER );
-    h->video_format.biWidth       = hp->vi->width;
-    h->video_format.biHeight      = hp->vi->height;
-    h->video_format.biBitCount    = avs_bits_per_pixel( hp->vi );
-    h->video_format.biCompression = avs_is_rgb( hp->vi ) ? OUTPUT_TAG_RGB : OUTPUT_TAG_YUY2;
+    /* Set up the initial input format. */
+    hp->ctx->width       = hp->vi->width;
+    hp->ctx->height      = hp->vi->height;
+    hp->ctx->pix_fmt     = as_to_av_input_pixel_format( hp->vi->pixel_type );
+    hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
+    hp->ctx->colorspace  = AVCOL_SPC_UNSPECIFIED;
+    /* Set up video rendering. */
+    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->vi->width, hp->vi->height ) )
+        return -1;
     return 0;
 }
 
@@ -216,14 +260,33 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
-    int buf_linesize = MAKE_AVIUTL_PITCH( hp->vi->width * avs_bits_per_pixel( hp->vi ) );
-    AVS_VideoFrame *frame = hp->func.avs_get_frame( hp->clip, sample_number );
+    AVS_VideoFrame *as_frame = hp->func.avs_get_frame( hp->clip, sample_number );
     if( hp->func.avs_clip_get_error( hp->clip ) )
         return 0;
-    hp->func.avs_bit_blt( hp->env, buf, buf_linesize, avs_get_read_ptr( frame ),
-                          avs_get_pitch( frame ), avs_get_row_size( frame ), hp->vi->height );
-    hp->func.avs_release_video_frame( frame );
-    return avs_bmp_size( hp->vi );
+    if( avs_is_interleaved( hp->vi ) )
+    {
+        hp->av_frame->data    [0] = (uint8_t *)avs_get_read_ptr( as_frame );
+        hp->av_frame->linesize[0] = avs_get_pitch( as_frame );
+    }
+    else
+    {
+        int is_i420 = (hp->vi->pixel_type == AVS_CS_I420);
+        for( int i = 0; i < 3; i++ )
+        {
+            static const int component_reorder[2][3] =
+                {
+                    { 0, 2, 1 },    /* YVU -> YUV */
+                    { 0, 1, 2 }     /* YUV -> YUV */
+                };
+            int j = component_reorder[is_i420][i];
+            hp->av_frame->data    [j] = (uint8_t *)avs_get_read_ptr_p( as_frame, i );
+            hp->av_frame->linesize[j] = avs_get_pitch_p( as_frame, i );
+        }
+    }
+    hp->av_frame->format = hp->ctx->pix_fmt;
+    int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
+    hp->func.avs_release_video_frame( as_frame );
+    return frame_size;
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -244,6 +307,24 @@ static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int 
     else
         *start -= audio_delay;
     return 1;
+}
+
+static void video_cleanup
+(
+    lsmash_handler_t *h
+)
+{
+    avs_handler_t *hp = (avs_handler_t *)h->video_private;
+    if( !hp )
+        return;
+    if( hp->ctx )
+    {
+        avcodec_close( hp->ctx );
+        hp->ctx = NULL;
+    }
+    if( hp->av_frame )
+        av_frame_free( &hp->av_frame );
+    lw_cleanup_video_output_handler( &hp->voh );
 }
 
 static void close_file( void *private_stuff )
@@ -269,7 +350,7 @@ lsmash_reader_t avs_reader =
     read_audio,
     NULL,
     delay_audio,
-    NULL,
+    video_cleanup,
     NULL,
     close_file
 };
