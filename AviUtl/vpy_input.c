@@ -24,7 +24,6 @@
 
 #include "lwinput.h"
 
-#include "VSScript.h"
 #include "VSHelper.h"
 
 #include <libavcodec/avcodec.h>
@@ -33,10 +32,40 @@
 #include "colorspace.h"
 #include "video_output.h"
 
+typedef struct VSScript VSScript;
+
+typedef enum VSEvalFlags
+{
+    efSetWorkingDir = 1,
+} VSEvalFlags;
+
+#define VSSCRIPT_API( ret, name ) typedef ret (VS_CC *name##_func)
+VSSCRIPT_API( int,           vsscript_init         )( void );
+VSSCRIPT_API( int,           vsscript_finalize     )( void );
+VSSCRIPT_API( int,           vsscript_evaluateFile )( VSScript **handle, const char *scriptFilename, int flags );
+VSSCRIPT_API( void,          vsscript_freeScript   )( VSScript *handle );
+VSSCRIPT_API( VSNodeRef *,   vsscript_getOutput    )( VSScript *handle, int index );
+VSSCRIPT_API( const VSAPI *, vsscript_getVSApi     )( void );
+#undef VSSCRIPT_API
+
 typedef struct
 {
-    const VSAPI              *vsapi;
+    /* VSScript */
+    HMODULE                   library;
     VSScript                 *vsscript;
+    struct
+    {
+#define VSSCRIPT_DECLARE_FUNC( name ) name##_func name
+        VSSCRIPT_DECLARE_FUNC( vsscript_init         );
+        VSSCRIPT_DECLARE_FUNC( vsscript_finalize     );
+        VSSCRIPT_DECLARE_FUNC( vsscript_evaluateFile );
+        VSSCRIPT_DECLARE_FUNC( vsscript_freeScript   );
+        VSSCRIPT_DECLARE_FUNC( vsscript_getOutput    );
+        VSSCRIPT_DECLARE_FUNC( vsscript_getVSApi     );
+#undef VSSCRIPT_DECLARE_FUNC
+    } func;
+    /* VapourSynth */
+    const VSAPI              *vsapi;
     VSNodeRef                *node;
     const VSVideoInfo        *vi;
     /* Video stuff */
@@ -44,6 +73,52 @@ typedef struct
     AVCodecContext           *ctx;
     lw_video_output_handler_t voh;
 } vpy_handler_t;
+
+static int load_vsscript_dll
+(
+    vpy_handler_t *hp
+)
+{
+    hp->library = LoadLibrary( "vsscript" );
+    if( !hp->library )
+        return 0;
+    hp->func.vsscript_init = (vsscript_init_func)GetProcAddress( hp->library, "_vsscript_init@0" );
+    if( !hp->func.vsscript_init )
+        goto fail;
+    hp->func.vsscript_finalize = (vsscript_finalize_func)GetProcAddress( hp->library, "_vsscript_finalize@0" );
+    if( !hp->func.vsscript_finalize )
+        goto fail;
+    hp->func.vsscript_evaluateFile = (vsscript_evaluateFile_func)GetProcAddress( hp->library, "_vsscript_evaluateFile@12" );
+    if( !hp->func.vsscript_evaluateFile )
+        goto fail;
+    hp->func.vsscript_freeScript = (vsscript_freeScript_func)GetProcAddress( hp->library, "_vsscript_freeScript@4" );
+    if( !hp->func.vsscript_freeScript )
+        goto fail;
+    hp->func.vsscript_getOutput = (vsscript_getOutput_func)GetProcAddress( hp->library, "_vsscript_getOutput@8" );
+    if( !hp->func.vsscript_getOutput )
+        goto fail;
+    hp->func.vsscript_getVSApi = (vsscript_getVSApi_func)GetProcAddress( hp->library, "_vsscript_getVSApi@0" );
+    if( !hp->func.vsscript_getVSApi )
+        goto fail;
+    return 0;
+fail:
+    FreeLibrary( hp->library );
+    return -1;
+}
+
+static void close_vsscript_dll
+(
+    vpy_handler_t *hp
+)
+{
+    assert( hp->library );
+    if( hp->node )
+        hp->vsapi->freeNode( hp->node );
+    if( hp->vsscript )
+        hp->func.vsscript_freeScript( hp->vsscript );
+    hp->func.vsscript_finalize();
+    FreeLibrary( hp->library );
+}
 
 static void *open_file
 (
@@ -58,15 +133,17 @@ static void *open_file
     vpy_handler_t *hp = lw_malloc_zero( sizeof(vpy_handler_t) );
     if( !hp )
         return NULL;
-    if( vsscript_init() == 0 )
+    if( load_vsscript_dll( hp ) < 0 )
     {
         free( hp );
         return NULL;
     }
-    hp->vsapi = vsscript_getVSApi();
-    if( !hp->vsapi || vsscript_evaluateFile( &hp->vsscript, file_name, efSetWorkingDir ) )
+    if( hp->func.vsscript_init() == 0 )
         goto fail;
-    hp->node = vsscript_getOutput( hp->vsscript, 0 );
+    hp->vsapi = hp->func.vsscript_getVSApi();
+    if( !hp->vsapi || hp->func.vsscript_evaluateFile( &hp->vsscript, file_name, efSetWorkingDir ) )
+        goto fail;
+    hp->node = hp->func.vsscript_getOutput( hp->vsscript, 0 );
     if( !hp->node )
         goto fail;
     hp->vi = hp->vsapi->getVideoInfo( hp->node );
@@ -76,11 +153,8 @@ static void *open_file
         goto fail;
     return hp;
 fail:
-    if( hp->node )
-        hp->vsapi->freeNode( hp->node );
-    if( hp->vsscript )
-        vsscript_freeScript( hp->vsscript );
-    vsscript_finalize();
+    if( hp->library )
+        close_vsscript_dll( hp );
     free( hp );
     return NULL;
 }
@@ -222,11 +296,8 @@ static void close_file
         return;
     if( hp->ctx )
         avcodec_close( hp->ctx );
-    if( hp->node )
-        hp->vsapi->freeNode( hp->node );
-    if( hp->vsscript )
-        vsscript_freeScript( hp->vsscript );
-    vsscript_finalize();
+    if( hp->library )
+        close_vsscript_dll( hp );
     free( hp );
 }
 
