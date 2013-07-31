@@ -269,20 +269,12 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         hp->av_frame->linesize[0] = avs_get_pitch( as_frame );
     }
     else
-    {
-        int is_i420 = (hp->vi->pixel_type == AVS_CS_I420);
         for( int i = 0; i < 3; i++ )
         {
-            static const int component_reorder[2][3] =
-                {
-                    { 0, 2, 1 },    /* YVU -> YUV */
-                    { 0, 1, 2 }     /* YUV -> YUV */
-                };
-            int j = component_reorder[is_i420][i];
-            hp->av_frame->data    [j] = (uint8_t *)avs_get_read_ptr_p( as_frame, i );
-            hp->av_frame->linesize[j] = avs_get_pitch_p( as_frame, i );
+            static const int as_plane[3] = { AVS_PLANAR_Y, AVS_PLANAR_U, AVS_PLANAR_V };
+            hp->av_frame->data    [i] = (uint8_t *)avs_get_read_ptr_p( as_frame, as_plane[i] );
+            hp->av_frame->linesize[i] = avs_get_pitch_p( as_frame, as_plane[i] );
         }
-    }
     hp->av_frame->format = hp->ctx->pix_fmt;
     int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
     hp->func.avs_release_video_frame( as_frame );
