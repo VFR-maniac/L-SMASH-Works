@@ -57,14 +57,14 @@ typedef struct
         VSScript *handle;
         struct
         {
-    #define VSSCRIPT_DECLARE_FUNC( name ) vsscript_##name##_func name
+#define VSSCRIPT_DECLARE_FUNC( name ) vsscript_##name##_func name
             VSSCRIPT_DECLARE_FUNC( init         );
             VSSCRIPT_DECLARE_FUNC( finalize     );
             VSSCRIPT_DECLARE_FUNC( evaluateFile );
             VSSCRIPT_DECLARE_FUNC( freeScript   );
             VSSCRIPT_DECLARE_FUNC( getOutput    );
             VSSCRIPT_DECLARE_FUNC( getVSApi     );
-    #undef VSSCRIPT_DECLARE_FUNC
+#undef VSSCRIPT_DECLARE_FUNC
         } func;
     } vsscript;
     /* VapourSynth */
@@ -85,8 +85,7 @@ static int load_vsscript_dll
     hp->library = LoadLibrary( "vsscript" );
     if( !hp->library )
         return -1;
-#define SYM_INT( name, size ) LW_STRINGFY_VAR( _vsscript_##name ) "@" LW_STRINGFY_VAR( size )
-#define SYM( name, size ) SYM_INT( name, size )
+#define SYM( name, size ) LW_STRINGFY( _vsscript_##name ) "@" LW_STRINGFY( size )
 #define LOAD_VSSCRIPT_FUNC( name, size )                                              \
     do                                                                                \
     {                                                                                 \
@@ -101,7 +100,6 @@ static int load_vsscript_dll
     LOAD_VSSCRIPT_FUNC( freeScript,   4  );
     LOAD_VSSCRIPT_FUNC( getOutput,    8  );
     LOAD_VSSCRIPT_FUNC( getVSApi,     0  );
-#undef SYM_INT
 #undef SYM
 #undef LOAD_VSSCRIPT_FUNC
     return 0;
