@@ -12,7 +12,9 @@
             + Libav+L-SMASH   : check box (default : checked)
                 Enable a reader by libavcodec as decoder and L-SMASH as demuxer if checked.
             + AviSynth Script : check box (default : checked)
-                Enable a reader for AviSynth Script files (*.avs) if checked.
+                Enable a reader for AviSynth Script files (*.avs) with avisynth.dll if checked.
+            + VSScript        : check box (default : checked)
+                Enable a reader for VapourSynth Script files (*.vpy) with vsscript.dll if checked.
             + LW-Libav        : check box (default : checked)
                 Enable a reader by libavcodec as decoder and libavformat as demuxer if checked.
         [Decoders]

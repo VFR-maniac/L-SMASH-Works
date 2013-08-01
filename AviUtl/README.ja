@@ -13,6 +13,8 @@
                 チェックがされている場合、L-SMASHをdemuxerとして、libavcodecをデコーダとして、入力ファイルの読み込みに使用します。
             + AviSynth Script : チェックボックス (デフォルト値 : 有効)
                 チェックがされている場合、avisynth.dllを利用して、AviSynthスクリプトファイル(拡張子: .avsなファイル)の読み込みをサポートします。
+            + VSScript        : チェックボックス (デフォルト値 : 有効)
+                チェックがされている場合、vsscript.dllを利用して、VapourSynthスクリプトファイル(拡張子: .vpyなファイル)の読み込みをサポートします。
             + LW-Libav        : チェックボックス (デフォルト値 : 有効)
                 チェックがされている場合、libavformatをdemuxerとして、libavcodecをデコーダとして入力ファイルの読み込みに使用します。
             * demuxerとはストリーム分離器のことです。
