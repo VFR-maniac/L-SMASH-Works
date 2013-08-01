@@ -151,6 +151,9 @@
                     - LFE      (default : 0.00)
             + A/V sync correction : check box (default : checked)
                 Try Audio/Visual synchronization at the first video frame if checked.
+        [AviSynth Script specific]
+            + AVS bit-depth : combo box (default : 8)
+                Output video by assuming each component of video data returned by AviSynth is coded as specified bit-depth.
         [LW-Libav specific]
             + Create Index file : check box (default : checked)
                 Create the index file (.lwi) to the same directory as the input file if checked.
