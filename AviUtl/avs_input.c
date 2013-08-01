@@ -206,10 +206,11 @@ static enum AVPixelFormat as_to_av_input_pixel_format
     {
         UINT uType = MB_ICONERROR | MB_OK;
         lw_log_handler_t lh = { 0 };
-        lh.level = LW_LOG_FATAL;
+        lh.level = LW_LOG_WARNING;
         lh.priv  = &uType;
-        au_message_box_desktop( &lh, LW_LOG_FATAL, "Width of interleaved fake high bit-depth format must be mod2." );
-        return AV_PIX_FMT_NONE;
+        au_message_box_desktop( &lh, LW_LOG_WARNING, "Width of interleaved fake high bit-depth format must be mod2." );
+        /* Treat as 8-bit depth. */
+        as_input_bit_depth = 8;
     }
     static const struct
     {
