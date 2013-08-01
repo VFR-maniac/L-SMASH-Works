@@ -59,7 +59,6 @@ typedef struct {
         AVSC_DECLARE_FUNC( avs_get_audio );
         AVSC_DECLARE_FUNC( avs_get_video_info );
         AVSC_DECLARE_FUNC( avs_invoke );
-        AVSC_DECLARE_FUNC( avs_bit_blt );
         AVSC_DECLARE_FUNC( avs_release_clip );
         AVSC_DECLARE_FUNC( avs_release_value );
         AVSC_DECLARE_FUNC( avs_release_video_frame );
@@ -92,7 +91,6 @@ static int load_avisynth_dll( avs_handler_t *hp )
     LOAD_AVS_FUNC( avs_get_audio,                 0 );
     LOAD_AVS_FUNC( avs_get_video_info,            0 );
     LOAD_AVS_FUNC( avs_invoke,                    0 );
-    LOAD_AVS_FUNC( avs_bit_blt,                   0 );
     LOAD_AVS_FUNC( avs_release_clip,              0 );
     LOAD_AVS_FUNC( avs_release_value,             0 );
     LOAD_AVS_FUNC( avs_release_video_frame,       0 );
