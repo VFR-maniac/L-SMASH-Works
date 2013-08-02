@@ -236,6 +236,7 @@ static enum AVPixelFormat as_to_av_input_pixel_format
             { AVS_CS_YUV9,    AV_PIX_FMT_YUV410P,     8 },
             { AVS_CS_YV411,   AV_PIX_FMT_YUV411P,     8 },
             { AVS_CS_BGR24,   AV_PIX_FMT_BGR24,       8 },
+            { AVS_CS_BGR24,   AV_PIX_FMT_BGR48LE,    16 },
             { AVS_CS_BGR32,   AV_PIX_FMT_BGRA,        8 },
             { AVS_CS_YUY2,    AV_PIX_FMT_YUYV422,     8 },
             { AVS_CS_Y8,      AV_PIX_FMT_GRAY8,       8 },
