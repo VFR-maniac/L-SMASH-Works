@@ -185,12 +185,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     lwlibav_handler_t *hp = (lwlibav_handler_t *)*instance_data;
     VSVideoInfo       *vi = &hp->vi;
-    uint32_t frame_number = n + 1;     /* frame_number is 1-origin. */
-    if( frame_number > vi->numFrames )
-    {
-        vsapi->setFilterError( "lsmas: exceeded the number of frames.", frame_ctx );
-        return NULL;
-    }
+    uint32_t frame_number = MIN( n + 1, vi->numFrames );    /* frame_number is 1-origin. */
     lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
     lwlibav_video_output_handler_t *vohp = &hp->voh;
     if( vdhp->error )

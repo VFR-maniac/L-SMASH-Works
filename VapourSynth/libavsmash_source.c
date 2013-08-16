@@ -201,12 +201,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     lsmas_handler_t *hp = (lsmas_handler_t *)*instance_data;
     VSVideoInfo     *vi = &hp->vi;
-    uint32_t sample_number = n + 1;     /* For L-SMASH, sample_number is 1-origin. */
-    if( sample_number > vi->numFrames )
-    {
-        vsapi->setFilterError( "lsmas: exceeded the number of frames.", frame_ctx );
-        return NULL;
-    }
+    uint32_t sample_number = MIN( n + 1, vi->numFrames );   /* For L-SMASH, sample_number is 1-origin. */
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     codec_configuration_t *config = &vdhp->config;
