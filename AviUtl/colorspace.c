@@ -28,7 +28,6 @@
 
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
 
 #include "colorspace_simd.h"
@@ -37,19 +36,18 @@
 
 static void convert_yuv16le_to_lw48
 (
-    uint8_t  *buf,
-    int       buf_linesize,
-    uint8_t **dst_data,
-    int      *dst_linesize,
-    int       output_linesize,
-    int       output_height
+    uint8_t   *buf,
+    int        buf_linesize,
+    AVPicture *yuv444p16,
+    int        output_linesize,
+    int        output_height
 )
 {
     uint32_t offset = 0;
     while( output_height-- )
     {
         uint8_t *p_buf = buf;
-        uint8_t *p_dst[3] = { dst_data[0] + offset, dst_data[1] + offset, dst_data[2] + offset };
+        uint8_t *p_dst[3] = { yuv444p16->data[0] + offset, yuv444p16->data[1] + offset, yuv444p16->data[2] + offset };
         for( int i = 0; i < output_linesize; i += LW48_SIZE )
         {
             p_buf[0] = p_dst[0][0];
@@ -64,7 +62,7 @@ static void convert_yuv16le_to_lw48
             p_dst[2] += 2;
         }
         buf    += buf_linesize;
-        offset += dst_linesize[0];
+        offset += yuv444p16->linesize[0];
     }
 }
 
@@ -358,8 +356,7 @@ static int to_yuv16le
 (
     struct SwsContext *sws_ctx,
     AVFrame           *picture,
-    uint8_t           *dst_data[4],
-    int                dst_linesize[4],
+    AVPicture         *yuv444p16,
     int                width,
     int                height
 )
@@ -386,11 +383,16 @@ static int to_yuv16le
         static int sse41_available = -1;
         if( sse41_available == -1 )
             sse41_available = check_sse41();
-        yuv420_list[yuv420_index].convert[sse41_available]( dst_data, dst_linesize, picture->data, picture->linesize, width * sizeof(uint16_t), height );
+        yuv420_list[yuv420_index].convert[sse41_available]
+        (
+            yuv444p16->data, yuv444p16->linesize,
+            picture->data, picture->linesize,
+            width * sizeof(uint16_t), height
+        );
         return height;
     }
     else
-        return sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, height, dst_data, dst_linesize );
+        return sws_scale( sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, height, yuv444p16->data, yuv444p16->linesize );
 }
 
 int to_yuv16le_to_lw48
@@ -400,19 +402,13 @@ int to_yuv16le_to_lw48
     uint8_t                   *buf
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, vshp->input_width, vshp->input_height, AV_PIX_FMT_YUV444P16LE, 16 ) < 0 )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc for LW48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
-    }
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+    AVPicture *yuv444p16 = &au_vohp->yuv444p16;
     int output_linesize = vshp->input_width * LW48_SIZE;
-    int output_height   = to_yuv16le( vshp->sws_ctx, picture, dst_data, dst_linesize, vshp->input_width, vshp->input_height );
+    int output_height   = to_yuv16le( vshp->sws_ctx, picture, yuv444p16, vshp->input_width, vshp->input_height );
     /* Convert planar YUV 4:4:4 48bpp little-endian into LW48. */
-    convert_yuv16le_to_lw48( buf, vohp->output_linesize, dst_data, dst_linesize, output_linesize, output_height );
-    av_free( dst_data[0] );
+    convert_yuv16le_to_lw48( buf, vohp->output_linesize, yuv444p16, output_linesize, output_height );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 
@@ -423,24 +419,18 @@ int to_yuv16le_to_yc48
     uint8_t                   *buf
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    uint8_t *dst_data    [4];
-    int      dst_linesize[4];
-    if( av_image_alloc( dst_data, dst_linesize, vshp->input_width, vshp->input_height, AV_PIX_FMT_YUV444P16LE, 16 ) < 0 )
-    {
-        MessageBox( HWND_DESKTOP, "Failed to av_image_alloc for YC48 convertion.", "lsmashinput", MB_ICONERROR | MB_OK );
-        return 0;
-    }
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+    AVPicture *yuv444p16 = &au_vohp->yuv444p16;
     int output_linesize = vshp->input_width * YC48_SIZE;
-    int output_height   = to_yuv16le( vshp->sws_ctx, picture, dst_data, dst_linesize, vshp->input_width, vshp->input_height );
+    int output_height   = to_yuv16le( vshp->sws_ctx, picture, yuv444p16, vshp->input_width, vshp->input_height );
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int simd_available = -1;
     if( simd_available == -1 )
         simd_available = check_sse2() + ( check_sse2() && check_sse41() );
     static void (*func_yuv16le_to_yc48[3])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2, convert_yuv16le_to_yc48_sse4_1 };
     func_yuv16le_to_yc48[simd_available * (((vohp->output_linesize | (size_t)buf) & 15) == 0)]
-        ( buf, vohp->output_linesize, dst_data, dst_linesize, output_linesize, output_height, vshp->input_yuv_range );
-    av_free( dst_data[0] );
+        ( buf, vohp->output_linesize, yuv444p16->data, yuv444p16->linesize, output_linesize, output_height, vshp->input_yuv_range );
     return MAKE_AVIUTL_PITCH( output_linesize << 3 ) * output_height;
 }
 

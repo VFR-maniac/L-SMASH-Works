@@ -26,6 +26,7 @@
 
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
 
 #include "video_output.h"
@@ -120,6 +121,8 @@ static void au_free_video_output_handler
         free( au_vohp->back_ground );
     if( au_vohp->another_chroma )
         av_free( au_vohp->another_chroma );
+    if( au_vohp->yuv444p16.data[0] )
+        av_free( au_vohp->yuv444p16.data[0] );
     free( au_vohp );
 }
 
@@ -183,7 +186,20 @@ func_get_buffer_t *au_setup_video_rendering
     vohp->output_frame_size = vohp->output_linesize * vohp->output_height;
     au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )
+    {
+        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the back ground frame buffer." );
         return NULL;
+    }
+    if( format->biCompression == OUTPUT_TAG_YC48
+     || format->biCompression == OUTPUT_TAG_LW48 )
+    {
+        AVPicture *yuv444p16 = &au_vohp->yuv444p16;
+        if( av_image_alloc( yuv444p16->data, yuv444p16->linesize, vohp->output_width, vohp->output_height, AV_PIX_FMT_YUV444P16LE, 32 ) < 0 )
+        {
+            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_image_alloc for YUV444P16 convertion." );
+            return NULL;
+        }
+    }
     if( format->biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = au_vohp->back_ground;

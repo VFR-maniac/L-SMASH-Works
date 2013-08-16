@@ -30,6 +30,7 @@ typedef struct
     uint8_t                 *back_ground;
     uint8_t                 *another_chroma;
     uint32_t                 another_chroma_size;
+    AVPicture                yuv444p16;
     func_convert_colorspace *convert_colorspace;
 } au_video_output_handler_t;
 
