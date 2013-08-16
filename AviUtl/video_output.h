@@ -23,10 +23,13 @@
  * Don't distribute it if its license is GPL. */
 
 #include "../common/video_output.h"
+#include "colorspace.h"
 
 typedef struct
 {
     uint8_t                 *back_ground;
+    uint8_t                 *another_chroma;
+    uint32_t                 another_chroma_size;
     func_convert_colorspace *convert_colorspace;
 } au_video_output_handler_t;
 

@@ -35,7 +35,6 @@
 #include <libavutil/mathematics.h>
 
 #include "lwinput.h"
-#include "colorspace.h"
 #include "video_output.h"
 #include "audio_output.h"
 

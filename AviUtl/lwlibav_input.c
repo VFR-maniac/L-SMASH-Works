@@ -32,7 +32,6 @@
 #include "lwinput.h"
 #include "resource.h"
 #include "progress_dlg.h"
-#include "colorspace.h"
 #include "video_output.h"
 #include "audio_output.h"
 

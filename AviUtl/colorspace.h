@@ -24,14 +24,9 @@
 
 typedef int func_convert_colorspace
 (
-    struct SwsContext *sws_ctx,
-    AVFrame           *picture,
-    uint8_t           *buf,
-    int                buf_linesize,
-    int                buf_height,
-    int                width,
-    int                height,
-    int                full_range
+    lw_video_output_handler_t *vohp,
+    AVFrame                   *picture,
+    uint8_t                   *buf
 );
 
 func_convert_colorspace to_yuv16le_to_lw48;

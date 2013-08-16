@@ -26,8 +26,8 @@
 
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libavutil/mem.h>
 
-#include "colorspace.h"
 #include "video_output.h"
 
 static output_colorspace_index determine_colorspace_conversion
@@ -118,6 +118,8 @@ static void au_free_video_output_handler
         return;
     if( au_vohp->back_ground )
         free( au_vohp->back_ground );
+    if( au_vohp->another_chroma )
+        av_free( au_vohp->another_chroma );
     free( au_vohp );
 }
 
@@ -246,9 +248,7 @@ int convert_colorspace
         vshp->input_yuv_range    = yuv_range;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( au_vohp->convert_colorspace( vshp->sws_ctx, picture, buf,
-                                     vohp->output_linesize, vohp->output_height,
-                                     ctx->width, ctx->height, yuv_range ) < 0 )
+    if( au_vohp->convert_colorspace( vohp, picture, buf ) < 0 )
         return 0;
     return vohp->output_frame_size;
 }

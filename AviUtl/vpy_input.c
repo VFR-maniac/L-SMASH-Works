@@ -29,7 +29,6 @@
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
-#include "colorspace.h"
 #include "video_output.h"
 
 typedef struct VSScript VSScript;
