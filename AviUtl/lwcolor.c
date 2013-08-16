@@ -54,7 +54,7 @@ EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTabl
 
 EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTableYUY2( void )
 {
-	return &color_plugin_table;
+    return &color_plugin_table;
 }
 
 BOOL func_init( void )
