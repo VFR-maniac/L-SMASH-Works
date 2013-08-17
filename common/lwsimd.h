@@ -30,6 +30,6 @@
 #define LW_FORCEINLINE __forceinline
 #endif
 
-int check_sse2();
-int check_ssse3();
-int check_sse41();
+int lw_check_sse2();
+int lw_check_ssse3();
+int lw_check_sse41();

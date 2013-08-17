@@ -60,7 +60,7 @@ EXTERN_C COLOR_PLUGIN_TABLE __declspec(dllexport) * __stdcall GetColorPluginTabl
 
 BOOL func_init( void )
 {
-    if( check_sse41() )
+    if( lw_check_sse41() )
     {
         func_convert_lw48_to_yuy2  = convert_lw48_to_yuy2_sse41;
         func_convert_lw48_to_rgb24 = convert_lw48_to_rgb24_sse41;

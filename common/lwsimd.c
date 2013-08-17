@@ -30,21 +30,21 @@ static void __cpuid(int CPUInfo[4], int prm)
 #include <intrin.h>
 #endif /* __GNUC__ */
 
-int check_sse2()
+int lw_check_sse2()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[3] & 0x04000000) != 0;
 }
 
-int check_ssse3()
+int lw_check_ssse3()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);
     return (CPUInfo[2] & 0x00000200) != 0;
 }
 
-int check_sse41()
+int lw_check_sse41()
 {
     int CPUInfo[4];
     __cpuid(CPUInfo, 1);

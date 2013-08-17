@@ -382,7 +382,7 @@ static int to_yuv16le
     {
         static int sse41_available = -1;
         if( sse41_available == -1 )
-            sse41_available = check_sse41();
+            sse41_available = lw_check_sse41();
         yuv420_list[yuv420_index].convert[sse41_available]
         (
             yuv444p16->data, yuv444p16->linesize,
@@ -427,7 +427,7 @@ int to_yuv16le_to_yc48
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
     static int simd_available = -1;
     if( simd_available == -1 )
-        simd_available = check_sse2() + ( check_sse2() && check_sse41() );
+        simd_available = lw_check_sse2() + ( lw_check_sse2() && lw_check_sse41() );
     static void (*func_yuv16le_to_yc48[3])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2, convert_yuv16le_to_yc48_sse4_1 };
     func_yuv16le_to_yc48[simd_available * (((vohp->output_linesize | (size_t)buf) & 15) == 0)]
         ( buf, vohp->output_linesize, yuv444p16->data, yuv444p16->linesize, output_rowsize, output_height, vshp->input_yuv_range );
@@ -516,7 +516,7 @@ int to_yuy2
         output_rowsize = vshp->input_width * YUY2_SIZE;
         static int ssse3_available = -1;
         if( ssse3_available == -1 )
-            ssse3_available = check_ssse3();
+            ssse3_available = lw_check_ssse3();
         static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
         func_yv12i_to_yuy2[ssse3_available]( buf, vohp->output_linesize, av_picture.data, av_picture.linesize, output_rowsize, vshp->input_height );
     }
