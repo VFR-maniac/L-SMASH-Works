@@ -46,6 +46,7 @@ typedef struct
     int                         bitdepth_minus_8;
     /* for stacked format */
     int                         stacked_format;
+    int                         sub_width;
     int                         sub_height;
     AVPicture                   scaled;
 } as_video_output_handler_t;

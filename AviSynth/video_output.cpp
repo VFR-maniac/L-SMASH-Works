@@ -175,15 +175,15 @@ static int make_frame_planar_yuv_stacked
         int dst_offset = 0;
         int src_offset = 0;
         int src_height = height >> (i ? as_vohp->sub_height : 0);
-        int linesize   = MIN( src_picture.linesize[i], 2 * dst_picture.linesize[i] );
-        int linesize32 = sse2_available > 0 ? (linesize & ~31) : 0;
+        int rowsize    = (2 * vshp->input_width) >> (i ? as_vohp->sub_width : 0);
+        int rowsize32  = sse2_available > 0 ? (rowsize & ~31) : 0;
         int lsb_offset = src_height * dst_picture.linesize[i];
         for( int j = 0; j < src_height; j++ )
         {
             uint8_t *dst_msb = dst_picture.data[i] + dst_offset;
             uint8_t *dst_lsb = dst_msb + lsb_offset;
             uint8_t *src     = src_picture.data[i] + src_offset;
-            for( int k = 0; k < linesize32; k += 32 )
+            for( int k = 0; k < rowsize32; k += 32 )
             {
                 /* LSB */
                 __m128i a = _mm_load_si128( (__m128i *)(src + k     ) );
@@ -196,7 +196,7 @@ static int make_frame_planar_yuv_stacked
                 _mm_store_si128( (__m128i *)dst_msb, _mm_packus_epi16( _mm_and_si128( a, mask ), _mm_and_si128( b, mask ) ) );
                 dst_msb += 16;
             }
-            for( int k = linesize32; k < linesize; k += 2 )
+            for( int k = rowsize32; k < rowsize; k += 2 )
             {
                 *(dst_lsb++) = *(src + k    );
                 *(dst_msb++) = *(src + k + 1);
@@ -297,44 +297,45 @@ static int determine_colorspace_conversion
         enum AVPixelFormat output_pixel_format;
         int                output_pixel_type;
         int                output_bitdepth_minus_8;
+        int                output_sub_width;
         int                output_sub_height;
     } conversion_table[] =
         {
-            { AV_PIX_FMT_YUV420P,     AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1 },
-            { AV_PIX_FMT_NV12,        AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1 },
-            { AV_PIX_FMT_NV21,        AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1 },
-            { AV_PIX_FMT_YUV420P9LE,  AV_PIX_FMT_YUV420P9LE,  VideoInfo::CS_I420,    1, 1 },
-            { AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P10LE, VideoInfo::CS_I420,    2, 1 },
-            { AV_PIX_FMT_YUV420P16LE, AV_PIX_FMT_YUV420P16LE, VideoInfo::CS_I420,    8, 1 },
-            { AV_PIX_FMT_YUYV422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
-            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
-            { AV_PIX_FMT_UYVY422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 0 },
-            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     VideoInfo::CS_YV16,    0, 0 },
-            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  VideoInfo::CS_YV16,    1, 0 },
-            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, VideoInfo::CS_YV16,    2, 0 },
-            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, VideoInfo::CS_YV16,    8, 0 },
-            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     VideoInfo::CS_YV24,    0, 0 },
-            { AV_PIX_FMT_YUV444P9LE,  AV_PIX_FMT_YUV444P9LE,  VideoInfo::CS_YV24,    1, 0 },
-            { AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P10LE, VideoInfo::CS_YV24,    2, 0 },
-            { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, VideoInfo::CS_YV24,    8, 0 },
-            { AV_PIX_FMT_YUV410P,     AV_PIX_FMT_YUV410P,     VideoInfo::CS_YUV9,    0, 2 },
-            { AV_PIX_FMT_YUV411P,     AV_PIX_FMT_YUV411P,     VideoInfo::CS_YV411,   0, 0 },
-            { AV_PIX_FMT_GRAY8,       AV_PIX_FMT_GRAY8,       VideoInfo::CS_Y8,      0, 0 },
-            { AV_PIX_FMT_RGB24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0 },
-            { AV_PIX_FMT_BGR24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0 },
-            { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
-            { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
-            { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
-            { AV_PIX_FMT_BGRA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0 },
+            { AV_PIX_FMT_YUV420P,     AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1, 1 },
+            { AV_PIX_FMT_NV12,        AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1, 1 },
+            { AV_PIX_FMT_NV21,        AV_PIX_FMT_YUV420P,     VideoInfo::CS_I420,    0, 1, 1 },
+            { AV_PIX_FMT_YUV420P9LE,  AV_PIX_FMT_YUV420P9LE,  VideoInfo::CS_I420,    1, 1, 1 },
+            { AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_YUV420P10LE, VideoInfo::CS_I420,    2, 1, 1 },
+            { AV_PIX_FMT_YUV420P16LE, AV_PIX_FMT_YUV420P16LE, VideoInfo::CS_I420,    8, 1, 1 },
+            { AV_PIX_FMT_YUYV422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 1, 0 },
+            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 1, 0 },
+            { AV_PIX_FMT_UYVY422,     AV_PIX_FMT_YUYV422,     VideoInfo::CS_YUY2,    0, 1, 0 },
+            { AV_PIX_FMT_YUV422P,     AV_PIX_FMT_YUV422P,     VideoInfo::CS_YV16,    0, 1, 0 },
+            { AV_PIX_FMT_YUV422P9LE,  AV_PIX_FMT_YUV422P9LE,  VideoInfo::CS_YV16,    1, 1, 0 },
+            { AV_PIX_FMT_YUV422P10LE, AV_PIX_FMT_YUV422P10LE, VideoInfo::CS_YV16,    2, 1, 0 },
+            { AV_PIX_FMT_YUV422P16LE, AV_PIX_FMT_YUV422P16LE, VideoInfo::CS_YV16,    8, 1, 0 },
+            { AV_PIX_FMT_YUV444P,     AV_PIX_FMT_YUV444P,     VideoInfo::CS_YV24,    0, 0, 0 },
+            { AV_PIX_FMT_YUV444P9LE,  AV_PIX_FMT_YUV444P9LE,  VideoInfo::CS_YV24,    1, 0, 0 },
+            { AV_PIX_FMT_YUV444P10LE, AV_PIX_FMT_YUV444P10LE, VideoInfo::CS_YV24,    2, 0, 0 },
+            { AV_PIX_FMT_YUV444P16LE, AV_PIX_FMT_YUV444P16LE, VideoInfo::CS_YV24,    8, 0, 0 },
+            { AV_PIX_FMT_YUV410P,     AV_PIX_FMT_YUV410P,     VideoInfo::CS_YUV9,    0, 2, 2 },
+            { AV_PIX_FMT_YUV411P,     AV_PIX_FMT_YUV411P,     VideoInfo::CS_YV411,   0, 2, 0 },
+            { AV_PIX_FMT_GRAY8,       AV_PIX_FMT_GRAY8,       VideoInfo::CS_Y8,      0, 0, 0 },
+            { AV_PIX_FMT_RGB24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0, 0 },
+            { AV_PIX_FMT_BGR24,       AV_PIX_FMT_BGR24,       VideoInfo::CS_BGR24,   0, 0, 0 },
+            { AV_PIX_FMT_ARGB,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0, 0 },
+            { AV_PIX_FMT_RGBA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0, 0 },
+            { AV_PIX_FMT_ABGR,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0, 0 },
+            { AV_PIX_FMT_BGRA,        AV_PIX_FMT_BGRA,        VideoInfo::CS_BGR32,   0, 0, 0 },
 #if FFMPEG_HIGH_DEPTH_SUPPORT
-            { AV_PIX_FMT_YUV420P12LE, AV_PIX_FMT_YUV420P12LE, VideoInfo::CS_I420,    4, 1 },
-            { AV_PIX_FMT_YUV420P14LE, AV_PIX_FMT_YUV420P14LE, VideoInfo::CS_I420,    6, 1 },
-            { AV_PIX_FMT_YUV422P12LE, AV_PIX_FMT_YUV422P12LE, VideoInfo::CS_YV16,    4, 0 },
-            { AV_PIX_FMT_YUV422P14LE, AV_PIX_FMT_YUV422P14LE, VideoInfo::CS_YV16,    6, 0 },
-            { AV_PIX_FMT_YUV444P12LE, AV_PIX_FMT_YUV444P12LE, VideoInfo::CS_YV24,    4, 0 },
-            { AV_PIX_FMT_YUV444P14LE, AV_PIX_FMT_YUV444P14LE, VideoInfo::CS_YV24,    6, 0 },
+            { AV_PIX_FMT_YUV420P12LE, AV_PIX_FMT_YUV420P12LE, VideoInfo::CS_I420,    4, 1, 1 },
+            { AV_PIX_FMT_YUV420P14LE, AV_PIX_FMT_YUV420P14LE, VideoInfo::CS_I420,    6, 1, 1 },
+            { AV_PIX_FMT_YUV422P12LE, AV_PIX_FMT_YUV422P12LE, VideoInfo::CS_YV16,    4, 1, 0 },
+            { AV_PIX_FMT_YUV422P14LE, AV_PIX_FMT_YUV422P14LE, VideoInfo::CS_YV16,    6, 1, 0 },
+            { AV_PIX_FMT_YUV444P12LE, AV_PIX_FMT_YUV444P12LE, VideoInfo::CS_YV24,    4, 0, 0 },
+            { AV_PIX_FMT_YUV444P14LE, AV_PIX_FMT_YUV444P14LE, VideoInfo::CS_YV24,    6, 0, 0 },
 #endif
-            { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        VideoInfo::CS_UNKNOWN, 0, 0 }
+            { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        VideoInfo::CS_UNKNOWN, 0, 0, 0 }
         };
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
@@ -358,6 +359,7 @@ static int determine_colorspace_conversion
     }
     *output_pixel_type        = conversion_table[i].output_pixel_type;
     as_vohp->bitdepth_minus_8 = conversion_table[i].output_bitdepth_minus_8;
+    as_vohp->sub_width        = conversion_table[i].output_sub_width;
     as_vohp->sub_height       = conversion_table[i].output_sub_height;
     switch( vshp->output_pixel_format )
     {
