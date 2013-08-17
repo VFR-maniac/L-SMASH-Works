@@ -23,6 +23,8 @@
 
 #include "lsmashsource.h"
 
+#include <emmintrin.h>  /* SSE2 */
+
 extern "C"
 {
 #include <libavcodec/avcodec.h>
@@ -163,25 +165,37 @@ static int make_frame_planar_yuv_stacked
             return -1;
         src_picture = as_vohp->scaled;
     }
+    static const __m128i mask = _mm_setr_epi16( 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF );
     for( int i = 0; i < 3; i++ )
     {
         int dst_offset = 0;
         int src_offset = 0;
         int src_height = height >> (i ? as_vohp->sub_height : 0);
-        int linesize   = MIN( src_picture.linesize[i], dst_picture.linesize[i] );
+        int linesize   = MIN( src_picture.linesize[i], 2 * dst_picture.linesize[i] );
+        int linesize32 = linesize & ~31;
         int lsb_offset = src_height * dst_picture.linesize[i];
         for( int j = 0; j < src_height; j++ )
         {
             uint8_t *dst_msb = dst_picture.data[i] + dst_offset;
             uint8_t *dst_lsb = dst_msb + lsb_offset;
-            uint8_t *src_lsb = src_picture.data[i] + src_offset;
-            uint8_t *src_msb = src_lsb + 1;
-            for( int k = 0; k < linesize; k++ )
+            uint8_t *src     = src_picture.data[i] + src_offset;
+            for( int k = 0; k < linesize32; k += 32 )
             {
-                *(dst_msb++) = *(src_msb);
-                src_msb += 2;
-                *(dst_lsb++) = *(src_lsb);
-                src_lsb += 2;
+                /* LSB */
+                __m128i a = _mm_load_si128( (__m128i *)(src + k     ) );
+                __m128i b = _mm_load_si128( (__m128i *)(src + k + 16) );
+                _mm_store_si128( (__m128i *)dst_lsb, _mm_packus_epi16( _mm_and_si128( a, mask ), _mm_and_si128( b, mask ) ) );
+                dst_lsb += 16;
+                /* MSB */
+                a = _mm_srli_si128( a, 1 );
+                b = _mm_srli_si128( b, 1 );
+                _mm_store_si128( (__m128i *)dst_msb, _mm_packus_epi16( _mm_and_si128( a, mask ), _mm_and_si128( b, mask ) ) );
+                dst_msb += 16;
+            }
+            for( int k = linesize32; k < linesize; k += 2 )
+            {
+                *(dst_lsb++) = *(src + k    );
+                *(dst_msb++) = *(src + k + 1);
             }
             dst_offset += dst_picture.linesize[i];
             src_offset += src_picture.linesize[i];
