@@ -353,6 +353,26 @@
 				</FileConfiguration>
 			</File>
 			<File
+				RelativePath="..\common\lwsimd.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
 				RelativePath="..\common\resample.c"
 				>
 				<FileConfiguration
@@ -425,11 +445,11 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
-				RelativePath=".\audio_output.h"
+				RelativePath="..\common\audio_output.h"
 				>
 			</File>
 			<File
-				RelativePath="..\common\audio_output.h"
+				RelativePath=".\audio_output.h"
 				>
 			</File>
 			<File
@@ -481,6 +501,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\common\lwsimd.h"
+				>
+			</File>
+			<File
 				RelativePath="..\common\progress.h"
 				>
 			</File>
@@ -493,11 +517,11 @@
 				>
 			</File>
 			<File
-				RelativePath=".\video_output.h"
+				RelativePath="..\common\video_output.h"
 				>
 			</File>
 			<File
-				RelativePath="..\common\video_output.h"
+				RelativePath=".\video_output.h"
 				>
 			</File>
 		</Filter>

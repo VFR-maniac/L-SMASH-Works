@@ -33,6 +33,8 @@ extern "C"
 #include <libavutil/mem.h>
 }
 
+#include "../common/lwsimd.h"
+
 #include "video_output.h"
 
 #if (LIBAVUTIL_VERSION_MICRO >= 100) && (LIBSWSCALE_VERSION_MICRO >= 100)
@@ -40,6 +42,8 @@ extern "C"
 #else
 #define FFMPEG_HIGH_DEPTH_SUPPORT 0
 #endif
+
+static int sse2_available = -1;
 
 static void make_black_background_planar_yuv
 (
@@ -172,7 +176,7 @@ static int make_frame_planar_yuv_stacked
         int src_offset = 0;
         int src_height = height >> (i ? as_vohp->sub_height : 0);
         int linesize   = MIN( src_picture.linesize[i], 2 * dst_picture.linesize[i] );
-        int linesize32 = linesize & ~31;
+        int linesize32 = sse2_available > 0 ? (linesize & ~31) : 0;
         int lsb_offset = src_height * dst_picture.linesize[i];
         for( int j = 0; j < src_height; j++ )
         {
@@ -646,6 +650,8 @@ func_get_buffer_t *as_setup_video_rendering
     int                        output_height
 )
 {
+    if( sse2_available == - 1 )
+        sse2_available = lw_check_sse2();
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     IScriptEnvironment        *env     = as_vohp->env;
     VideoInfo                 *vi      = as_vohp->vi;
