@@ -32,7 +32,15 @@
 #endif
 #include <tmmintrin.h>
 /* SSSE3 version of func convert_yv12i_to_yuy2 */
-void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3
+(
+    uint8_t  *buf,
+    int       buf_linesize,
+    uint8_t **pic_data,
+    int      *pic_linesize,
+    int       output_rowsize,
+    int       height
+)
 {
     static const uint8_t LW_ALIGN(16) Array_5371[4][16] = {
         { 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3, 5, 3 }, { 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1 },
@@ -55,7 +63,7 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
         ptr_y = y_line;
         ptr_u = u_line;
         ptr_v = v_line;
-        ptr_dst_fin = ptr_dst + output_linesize;
+        ptr_dst_fin = ptr_dst + output_rowsize;
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
         {
             x0 = _mm_loadu_si128((__m128i *)ptr_u);
@@ -88,7 +96,7 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
             ptr_y = y_line + y_pitch * i;
             ptr_u = u_line + uv_pitch * (i & 0x01);
             ptr_v = v_line + uv_pitch * (i & 0x01);
-            ptr_dst_fin = ptr_dst + output_linesize;
+            ptr_dst_fin = ptr_dst + output_rowsize;
             for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
             {
                 x0 = _mm_loadu_si128((__m128i *)(ptr_u));
@@ -154,7 +162,7 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
         ptr_y = y_line;
         ptr_u = u_line;
         ptr_v = v_line;
-        ptr_dst_fin = ptr_dst + (output_linesize & ~63);
+        ptr_dst_fin = ptr_dst + (output_rowsize & ~63);
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 64, ptr_y += 32, ptr_u += 16, ptr_v += 16 )
         {
             x0 = _mm_loadu_si128((__m128i *)ptr_u);
@@ -173,7 +181,7 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
             _mm_storeu_si128((__m128i *)(ptr_dst + 32), x6);
             _mm_storeu_si128((__m128i *)(ptr_dst + 48), x7);
         }
-        ptr_dst_fin = ptr_dst + (output_linesize & 63);
+        ptr_dst_fin = ptr_dst + (output_rowsize & 63);
         for( ; ptr_dst < ptr_dst_fin; ptr_dst += 4, ptr_y += 2, ptr_u += 1, ptr_v += 1 )
         {
             ptr_dst[0] = ptr_y[0];
@@ -182,14 +190,14 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
             ptr_dst[3] = ptr_v[0];
         }
     }
-    const int background_fill_count = MIN((64 - (output_linesize & 63)) & 63, buf_linesize - output_linesize) >> 2;
+    const int background_fill_count = MIN((64 - (output_rowsize & 63)) & 63, buf_linesize - output_rowsize) >> 2;
     if( background_fill_count )
     {
         static const uint32_t yuy2_background = (128<<24) + (128<<8);
         /* background_fill are not needed for last 2 lines, since the copying of them won't overwrite. */
         for( int j = 0; j < height - 2; j++ )
         {
-            uint32_t *ptr = (uint32_t *)(buf + buf_linesize * j + output_linesize);
+            uint32_t *ptr = (uint32_t *)(buf + buf_linesize * j + output_rowsize);
             for( int i = 0; i < background_fill_count; i++ )
                 ptr[i] = yuy2_background;
         }
@@ -202,7 +210,16 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3( uint8_t *buf, int buf_linesize, 
 #include <smmintrin.h>
 
 /* the inner loop branch should be deleted by forced inline expansion and "bit_depth" constant propagation. */
-static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height, const int bit_depth )
+static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse41
+(
+    uint8_t  **dst,
+    const int *dst_linesize,
+    uint8_t  **pic_data,
+    int       *pic_linesize,
+    int        output_rowsize,
+    int        height,
+    const int  bit_depth
+)
 {
     const int lshft = 16 - bit_depth;
     /* copy luma */
@@ -211,7 +228,7 @@ static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse4
         uint16_t *ptr_dst_line = (uint16_t *)dst[0];
         const int dst_line_len = dst_linesize[0] / sizeof(uint16_t);
         const int src_line_len = pic_linesize[0] / sizeof(uint16_t);
-        const int luma_width = (output_linesize / sizeof(uint16_t));
+        const int luma_width = (output_rowsize / sizeof(uint16_t));
         for( int y = 0; y < height; y++ )
         {
             uint16_t *ptr_dst = ptr_dst_line + y * dst_line_len;
@@ -244,7 +261,7 @@ static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse4
     };
     const __m128i x_add = _mm_set1_epi32(1<<(2-lshft));
     /* chroma upsampling for interlaced yuv420 */
-    const int src_chroma_width = (output_linesize / sizeof(uint16_t)) / 2;
+    const int src_chroma_width = (output_rowsize / sizeof(uint16_t)) / 2;
     for( int i_color = 1; i_color < 3; i_color++ )
     {
         __m128i x0, x1, x3, x4, x5;
@@ -463,25 +480,59 @@ static void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv420ple_i_to_yuv444p16le_sse4
     }
 }
 
-void LW_FUNC_ALIGN convert_yuv420p9le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p9le_i_to_yuv444p16le_sse41
+(
+    uint8_t  **dst,
+    const int *dst_linesize,
+    uint8_t  **pic_data,
+    int       *pic_linesize,
+    int        output_rowsize,
+    int        height
+)
 {
-    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 9 );
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_rowsize, height, 9 );
 }
 
-void LW_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p10le_i_to_yuv444p16le_sse41
+(
+    uint8_t  **dst,
+    const int *dst_linesize,
+    uint8_t  **pic_data,
+    int       *pic_linesize,
+    int        output_rowsize,
+    int        height
+)
 {
-    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 10 );
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_rowsize, height, 10 );
 }
 
-void LW_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41( uint8_t **dst, const int *dst_linesize, uint8_t **pic_data, int *pic_linesize, int output_linesize, int height )
+void LW_FUNC_ALIGN convert_yuv420p16le_i_to_yuv444p16le_sse41
+(
+    uint8_t  **dst,
+    const int *dst_linesize,
+    uint8_t  **pic_data,
+    int       *pic_linesize,
+    int        output_rowsize,
+    int        height
+)
 {
-    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_linesize, height, 16 );
+    convert_yuv420ple_i_to_yuv444p16le_sse41( dst, dst_linesize, pic_data, pic_linesize, output_rowsize, height, 16 );
 }
 
 /* SIMD version of func convert_yuv16le_to_yc48
  * dst_data[0], dst_data[1], dst_data[2], buf, buf_linesize and dst_linesize need to be mod16.
  * the inner loop branch should be deleted by forced inline expansion and "use_sse41" constant propagation. */
-void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range, const int use_sse41 )
+void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv16le_to_yc48_simd
+(
+    uint8_t  *buf,
+    int       buf_linesize,
+    uint8_t **dst_data,
+    int      *dst_linesize,
+    int       output_rowsize,
+    int       output_height,
+    int       full_range,
+    const int use_sse41
+)
 {
     uint8_t *ycp, *ycp_fin;
     uint8_t *p_dst_y, *p_dst_u, *p_dst_v;
@@ -530,7 +581,7 @@ void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, in
         p_dst_u = dst_data[1] + dst_linesize[1] * h;
         p_dst_v = dst_data[2] + dst_linesize[2] * h;
         ycp = buf + buf_linesize * h;
-        for( ycp_fin = ycp + output_linesize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
+        for( ycp_fin = ycp + output_rowsize; ycp < ycp_fin; ycp += 48, p_dst_y += 16, p_dst_u += 16, p_dst_v += 16 )
         {
             /* make -32768 (0x8000) */
             x3 = _mm_cmpeq_epi32(x3, x3);   /* 0xffff */
@@ -652,22 +703,40 @@ void LW_FUNC_ALIGN LW_FORCEINLINE convert_yuv16le_to_yc48_simd( uint8_t *buf, in
             _mm_stream_si128((__m128i *)&ycp[32], x1);
         }
     }
-    const int background_fill_count = ((48 - (output_linesize % 48)) % 48) >> 1;
+    const int background_fill_count = ((48 - (output_rowsize % 48)) % 48) >> 1;
     if( background_fill_count )
         for( int j = 0; j < output_height; j++ )
         {
-            int16_t *ptr = (int16_t *)(buf + buf_linesize * j + output_linesize);
+            int16_t *ptr = (int16_t *)(buf + buf_linesize * j + output_rowsize);
             for( int i = 0; i < background_fill_count; i++ )
                 ptr[i] = 0;
         }
 }
 
-void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse2( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse2
+(
+    uint8_t  *buf,
+    int       buf_linesize,
+    uint8_t **dst_data,
+    int      *dst_linesize,
+    int       output_rowsize,
+    int       output_height,
+    int       full_range
+)
 {
-    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 0 );
+    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_rowsize, output_height, full_range, 0 );
 }
 
-void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse4_1( uint8_t *buf, int buf_linesize, uint8_t **dst_data, int *dst_linesize, int output_linesize, int output_height, int full_range )
+void LW_FUNC_ALIGN convert_yuv16le_to_yc48_sse4_1
+(
+    uint8_t  *buf,
+    int       buf_linesize,
+    uint8_t **dst_data,
+    int      *dst_linesize,
+    int       output_rowsize,
+    int       output_height,
+    int       full_range
+)
 {
-    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_linesize, output_height, full_range, 1 );
+    convert_yuv16le_to_yc48_simd( buf, buf_linesize, dst_data, dst_linesize, output_rowsize, output_height, full_range, 1 );
 }
