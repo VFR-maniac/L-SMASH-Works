@@ -22,11 +22,12 @@
 
 #include <windows.h>
 
+#include "../common/lwsimd.h"
+
 #include "color.h"
 
 #include "lwcolor.h"
 #include "lwcolor_simd.h"
-#include "lwsimd.h"
 #include "config.h"
 
 static void convert_lw48_to_yuy2( int thread_id, int thread_num, void *param1, void *param2 );

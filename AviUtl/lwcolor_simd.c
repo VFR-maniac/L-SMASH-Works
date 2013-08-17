@@ -22,9 +22,9 @@
 
 #include <windows.h>
 
-#include "color.h"
+#include "../common/lwsimd.h"
 
-#include "lwsimd.h"
+#include "color.h"
 
 #ifndef BYTE
 typedef unsigned char BYTE;

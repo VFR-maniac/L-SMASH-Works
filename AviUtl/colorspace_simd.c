@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 #include "../common/utils.h"
-#include "lwsimd.h"
+#include "../common/lwsimd.h"
 
 #ifdef __GNUC__
 #pragma GCC target ("ssse3")

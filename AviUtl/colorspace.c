@@ -30,8 +30,8 @@
 #include <libswscale/swscale.h>
 #include <libavutil/mem.h>
 
+#include "../common/lwsimd.h"
 #include "colorspace_simd.h"
-#include "lwsimd.h"
 #include "video_output.h"
 
 static void convert_yuv16le_to_lw48
