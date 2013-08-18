@@ -169,7 +169,6 @@ static int make_frame_planar_yuv_stacked
             return -1;
         src_picture = as_vohp->scaled;
     }
-    static const __m128i mask = _mm_set1_epi16( 0x00FF );   /* saturation protector */
     for( int i = 0; i < 3; i++ )
     {
         int dst_offset = 0;
@@ -186,8 +185,11 @@ static int make_frame_planar_yuv_stacked
             for( int k = 0; k < rowsize32; k += 32 )
             {
                 {
+                    static const uint8_t LW_ALIGN(16) sp16[16] =    /* saturation protector */
+                        { 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00 ,0xFF, 0x00, 0xFF, 0x00 };
                     __m128i xmm0 = _mm_load_si128( (__m128i *)(src + k     ) );
                     __m128i xmm1 = _mm_load_si128( (__m128i *)(src + k + 16) );
+                    __m128i mask = _mm_load_si128( (__m128i *)sp16 );
                     _mm_store_si128( (__m128i *)dst_lsb, _mm_packus_epi16( _mm_and_si128 ( xmm0, mask ), _mm_and_si128 ( xmm1, mask ) ) );
                     _mm_store_si128( (__m128i *)dst_msb, _mm_packus_epi16( _mm_srli_epi16( xmm0,    8 ), _mm_srli_epi16( xmm1,    8 ) ) );
                 }
