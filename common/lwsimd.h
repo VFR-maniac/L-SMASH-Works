@@ -33,3 +33,4 @@
 int lw_check_sse2();
 int lw_check_ssse3();
 int lw_check_sse41();
+int lw_check_avx2();
