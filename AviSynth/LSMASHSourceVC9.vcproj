@@ -3,7 +3,7 @@
 	ProjectType="Visual C++"
 	Version="9.00"
 	Name="LSMASHSource"
-	ProjectGUID="{84C42F08-0542-4D69-A2B0-EDA3D591DC75}"
+	ProjectGUID="{96CDDEDF-3F1B-48DE-9A18-AA7F6A97EF58}"
 	RootNamespace="LSMASHSource"
 	Keyword="Win32Proj"
 	TargetFrameworkVersion="196613"
@@ -445,11 +445,11 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
-				RelativePath="..\common\audio_output.h"
+				RelativePath=".\audio_output.h"
 				>
 			</File>
 			<File
-				RelativePath=".\audio_output.h"
+				RelativePath="..\common\audio_output.h"
 				>
 			</File>
 			<File
@@ -517,11 +517,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\common\video_output.h"
+				RelativePath=".\video_output.h"
 				>
 			</File>
 			<File
-				RelativePath=".\video_output.h"
+				RelativePath="..\common\video_output.h"
 				>
 			</File>
 		</Filter>
