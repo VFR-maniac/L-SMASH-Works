@@ -23,8 +23,14 @@
 
 #include "lsmashsource.h"
 
-#include <emmintrin.h>  /* SSE2 */
 #if _MSC_VER >= 1700
+#define VC_HAS_AVX2 1
+#else
+#define VC_HAS_AVX2 0
+#endif
+
+#include <emmintrin.h>  /* SSE2 */
+#if VC_HAS_AVX2
 #include <immintrin.h>  /* AVX, AVX2 */
 #endif
 
@@ -46,8 +52,8 @@ extern "C"
 #define FFMPEG_HIGH_DEPTH_SUPPORT 0
 #endif
 
-static int sse2_available = -1;
-static int avx2_available = -1;
+static const int sse2_available = lw_check_sse2();
+static const int avx2_available = VC_HAS_AVX2 && lw_check_avx2();
 
 static void make_black_background_planar_yuv
 (
@@ -197,7 +203,7 @@ static int make_frame_planar_yuv_stacked
             const uint8_t *src     = src_picture.data[i] + j * src_picture.linesize[i];     /* MSB: src + 2 * k + 1, LSB: src + 2 * k */
             const int     _width16 = ((intptr_t)src & 15) == 0 ? width16 : 0;               /* Don't use SSE2 instructions if set to 0. */
             const int     _width32 = ((intptr_t)src & 31) == 0 ? width32 : 0;               /* Don't use AVX(2) instructions if set to 0. */
-#if _MSC_VER >= 1700
+#if VC_HAS_AVX2
             /* AVX, AVX2 */
             for( int k = 0; k < _width32; k += 32 )
             {
@@ -671,10 +677,6 @@ func_get_buffer_t *as_setup_video_rendering
     int                        output_height
 )
 {
-    if( sse2_available == - 1 )
-        sse2_available = lw_check_sse2();
-    if( avx2_available == - 1 )
-        avx2_available = lw_check_avx2();
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     IScriptEnvironment        *env     = as_vohp->env;
     VideoInfo                 *vi      = as_vohp->vi;
