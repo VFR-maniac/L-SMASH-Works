@@ -32,9 +32,8 @@ typedef void func_make_black_background
 
 typedef void func_make_frame
 (
-    AVPicture                 *av_picture,
-    int                        width,
-    int                        height,
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_picture,
     const component_reorder_t *component_reorder,
     VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,

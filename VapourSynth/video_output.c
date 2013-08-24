@@ -34,29 +34,6 @@
 
 #include "video_output.h"
 
-static inline void bit_blt
-(
-    uint8_t *dst_data,
-    int      dst_linesize,
-    uint8_t *src_data,
-    int      src_linesize,
-    int      row_size,
-    int      height
-)
-{
-    if( src_linesize == dst_linesize && src_linesize == row_size )
-    {
-        memcpy( dst_data, src_data, src_linesize * height );
-        return;
-    }
-    for( int i = 0; i < height; i++ )
-    {
-        memcpy( dst_data, src_data, row_size );
-        dst_data += dst_linesize;
-        src_data += src_linesize;
-    }
-}
-
 static void make_black_background_planar_yuv8
 (
     VSFrameRef  *vs_frame,
@@ -101,61 +78,69 @@ static void make_black_background_planar_rgb
 
 static void make_frame_planar_yuv
 (
-    AVPicture                 *av_picture,
-    int                        width,
-    int                        height,
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_picture,
     const component_reorder_t *component_reorder,
     VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
     const VSAPI               *vsapi
 )
 {
-    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
-    int av_row_size_y = vs_format->bytesPerSample * width;
-    for( int i = 0; i < 3; i++ )
+    AVPicture vs_picture =
     {
-        int      vs_frame_linesize = vsapi->getStride  ( vs_frame, i );
-        uint8_t *vs_frame_data     = vsapi->getWritePtr( vs_frame, i );
-        int      av_frame_linesize = av_picture->linesize[i];
-        uint8_t *av_frame_data     = av_picture->data    [i];
-        int      av_row_size       = av_row_size_y >> (i ? vs_format->subSamplingW : 0);
-        int      av_height         = height        >> (i ? vs_format->subSamplingH : 0);
-        bit_blt( vs_frame_data, vs_frame_linesize,
-                 av_frame_data, av_frame_linesize,
-                 av_row_size,   av_height );
-    }
+        /* data */
+        {
+            vsapi->getWritePtr( vs_frame, 0 ),
+            vsapi->getWritePtr( vs_frame, 1 ),
+            vsapi->getWritePtr( vs_frame, 2 ),
+            NULL
+        },
+        /* linesize */
+        {
+            vsapi->getStride( vs_frame, 0 ),
+            vsapi->getStride( vs_frame, 1 ),
+            vsapi->getStride( vs_frame, 2 ),
+            0
+        }
+    };
+    sws_scale( vshp->sws_ctx, (const uint8_t* const*)av_picture->data, av_picture->linesize, 0, vshp->input_height, vs_picture.data, vs_picture.linesize );
 }
 
 static void make_frame_planar_rgb
 (
-    AVPicture                 *av_picture,
-    int                        width,
-    int                        height,
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_picture,
     const component_reorder_t *component_reorder,
     VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
     const VSAPI               *vsapi
 )
 {
-    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
-    int av_row_size = vs_format->bytesPerSample * width;
-    for( int i = 0; i < 3; i++ )
+    AVPicture vs_picture =
     {
-        int      vs_frame_linesize = vsapi->getStride  ( vs_frame, component_reorder[i] );
-        uint8_t *vs_frame_data     = vsapi->getWritePtr( vs_frame, component_reorder[i] );
-        int      av_frame_linesize = av_picture->linesize[i];
-        uint8_t *av_frame_data     = av_picture->data    [i];
-        bit_blt( vs_frame_data, vs_frame_linesize,
-                 av_frame_data, av_frame_linesize,
-                 av_row_size,   height );
-    }
+        /* data */
+        {
+            vsapi->getWritePtr( vs_frame, component_reorder[0] ),
+            vsapi->getWritePtr( vs_frame, component_reorder[1] ),
+            vsapi->getWritePtr( vs_frame, component_reorder[2] ),
+            NULL
+        },
+        /* linesize */
+        {
+            vsapi->getStride( vs_frame, component_reorder[0] ),
+            vsapi->getStride( vs_frame, component_reorder[1] ),
+            vsapi->getStride( vs_frame, component_reorder[2] ),
+            0
+        }
+
+    };
+    sws_scale( vshp->sws_ctx, (const uint8_t* const*)av_picture->data, av_picture->linesize, 0, vshp->input_height, vs_picture.data, vs_picture.linesize );
 }
 
 static void make_frame_planar_rgb8
 (
-    AVPicture                 *av_picture,
-    int                        width,
-    int                        height,
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_picture,
     const component_reorder_t *component_reorder,
     VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
@@ -173,7 +158,7 @@ static void make_frame_planar_rgb8
     int vs_frame_linesize = vsapi->getStride( vs_frame, 0 );
     int vs_pixel_offset   = 0;
     int av_pixel_offset   = 0;
-    for( int i = 0; i < height; i++ )
+    for( int i = 0; i < vshp->input_height; i++ )
     {
         uint8_t *av_pixel   = av_picture->data[0] + av_pixel_offset;
         uint8_t *av_pixel_r = av_pixel + component_reorder[0];
@@ -182,7 +167,7 @@ static void make_frame_planar_rgb8
         uint8_t *vs_pixel_r = vs_frame_data[0] + vs_pixel_offset;
         uint8_t *vs_pixel_g = vs_frame_data[1] + vs_pixel_offset;
         uint8_t *vs_pixel_b = vs_frame_data[2] + vs_pixel_offset;
-        for( int j = 0; j < width; j++ )
+        for( int j = 0; j < vshp->input_width; j++ )
         {
             *(vs_pixel_r++) = *av_pixel_r;
             *(vs_pixel_g++) = *av_pixel_g;
@@ -198,9 +183,8 @@ static void make_frame_planar_rgb8
 
 static void make_frame_planar_rgb16
 (
-    AVPicture                 *av_picture,
-    int                        width,
-    int                        height,
+    lw_video_scaler_handler_t *vshp,
+    AVFrame                   *av_picture,
     const component_reorder_t *component_reorder,
     VSFrameRef                *vs_frame,
     VSFrameContext            *frame_ctx,
@@ -218,7 +202,7 @@ static void make_frame_planar_rgb16
     int vs_frame_linesize = vsapi->getStride( vs_frame, 0 );
     int vs_pixel_offset   = 0;
     int av_pixel_offset   = 0;
-    for( int i = 0; i < height; i++ )
+    for( int i = 0; i < vshp->input_height; i++ )
     {
         uint16_t *av_pixel   = (uint16_t *)(av_picture->data[0] + av_pixel_offset);
         uint16_t *av_pixel_r = av_pixel + component_reorder[0];
@@ -227,7 +211,7 @@ static void make_frame_planar_rgb16
         uint16_t *vs_pixel_r = (uint16_t *)(vs_frame_data[0] + vs_pixel_offset);
         uint16_t *vs_pixel_g = (uint16_t *)(vs_frame_data[1] + vs_pixel_offset);
         uint16_t *vs_pixel_b = (uint16_t *)(vs_frame_data[2] + vs_pixel_offset);
-        for( int j = 0; j < width; j++ )
+        for( int j = 0; j < vshp->input_width; j++ )
         {
             *(vs_pixel_r++) = *av_pixel_r;
             *(vs_pixel_g++) = *av_pixel_g;
@@ -545,36 +529,6 @@ VSFrameRef *new_output_video_frame
     return vs_frame;
 }
 
-static inline int convert_av_pixel_format
-(
-    lw_video_scaler_handler_t *vshp,
-    int                        width,
-    int                        height,
-    AVFrame                   *av_frame,
-    AVPicture                 *av_picture
-)
-{
-    if( !vshp->enabled )
-    {
-        for( int i = 0; i < 4; i++ )
-        {
-            av_picture->data    [i] = av_frame->data    [i];
-            av_picture->linesize[i] = av_frame->linesize[i];
-        }
-        return 0;
-    }
-    if( av_image_alloc( av_picture->data, av_picture->linesize, width, height, vshp->output_pixel_format, 16 ) < 0 )
-        return -1;
-    int ret = sws_scale( vshp->sws_ctx,
-                         (const uint8_t * const *)av_frame->data, av_frame->linesize,
-                         0, height,
-                         av_picture->data, av_picture->linesize );
-    if( ret > 0 )
-        return ret;
-    av_freep( &av_picture->data[0] );
-    return -1;
-}
-
 typedef struct
 {
     VSFrameRef  *vs_frame_buffer;
@@ -631,21 +585,11 @@ VSFrameRef *make_frame
         vshp->input_yuv_range    = yuv_range;
     }
     /* Make video frame. */
-    AVPicture av_picture;
-    int ret = convert_av_pixel_format( vshp, ctx->width, ctx->height, av_frame, &av_picture );
-    if( ret < 0 )
-    {
-        if( frame_ctx )
-            vsapi->setFilterError( "lsmas: failed to av_image_alloc.", frame_ctx );
-        return NULL;
-    }
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, ctx->width, ctx->height, *input_pixel_format, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, vshp->input_width, vshp->input_height, *input_pixel_format, frame_ctx, core, vsapi );
     if( vs_frame )
-        vs_vohp->make_frame( &av_picture, ctx->width, ctx->height, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
+        vs_vohp->make_frame( vshp, av_frame, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
     else if( frame_ctx )
-        vsapi->setFilterError( "lsmas: failed to alloc a output video frame.", frame_ctx );
-    if( ret > 0 )
-        av_free( av_picture.data[0] );
+        vsapi->setFilterError( "lsmas: failed to allocate a output video frame.", frame_ctx );
     return vs_frame;
 }
 
