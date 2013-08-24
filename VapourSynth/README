@@ -61,6 +61,8 @@
                         "YUV422P16"
                         "YUV444P16"
                         "RGB24"
+                        "RGB27"
+                        "RGB30"
                         "RGB48"
                 + dr (default : 0)
                     Try direct rendering from the video decoder if 'dr' is set to 1 and 'format' is unspecfied.

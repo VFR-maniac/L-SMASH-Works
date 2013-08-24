@@ -116,14 +116,38 @@ static void make_frame_planar_yuv
     {
         int      vs_frame_linesize = vsapi->getStride  ( vs_frame, i );
         uint8_t *vs_frame_data     = vsapi->getWritePtr( vs_frame, i );
-        int      av_plane          = component_reorder[i];
-        int      av_frame_linesize = av_picture->linesize[av_plane];
-        uint8_t *av_frame_data     = av_picture->data    [av_plane];
+        int      av_frame_linesize = av_picture->linesize[i];
+        uint8_t *av_frame_data     = av_picture->data    [i];
         int      av_row_size       = av_row_size_y >> (i ? vs_format->subSamplingW : 0);
         int      av_height         = height        >> (i ? vs_format->subSamplingH : 0);
         bit_blt( vs_frame_data, vs_frame_linesize,
                  av_frame_data, av_frame_linesize,
                  av_row_size,   av_height );
+    }
+}
+
+static void make_frame_planar_rgb
+(
+    AVPicture                 *av_picture,
+    int                        width,
+    int                        height,
+    const component_reorder_t *component_reorder,
+    VSFrameRef                *vs_frame,
+    VSFrameContext            *frame_ctx,
+    const VSAPI               *vsapi
+)
+{
+    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
+    int av_row_size = vs_format->bytesPerSample * width;
+    for( int i = 0; i < 3; i++ )
+    {
+        int      vs_frame_linesize = vsapi->getStride  ( vs_frame, component_reorder[i] );
+        uint8_t *vs_frame_data     = vsapi->getWritePtr( vs_frame, component_reorder[i] );
+        int      av_frame_linesize = av_picture->linesize[i];
+        uint8_t *av_frame_data     = av_picture->data    [i];
+        bit_blt( vs_frame_data, vs_frame_linesize,
+                 av_frame_data, av_frame_linesize,
+                 av_row_size,   height );
     }
 }
 
@@ -243,6 +267,8 @@ VSPresetFormat get_vs_output_pixel_format( const char *format_name )
             { "YUV422P16", pfYUV422P16 },
             { "YUV444P16", pfYUV444P16 },
             { "RGB24",     pfRGB24     },
+            { "RGB27",     pfRGB27     },
+            { "RGB30",     pfRGB30     },
             { "RGB48",     pfRGB48     },
             { NULL,        pfNone      }
         };
@@ -275,8 +301,10 @@ static enum AVPixelFormat vs_to_av_output_pixel_format( VSPresetFormat vs_output
             { pfYUV420P16, AV_PIX_FMT_YUV420P16LE },
             { pfYUV422P16, AV_PIX_FMT_YUV422P16LE },
             { pfYUV444P16, AV_PIX_FMT_YUV444P16LE },
-            { pfRGB24,     AV_PIX_FMT_RGB24       },
-            { pfRGB48,     AV_PIX_FMT_BGR48LE     },
+            { pfRGB24,     AV_PIX_FMT_GBRP        },
+            { pfRGB27,     AV_PIX_FMT_GBRP9LE     },
+            { pfRGB30,     AV_PIX_FMT_GBRP10LE    },
+            { pfRGB48,     AV_PIX_FMT_GBRP16LE    },
             { pfNone,      AV_PIX_FMT_NONE        }
         };
     for( int i = 0; format_table[i].vs_output_pixel_format != pfNone; i++ )
@@ -293,6 +321,7 @@ static const component_reorder_t *get_component_reorder( enum AVPixelFormat av_o
         component_reorder_t component_reorder[4];
     } reorder_table[] =
         {
+            /* YUV */
             { AV_PIX_FMT_YUV420P,     {  0,  1,  2, -1 } },
             { AV_PIX_FMT_YUV422P,     {  0,  1,  2, -1 } },
             { AV_PIX_FMT_YUV444P,     {  0,  1,  2, -1 } },
@@ -308,6 +337,11 @@ static const component_reorder_t *get_component_reorder( enum AVPixelFormat av_o
             { AV_PIX_FMT_YUV420P16LE, {  0,  1,  2, -1 } },
             { AV_PIX_FMT_YUV422P16LE, {  0,  1,  2, -1 } },
             { AV_PIX_FMT_YUV444P16LE, {  0,  1,  2, -1 } },
+            /* RGB */
+            { AV_PIX_FMT_GBRP,        {  1,  2,  0, -1 } },
+            { AV_PIX_FMT_GBRP9LE,     {  1,  2,  0, -1 } },
+            { AV_PIX_FMT_GBRP10LE,    {  1,  2,  0, -1 } },
+            { AV_PIX_FMT_GBRP16LE,    {  1,  2,  0, -1 } },
             { AV_PIX_FMT_RGB24,       {  0,  1,  2, -1 } },
             { AV_PIX_FMT_ARGB,        {  1,  2,  3,  0 } },
             { AV_PIX_FMT_RGBA,        {  0,  1,  2,  3 } },
@@ -326,36 +360,46 @@ static const component_reorder_t *get_component_reorder( enum AVPixelFormat av_o
     return reorder_table[i].component_reorder;
 }
 
-static inline int set_frame_maker( vs_video_output_handler_t *vs_vohp )
+static inline int set_frame_maker
+(
+    vs_video_output_handler_t *vs_vohp,
+    int                        av_output_is_planar_rgb
+)
 {
     static const struct
     {
         VSPresetFormat              vs_output_pixel_format;
+        int                         av_output_is_planar_rgb;
         func_make_black_background *func_make_black_background;
         func_make_frame            *func_make_frame;
     } frame_maker_table[] =
         {
-            { pfYUV420P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV422P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV444P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV410P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV411P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV440P8,  make_black_background_planar_yuv8,  make_frame_planar_yuv   },
-            { pfYUV420P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV422P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV444P9,  make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV420P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV422P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV444P10, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV420P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV422P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfYUV444P16, make_black_background_planar_yuv16, make_frame_planar_yuv   },
-            { pfRGB24,     make_black_background_planar_rgb,   make_frame_planar_rgb8  },
-            { pfRGB48,     make_black_background_planar_rgb,   make_frame_planar_rgb16 },
-            { pfNone,      NULL,                               NULL                    }
+            { pfYUV420P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV422P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV444P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV410P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV411P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV440P8,  0, make_black_background_planar_yuv8,  make_frame_planar_yuv   },
+            { pfYUV420P9,  0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P9,  0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P9,  0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV420P10, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P10, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P10, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV420P16, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV422P16, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfYUV444P16, 0, make_black_background_planar_yuv16, make_frame_planar_yuv   },
+            { pfRGB24,     1, make_black_background_planar_rgb,   make_frame_planar_rgb   },
+            { pfRGB27,     1, make_black_background_planar_rgb,   make_frame_planar_rgb   },
+            { pfRGB30,     1, make_black_background_planar_rgb,   make_frame_planar_rgb   },
+            { pfRGB48,     1, make_black_background_planar_rgb,   make_frame_planar_rgb   },
+            { pfRGB24,     0, make_black_background_planar_rgb,   make_frame_planar_rgb8  },
+            { pfRGB48,     0, make_black_background_planar_rgb,   make_frame_planar_rgb16 },
+            { pfNone,      0, NULL,                               NULL                    }
         };
     for( int i = 0; frame_maker_table[i].vs_output_pixel_format != pfNone; i++ )
-        if( vs_vohp->vs_output_pixel_format == frame_maker_table[i].vs_output_pixel_format )
+        if( vs_vohp->vs_output_pixel_format == frame_maker_table[i].vs_output_pixel_format
+         && av_output_is_planar_rgb         == frame_maker_table[i].av_output_is_planar_rgb )
         {
             vs_vohp->make_black_background = frame_maker_table[i].func_make_black_background;
             vs_vohp->make_frame            = frame_maker_table[i].func_make_frame;
@@ -409,6 +453,13 @@ int determine_colorspace_conversion
             { AV_PIX_FMT_YUV422P16BE, pfYUV422P16, 1 },
             { AV_PIX_FMT_YUV444P16LE, pfYUV444P16, 0 },
             { AV_PIX_FMT_YUV444P16BE, pfYUV444P16, 1 },
+            { AV_PIX_FMT_GBRP,        pfRGB24,     0 },
+            { AV_PIX_FMT_GBRP9LE,     pfRGB48,     0 },
+            { AV_PIX_FMT_GBRP9BE,     pfRGB48,     1 },
+            { AV_PIX_FMT_GBRP10LE,    pfRGB48,     0 },
+            { AV_PIX_FMT_GBRP10BE,    pfRGB48,     1 },
+            { AV_PIX_FMT_GBRP16LE,    pfRGB48,     0 },
+            { AV_PIX_FMT_GBRP16BE,    pfRGB48,     1 },
             { AV_PIX_FMT_BGR24,       pfRGB24,     0 },
             { AV_PIX_FMT_RGB24,       pfRGB24,     0 },
             { AV_PIX_FMT_ARGB,        pfRGB24,     0 },
@@ -452,7 +503,8 @@ int determine_colorspace_conversion
                                      ? vs_to_av_output_pixel_format( vs_vohp->vs_output_pixel_format )
                                      : input_pixel_format;
     vs_vohp->component_reorder = get_component_reorder( vohp->scaler.output_pixel_format );
-    return set_frame_maker( vs_vohp );
+    int av_output_flags = av_pix_fmt_desc_get( vohp->scaler.output_pixel_format )->flags;
+    return set_frame_maker( vs_vohp, (av_output_flags & AV_PIX_FMT_FLAG_PLANAR) && (av_output_flags & AV_PIX_FMT_FLAG_RGB) );
 }
 
 VSFrameRef *new_output_video_frame
@@ -622,6 +674,10 @@ static int vs_check_dr_available
             AV_PIX_FMT_YUV420P16LE,
             AV_PIX_FMT_YUV422P16LE,
             AV_PIX_FMT_YUV444P16LE,
+            AV_PIX_FMT_GBRP,
+            AV_PIX_FMT_GBRP9LE,
+            AV_PIX_FMT_GBRP10LE,
+            AV_PIX_FMT_GBRP16LE,
             AV_PIX_FMT_NONE
         };
     for( int i = 0; dr_support_pix_fmt[i] != AV_PIX_FMT_NONE; i++ )
