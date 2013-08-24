@@ -36,6 +36,24 @@ extern "C"
 
 #include "resample.h"
 
+int resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
+{
+    /* Assume little endianess here.
+     *   in[0]  in[1]  in[2]  in[3]  in[4]  in[5]   in[6]  in[7] ...
+     *      X  out[0] out[1] out[2]     X  out[3]  out[4] out[5] ... */
+    data_size &= ~3;
+    int resampled_size = 0;
+    for( int i = 0; i < data_size; i += 4 )
+    {
+        *((*out_data) + resampled_size    ) = in_data[i + 1];
+        *((*out_data) + resampled_size + 1) = in_data[i + 2];
+        *((*out_data) + resampled_size + 2) = in_data[i + 3];
+        resampled_size += 3;
+    }
+    *out_data += resampled_size;
+    return resampled_size;
+}
+
 int flush_resampler_buffers( AVAudioResampleContext *avr )
 {
     avresample_close( avr );

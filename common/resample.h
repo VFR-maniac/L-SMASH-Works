@@ -39,9 +39,7 @@ static inline void put_silence_audio_samples( int silence_data_size, int is_u8, 
 static inline int get_channel_layout_nb_channels( uint64_t channel_layout )
 {
     int channels = av_get_channel_layout_nb_channels( channel_layout );
-    if( channels <= 0 )
-        channels = 1;
-    return channels;
+    return channels > 0 ? channels : 1;
 }
 
 static inline int get_linesize( int channel_count, int sample_count, enum AVSampleFormat sample_format )
@@ -51,19 +49,7 @@ static inline int get_linesize( int channel_count, int sample_count, enum AVSamp
     return linesize;
 }
 
-static inline int resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size )
-{
-    /* Assume little endianess here.
-     *   in[0b000]  in[0b001]  in[0b010]  in[0b011]  in[0b100]  in[0b101]   in[0b110]  in[0b111] ...
-     *       X     out[0b000] out[0b001] out[0b010]      X     out[0b011]  out[0b100] out[0b101] ... */
-    int resampled_size = 0;
-    for( int i = 0; i < data_size; i++ )
-        if( i & 0x3 )
-            *((*out_data) + resampled_size++) = in_data[i];
-    *out_data += resampled_size;
-    return resampled_size;
-}
-
+int resample_s32_to_s24( uint8_t **out_data, uint8_t *in_data, int data_size );
 int flush_resampler_buffers( AVAudioResampleContext *avr );
 int update_resampler_configuration( AVAudioResampleContext *avr,
                                     uint64_t out_channel_layout, int out_sample_rate, enum AVSampleFormat out_sample_fmt,
