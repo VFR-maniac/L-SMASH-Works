@@ -109,23 +109,22 @@ static void convert_yuv16le_to_yc48
 
 static void convert_packed_chroma_to_planar
 (
-    uint8_t *packed_chroma,
-    uint8_t *planar_chroma,
-    int      packed_linesize,
-    int      chroma_width,
-    int      chroma_height
+    AVPicture *planar_chroma,
+    uint8_t   *packed_chroma,
+    int        packed_linesize,
+    int        chroma_width,
+    int        chroma_height
 )
 {
-    int planar_linesize = packed_linesize / 2;
     for( int y = 0; y < chroma_height; y++ )
     {
-        uint8_t *src   = packed_chroma + packed_linesize * y;
-        uint8_t *dst_u = packed_chroma + planar_linesize * y;
-        uint8_t *dst_v = planar_chroma + planar_linesize * y;
+        uint8_t *src   = packed_chroma          + packed_linesize            * y;
+        uint8_t *dst_u = planar_chroma->data[1] + planar_chroma->linesize[1] * y;
+        uint8_t *dst_v = planar_chroma->data[2] + planar_chroma->linesize[2] * y;
         for( int x = 0; x < chroma_width; x++ )
         {
-            dst_u[x] = src[2*x];
-            dst_v[x] = src[2*x+1];
+            dst_u[x] = src[2 * x];
+            dst_v[x] = src[2 * x + 1];
         }
     }
 }
@@ -479,40 +478,37 @@ int to_yuy2
      ||  (picture->format == AV_PIX_FMT_NV12)
      ||  (picture->format == AV_PIX_FMT_NV21)) )
     {
-        AVPicture av_picture = { { NULL } };
-        for( int i = 0; i < 3; i++ )
-        {
-            av_picture.data    [i] = picture->data    [i];
-            av_picture.linesize[i] = picture->linesize[i];
-        }
+        AVPicture av_picture =
+            {
+                { picture->data    [0], picture->data    [1], picture->data    [2], NULL },
+                { picture->linesize[0], picture->linesize[1], picture->linesize[2],    0 }
+            };
         if( (picture->format == AV_PIX_FMT_NV12)
          || (picture->format == AV_PIX_FMT_NV21) )
         {
-            /* FIXME: we rewrite the buffer region which data[*] points out here.
-             *        This is not preferred for reference-counter. */
             au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-            int      chroma_linesize     = av_picture.linesize[1] / 2;
-            uint32_t another_chroma_size = chroma_linesize * vshp->input_height;
+            int      planar_chroma_linesize = ((picture->linesize[1] / 2) + 31) & ~31;      /* 32 byte alignment */
+            uint32_t another_chroma_size    = planar_chroma_linesize * vshp->input_height;
             if( !au_vohp->another_chroma || au_vohp->another_chroma_size < another_chroma_size )
             {
-                uint8_t *another_chroma = av_realloc( au_vohp->another_chroma, another_chroma_size );
+                uint8_t *another_chroma = av_realloc( au_vohp->another_chroma, 2 * another_chroma_size );
                 if( !another_chroma )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to av_realloc.", "lsmashinput", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to allocate another chroma.", "lsmashinput", MB_ICONERROR | MB_OK );
                     return -1;
                 }
                 au_vohp->another_chroma      = another_chroma;
                 au_vohp->another_chroma_size = another_chroma_size;
             }
+            /* Assign data set as YV12. */
+            av_picture.data[picture->format == AV_PIX_FMT_NV12 ? 1 : 2] = au_vohp->another_chroma;
+            av_picture.data[picture->format == AV_PIX_FMT_NV12 ? 2 : 1] = au_vohp->another_chroma + another_chroma_size;
+            av_picture.linesize[1] = planar_chroma_linesize;
+            av_picture.linesize[2] = planar_chroma_linesize;
             /* Convert chroma NV12 to YV12 (split packed UV into planar U and V). */
-            convert_packed_chroma_to_planar( av_picture.data[1], au_vohp->another_chroma, av_picture.linesize[1], vshp->input_width / 2, vshp->input_height / 2 );
-            /* Change data set as YV12. */
-            av_picture.data[2] = av_picture.data[1];
-            av_picture.data[picture->format == AV_PIX_FMT_NV12 ? 2 : 1] = au_vohp->another_chroma;
-            av_picture.linesize[1] = chroma_linesize;
-            av_picture.linesize[2] = chroma_linesize;
+            convert_packed_chroma_to_planar( &av_picture, picture->data[1], picture->linesize[1], vshp->input_width / 2, vshp->input_height / 2 );
         }
-        /* Interlaced YV12 to YUY2 convertion */
+        /* Interlaced YV12 to YUY2 conversion */
         output_rowsize = vshp->input_width * YUY2_SIZE;
         static int ssse3_available = -1;
         if( ssse3_available == -1 )
