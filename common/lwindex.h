@@ -20,7 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#define INDEX_FILE_VERSION 11
+#define INDEX_FILE_VERSION 12
 
 typedef struct
 {

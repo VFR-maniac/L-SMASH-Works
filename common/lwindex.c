@@ -72,6 +72,12 @@ typedef struct
     int64_t dts;
 } video_timestamp_t;
 
+typedef struct
+{
+    video_timestamp_t core;
+    video_timestamp_t temp;
+} video_timestamp_temp_t;
+
 static inline int check_frame_reordering
 (
     video_frame_info_t *info,
@@ -84,10 +90,20 @@ static inline int check_frame_reordering
     return 0;
 }
 
-static int compare_pts
+static int compare_info_pts
 (
     const video_frame_info_t *a,
     const video_frame_info_t *b
+)
+{
+    int64_t diff = (int64_t)(a->pts - b->pts);
+    return diff > 0 ? 1 : (diff == 0 ? 0 : -1);
+}
+
+static int compare_pts
+(
+    const video_timestamp_t *a,
+    const video_timestamp_t *b
 )
 {
     int64_t diff = (int64_t)(a->pts - b->pts);
@@ -104,22 +120,33 @@ static int compare_dts
     return diff > 0 ? 1 : (diff == 0 ? 0 : -1);
 }
 
-static inline void sort_presentation_order
+static inline void sort_info_presentation_order
 (
     video_frame_info_t *info,
     uint32_t            sample_count
 )
 {
-    qsort( info, sample_count, sizeof(video_frame_info_t), (int(*)( const void *, const void * ))compare_pts );
+    qsort( info, sample_count, sizeof(video_frame_info_t), (int(*)( const void *, const void * ))compare_info_pts );
+}
+
+static inline void sort_presentation_order
+(
+    void     *timestamp,
+    uint32_t  sample_count,
+    size_t    size
+)
+{
+    qsort( timestamp, sample_count, size, (int(*)( const void *, const void * ))compare_pts );
 }
 
 static inline void sort_decoding_order
 (
-    video_timestamp_t *timestamp,
-    uint32_t           sample_count
+    void     *timestamp,
+    uint32_t  sample_count,
+    size_t    size
 )
 {
-    qsort( timestamp, sample_count, sizeof(video_timestamp_t), (int(*)( const void *, const void * ))compare_dts );
+    qsort( timestamp, sample_count, size, (int(*)( const void *, const void * ))compare_dts );
 }
 
 static inline int lineup_seek_base_candidates
@@ -201,11 +228,195 @@ static void mpeg12_video_vc1_genarate_pts
             info[i].pts = info[i].dts;
 }
 
+static void interpolate_pts
+(
+    video_frame_info_t     *info,       /* 0-origin */
+    video_timestamp_temp_t *timestamp,  /* 0-origin */
+    uint32_t                frame_count,
+    AVRational              time_base,
+    uint32_t                max_composition_delay
+)
+{
+    /* Find the first valid PTS. */
+    uint32_t valid_start = UINT32_MAX;
+    for( uint32_t i = 0; i < frame_count; i++ )
+        if( timestamp[i].core.pts != AV_NOPTS_VALUE )
+            valid_start = i;
+    if( valid_start != UINT32_MAX )
+    {
+        /* Generate PTSs. */
+        for( uint32_t i = valid_start; i; i-- )
+            timestamp[i - 1].core.pts = timestamp[i].core.pts - time_base.num;
+        while( valid_start < frame_count )
+        {
+            /* Find the next valid PTS. */
+            uint32_t valid_end = UINT32_MAX;
+            for( uint32_t i = valid_start + 1; i < frame_count; i++ )
+                if( timestamp[i].core.pts != AV_NOPTS_VALUE
+                 && timestamp[i].core.pts != timestamp[i - 1].core.pts )
+                    valid_end = i;
+            /* Interpolate PTSs roughly. */
+            if( valid_end != UINT32_MAX )
+                for( uint32_t i = valid_end; i > valid_start + 1; i-- )
+                    timestamp[i - 1].core.pts = timestamp[i].core.pts - time_base.num;
+            else
+                for( uint32_t i = valid_start + 1; i < frame_count; i++ )
+                    timestamp[i].core.pts = timestamp[i - 1].core.pts + time_base.num;
+            valid_start = valid_end;
+        }
+    }
+    else
+    {
+        if( max_composition_delay )
+            /* Get the maximum composition delay derived from reordering. */
+            for( uint32_t i = 0; i < frame_count; i++ )
+                if( i < timestamp[i].core.dts )
+                {
+                    uint32_t composition_delay = timestamp[i].core.dts - i;
+                    max_composition_delay = MAX( max_composition_delay, composition_delay );
+                }
+        /* Generate PTSs. */
+        timestamp[0].core.pts = max_composition_delay * time_base.num;
+        for( uint32_t i = 1; i < frame_count; i++ )
+            timestamp[i].core.pts = timestamp[i - 1].core.pts + (info[i - 1].repeat_pict == 0 ? i : 2 * i) * time_base.num;
+    }
+}
+
+static int poc_genarate_pts
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    AVRational                      time_base
+)
+{
+#define H264_MAX_NUM_REORDER_FRAMES 16
+    video_frame_info_t *info = &vdhp->frame_list[1];
+    /* Deduplicate POCs. */
+    int64_t  poc_offset            = 0;
+    int64_t  poc_min               = 0;
+    int64_t  invalid_poc_min       = 0;
+    uint32_t last_idr              = 0;
+    uint32_t invalid_poc_start     = 0;
+    uint32_t max_composition_delay = 0;
+    int      invalid_poc_present   = 0;
+    for( uint32_t i = 0; ; i++ )
+    {
+        if( i < vdhp->frame_count && info[i].poc != 0 )
+        {
+            /* poc_offset is not added to each POC here.
+             * It is done when we encounter the next coded video sequence. */
+            if( info[i].poc < 0 )
+            {
+                /* Pictures with negative POC shall precede IDR-picture in composition order.
+                 * The minimum POC is added to poc_offset when we encounter the next coded video sequence. */
+                if( i > last_idr + 2 * H264_MAX_NUM_REORDER_FRAMES )
+                {
+                    if( !invalid_poc_present )
+                    {
+                        invalid_poc_present = 1;
+                        invalid_poc_start   = i;
+                    }
+                    if( invalid_poc_min > info[i].poc )
+                        invalid_poc_min = info[i].poc;
+                }
+                else if( poc_min > info[i].poc )
+                {
+                    poc_min = info[i].poc;
+                    max_composition_delay = MAX( max_composition_delay, i - last_idr );
+                }
+            }
+            continue;
+        }
+        /* Encountered a new coded video sequence or no more POCs.
+         * Add poc_offset to each POC of the previous coded video sequence. */
+        poc_offset -= poc_min;
+        int64_t poc_max = 0;
+        for( uint32_t j = last_idr; j < i; j++ )
+            if( info[j].poc >= 0 || (j <= last_idr + 2 * H264_MAX_NUM_REORDER_FRAMES) )
+            {
+                info[j].poc += poc_offset;
+                if( poc_max < info[j].poc )
+                    poc_max = info[j].poc;
+            }
+        poc_offset = poc_max + 1;
+        if( invalid_poc_present )
+        {
+            /* Pictures with invalid negative POC is probably supposed to be composited
+             * both before the next coded video sequence and after the current one. */
+            poc_offset -= invalid_poc_min;
+            for( uint32_t j = invalid_poc_start; j < i; j++ )
+                if( info[j].poc < 0 )
+                {
+                    info[j].poc += poc_offset;
+                    if( poc_max < info[j].poc )
+                        poc_max = info[j].poc;
+                }
+            invalid_poc_present = 0;
+            invalid_poc_start   = 0;
+            invalid_poc_min     = 0;
+            poc_offset = poc_max + 1;
+        }
+        if( i < vdhp->frame_count )
+        {
+            poc_min = 0;
+            last_idr = i;
+        }
+        else
+            break;      /* no more POCs */
+    }
+    /* Check if composition delay derived from reordering is present. */
+    int composition_reordering_present;
+    if( max_composition_delay == 0 )
+    {
+        composition_reordering_present = 0;
+        for( uint32_t i = 1; i < vdhp->frame_count; i++ )
+            if( info[i].poc < info[i - 1].poc )
+            {
+                composition_reordering_present = 1;
+                break;
+            }
+    }
+    else
+        composition_reordering_present = 1;
+    /* Generate timestamps. */
+    video_timestamp_temp_t *timestamp;
+    timestamp = malloc( (vdhp->frame_count + 1) * sizeof(video_timestamp_temp_t) );
+    if( !timestamp )
+        return -1;
+    for( uint32_t i = 0; i < vdhp->frame_count; i++ )
+    {
+        timestamp[i].core.pts = info[i].pts;
+        timestamp[i].core.dts = info[i].dts;
+    }
+    if( composition_reordering_present )
+    {
+        /* Here, PTSs are temporary values for sort. */
+        for( uint32_t i = 0; i < vdhp->frame_count; i++ )
+        {
+            timestamp[i].temp.pts = info[i].poc;
+            timestamp[i].temp.dts = i;
+        }
+        sort_presentation_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
+        interpolate_pts( info, timestamp, vdhp->frame_count, time_base, max_composition_delay );
+        sort_decoding_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
+    }
+    else
+        interpolate_pts( info, timestamp, vdhp->frame_count, time_base, 0 );
+    /* Set generated timestamps. */
+    for( uint32_t i = 0; i < vdhp->frame_count; i++ )
+    {
+        info[i].pts = timestamp[i].core.pts;
+        info[i].dts = timestamp[i].core.dts;
+    }
+    free( timestamp );
+    return 0;
+}
+
 static int decide_video_seek_method
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
-    uint32_t                        sample_count
+    uint32_t                        sample_count,
+    AVRational                      time_base
 )
 {
     vdhp->lw_seek_flags = lineup_seek_base_candidates( lwhp );
@@ -264,6 +475,18 @@ static int decide_video_seek_method
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
         no_pts_loss = 1;
     }
+    else if( (lwhp->raw_demuxer || !no_pts_loss) && vdhp->codec_id == AV_CODEC_ID_H264 )
+    {
+        /* Generate PTS. */
+        if( poc_genarate_pts( vdhp, time_base ) < 0 )
+        {
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory for PTS generation." );
+            return -1;
+        }
+        vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
+        no_pts_loss = 1;
+    }
     /* Reorder in presentation order. */
     if( no_pts_loss && check_frame_reordering( info, sample_count ) )
     {
@@ -276,7 +499,7 @@ static int decide_video_seek_method
                 vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory." );
             return -1;
         }
-        sort_presentation_order( &info[1], sample_count );
+        sort_info_presentation_order( &info[1], sample_count );
         video_timestamp_t *timestamp = (video_timestamp_t *)lw_malloc_zero( (sample_count + 1) * sizeof(video_timestamp_t) );
         if( !timestamp )
         {
@@ -289,7 +512,7 @@ static int decide_video_seek_method
             timestamp[i].pts = (int64_t)i;
             timestamp[i].dts = (int64_t)info[i].sample_number;
         }
-        sort_decoding_order( &timestamp[1], sample_count );
+        sort_decoding_order( &timestamp[1], sample_count, sizeof(video_timestamp_t) );
         for( uint32_t i = 1; i <= sample_count; i++ )
             vdhp->order_converter[i].decoding_to_presentation = (uint32_t)timestamp[i].pts;
         free( timestamp );
@@ -1226,13 +1449,13 @@ static void create_index
     avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=11>
+        <LibavReaderIndexFile=12>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,0,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
         <ActiveAudioStreamIndex>-0000000001</ActiveAudioStreamIndex>
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
-        Key=1,Pic=1,Repeat=1,Field=0,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
+        Key=1,Pic=1,POC=0,Repeat=1,Field=0,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
@@ -1355,6 +1578,8 @@ static void create_index
                 av_free_packet( &pkt );
                 goto fail_index;
             }
+            /* Get Picture Order Count. */
+            int poc = helper->parser_ctx ? helper->parser_ctx->output_picture_number : 0;
             /* Get field information. */
             int             repeat_pict;
             lw_field_info_t field_info;
@@ -1395,6 +1620,7 @@ static void create_index
                 video_info[video_sample_count].sample_number   = video_sample_count;
                 video_info[video_sample_count].extradata_index = extradata_index;
                 video_info[video_sample_count].pict_type       = pict_type;
+                video_info[video_sample_count].poc             = poc;
                 video_info[video_sample_count].repeat_pict     = repeat_pict;
                 video_info[video_sample_count].field_info      = field_info;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
@@ -1442,11 +1668,11 @@ static void create_index
             }
             /* Write a video packet info to the index file. */
             print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                         "Key=%d,Pic=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
+                         "Key=%d,Pic=%d,POC=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts, extradata_index,
-                         !!(pkt.flags & AV_PKT_FLAG_KEY), pict_type, repeat_pict, field_info,
+                         !!(pkt.flags & AV_PKT_FLAG_KEY), pict_type, poc, repeat_pict, field_info,
                          pkt_ctx->width, pkt_ctx->height,
                          av_get_pix_fmt_name( pkt_ctx->pix_fmt ) ? av_get_pix_fmt_name( pkt_ctx->pix_fmt ) : "none",
                          pkt_ctx->colorspace );
@@ -1736,7 +1962,7 @@ static void create_index
         vdhp->frame_list      = video_info;
         vdhp->frame_count     = video_sample_count;
         vdhp->initial_pix_fmt = vdhp->ctx->pix_fmt;
-        if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
+        if( decide_video_seek_method( lwhp, vdhp, video_sample_count, format_ctx->streams[ vdhp->stream_index ]->time_base ) )
             goto fail_index;
         /* Create the repeat control info. */
         create_video_frame_order_list( vdhp, vohp, opt );
@@ -1875,6 +2101,7 @@ static int parse_index
             if( stream_index == vdhp->stream_index )
             {
                 int pict_type;
+                int poc;
                 int repeat_pict;
                 int field_info;
                 int key;
@@ -1882,8 +2109,8 @@ static int parse_index
                 int height;
                 int colorspace;
                 char pix_fmt[64];
-                if( sscanf( buf, "Key=%d,Pic=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
-                            &key, &pict_type, &repeat_pict, &field_info, &width, &height, pix_fmt, &colorspace ) != 8 )
+                if( sscanf( buf, "Key=%d,Pic=%d,POC=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%[^,],ColorSpace=%d",
+                            &key, &pict_type, &poc, &repeat_pict, &field_info, &width, &height, pix_fmt, &colorspace ) != 9 )
                     goto fail_parsing;
                 if( vdhp->codec_id == AV_CODEC_ID_NONE )
                     vdhp->codec_id = (enum AVCodecID)codec_id;
@@ -1919,6 +2146,7 @@ static int parse_index
                     video_info[video_sample_count].sample_number   = video_sample_count;
                     video_info[video_sample_count].extradata_index = extradata_index;
                     video_info[video_sample_count].pict_type       = pict_type;
+                    video_info[video_sample_count].poc             = poc;
                     video_info[video_sample_count].repeat_pict     = repeat_pict;
                     video_info[video_sample_count].field_info      = (lw_field_info_t)field_info;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
@@ -2182,7 +2410,7 @@ static int parse_index
                 goto fail_parsing;
             vdhp->frame_list  = video_info;
             vdhp->frame_count = video_sample_count;
-            if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
+            if( decide_video_seek_method( lwhp, vdhp, video_sample_count, video_time_base ) )
                 goto fail_parsing;
             /* Create the repeat control info. */
             create_video_frame_order_list( vdhp, vohp, opt );

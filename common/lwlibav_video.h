@@ -42,6 +42,7 @@ typedef struct
     int             extradata_index;
     int             flags;
     int             pict_type;          /* may be stored as enum AVPictureType */
+    int             poc;
     int             repeat_pict;
     lw_field_info_t field_info;
 } video_frame_info_t;
