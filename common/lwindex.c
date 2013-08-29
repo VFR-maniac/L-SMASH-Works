@@ -74,8 +74,8 @@ typedef struct
 
 typedef struct
 {
-    video_timestamp_t core;
     video_timestamp_t temp;
+    video_timestamp_t core;
 } video_timestamp_temp_t;
 
 static inline int check_frame_reordering
@@ -131,9 +131,9 @@ static inline void sort_info_presentation_order
 
 static inline void sort_presentation_order
 (
-    void     *timestamp,
-    uint32_t  sample_count,
-    size_t    size
+    video_timestamp_t *timestamp,
+    uint32_t           sample_count,
+    size_t             size
 )
 {
     qsort( timestamp, sample_count, size, (int(*)( const void *, const void * ))compare_pts );
@@ -141,9 +141,9 @@ static inline void sort_presentation_order
 
 static inline void sort_decoding_order
 (
-    void     *timestamp,
-    uint32_t  sample_count,
-    size_t    size
+    video_timestamp_t *timestamp,
+    uint32_t           sample_count,
+    size_t             size
 )
 {
     qsort( timestamp, sample_count, size, (int(*)( const void *, const void * ))compare_dts );
@@ -278,7 +278,7 @@ static void interpolate_pts
         /* Generate PTSs. */
         timestamp[0].core.pts = max_composition_delay * time_base.num;
         for( uint32_t i = 1; i < frame_count; i++ )
-            timestamp[i].core.pts = timestamp[i - 1].core.pts + (info[i - 1].repeat_pict == 0 ? i : 2 * i) * time_base.num;
+            timestamp[i].core.pts = timestamp[i - 1].core.pts + (info[i - 1].repeat_pict == 0 ? 1 : 2) * time_base.num;
     }
 }
 
@@ -379,7 +379,7 @@ static int poc_genarate_pts
         composition_reordering_present = 1;
     /* Generate timestamps. */
     video_timestamp_temp_t *timestamp;
-    timestamp = malloc( (vdhp->frame_count + 1) * sizeof(video_timestamp_temp_t) );
+    timestamp = malloc( vdhp->frame_count * sizeof(video_timestamp_temp_t) );
     if( !timestamp )
         return -1;
     for( uint32_t i = 0; i < vdhp->frame_count; i++ )
