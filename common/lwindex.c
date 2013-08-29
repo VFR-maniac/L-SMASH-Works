@@ -398,6 +398,15 @@ static int poc_genarate_pts
         sort_presentation_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
         interpolate_pts( info, timestamp, vdhp->frame_count, time_base, max_composition_delay );
         sort_decoding_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
+        /* Check leading pictures. */
+        int64_t last_keyframe_pts = AV_NOPTS_VALUE;
+        for( uint32_t i = 0; i < vdhp->frame_count; i++ )
+        {
+            if( last_keyframe_pts != AV_NOPTS_VALUE && timestamp[i].core.pts < last_keyframe_pts )
+                info[i].flags |= LW_VFRAME_FLAG_LEADING;
+            if( info[i].flags & LW_VFRAME_FLAG_KEY )
+                last_keyframe_pts = timestamp[i].core.pts;
+        }
     }
     else
         interpolate_pts( info, timestamp, vdhp->frame_count, time_base, 0 );
