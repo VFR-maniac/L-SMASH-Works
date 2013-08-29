@@ -378,8 +378,7 @@ static int poc_genarate_pts
     else
         composition_reordering_present = 1;
     /* Generate timestamps. */
-    video_timestamp_temp_t *timestamp;
-    timestamp = malloc( vdhp->frame_count * sizeof(video_timestamp_temp_t) );
+    video_timestamp_temp_t *timestamp = (video_timestamp_temp_t *)malloc( vdhp->frame_count * sizeof(video_timestamp_temp_t) );
     if( !timestamp )
         return -1;
     for( uint32_t i = 0; i < vdhp->frame_count; i++ )
