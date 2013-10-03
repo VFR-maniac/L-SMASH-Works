@@ -94,6 +94,9 @@ static enum AVCodecID get_codec_id_from_description( lsmash_summary_t *summary )
             return AV_CODEC_ID_NONE;
         }
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_H264,     ISOM_CODEC_TYPE_AVC1_VIDEO );
+        ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_H264,     ISOM_CODEC_TYPE_AVC3_VIDEO );
+        ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_HEVC,     ISOM_CODEC_TYPE_HVC1_VIDEO );
+        ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_HEVC,     ISOM_CODEC_TYPE_HEV1_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_VC1,      ISOM_CODEC_TYPE_VC_1_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_DIRAC,    ISOM_CODEC_TYPE_DRAC_VIDEO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_PRORES,     QT_CODEC_TYPE_APCH_VIDEO );
@@ -288,10 +291,17 @@ static lsmash_codec_specific_data_type get_codec_specific_data_type( lsmash_code
 {
     *format1 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSPECIFIED;
     *format2 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSPECIFIED;
-    if( lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_AVC1_VIDEO ) )
+    if( lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_AVC1_VIDEO )
+     || lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_AVC3_VIDEO ) )
     {
         *format1 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSTRUCTURED;
         return LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_VIDEO_H264;
+    }
+    else if( lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_HVC1_VIDEO )
+          || lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_HEV1_VIDEO ) )
+    {
+        *format1 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSTRUCTURED;
+        return LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_VIDEO_HEVC;
     }
     else if( lsmash_check_codec_type_identical( codec_type, ISOM_CODEC_TYPE_MP4A_AUDIO )
           || lsmash_check_codec_type_identical( codec_type,   QT_CODEC_TYPE_MP4A_AUDIO )
@@ -428,6 +438,7 @@ static int prepare_new_decoder_configuration( codec_configuration_t *config, uin
             config->queue.sample_rate     = alac->sampleRate;
         }
         int offset = cs_type == LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_VIDEO_H264 ? 8
+                   : cs_type == LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_VIDEO_HEVC ? 8
                    : cs_type == LSMASH_CODEC_SPECIFIC_DATA_TYPE_ISOM_VIDEO_VC_1 ? 15
                    : 0;
         if( queue_extradata( config, cs1->data.unstructured + offset, cs1->size - offset ) )
