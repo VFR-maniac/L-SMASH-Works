@@ -483,7 +483,8 @@ static int decide_video_seek_method
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
         no_pts_loss = 1;
     }
-    else if( (lwhp->raw_demuxer || !no_pts_loss) && vdhp->codec_id == AV_CODEC_ID_H264 )
+    else if( (lwhp->raw_demuxer || !no_pts_loss)
+          && (vdhp->codec_id == AV_CODEC_ID_H264 || vdhp->codec_id == AV_CODEC_ID_HEVC) )
     {
         /* Generate PTS. */
         if( poc_genarate_pts( vdhp, time_base ) < 0 )
