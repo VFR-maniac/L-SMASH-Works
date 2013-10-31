@@ -219,10 +219,10 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
     if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
     /* libavcodec */
-    AVStream *stream = format_ctx->streams[i];
-    AVCodecContext *ctx = stream->codec;
+    AVStream       *stream = format_ctx->streams[i];
+    AVCodecContext *ctx    = stream->codec;
     vdh.config.ctx = ctx;
-    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
+    AVCodec *codec = libavsmash_find_decoder( &vdh.config );
     if( !codec )
         env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
     ctx->thread_count = threads;
@@ -457,10 +457,10 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
     /* libavcodec */
-    AVStream *stream = format_ctx->streams[i];
-    AVCodecContext *ctx = stream->codec;
+    AVStream       *stream = format_ctx->streams[i];
+    AVCodecContext *ctx    = stream->codec;
     adh.config.ctx = ctx;
-    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
+    AVCodec *codec = libavsmash_find_decoder( &adh.config );
     if( !codec )
         env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
     ctx->thread_count = 0;

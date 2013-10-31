@@ -332,13 +332,10 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         return -1;
     }
     /* libavcodec */
-    AVStream *stream = hp->format_ctx->streams[i];
-    AVCodecContext *ctx = stream->codec;
-    if( type == AVMEDIA_TYPE_VIDEO )
-        hp->vdh.config.ctx = ctx;
-    else
-        hp->adh.config.ctx = ctx;
-    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
+    AVCodecContext        *ctx    = hp->format_ctx->streams[i]->codec;
+    codec_configuration_t *config = type == AVMEDIA_TYPE_VIDEO ? &hp->vdh.config : &hp->adh.config;
+    config->ctx = ctx;
+    AVCodec *codec = libavsmash_find_decoder( config );
     if( !codec )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s decoder.", codec->name );

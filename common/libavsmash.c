@@ -44,7 +44,12 @@ extern "C"
 #define BYTE_SWAP_16( x ) ((( x ) << 8 & 0xff00)  | (( x ) >> 8 & 0x00ff))
 #define BYTE_SWAP_32( x ) (BYTE_SWAP_16( x ) << 16 | BYTE_SWAP_16(( x ) >> 16))
 
-int get_summaries( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )
+int get_summaries
+(
+    lsmash_root_t         *root,
+    uint32_t               track_ID,
+    codec_configuration_t *config
+)
 {
     char error_string[96] = { 0 };
     uint32_t summary_count = lsmash_count_summary( root, track_ID );
@@ -76,7 +81,10 @@ fail:
     return -1;
 }
 
-static enum AVCodecID get_codec_id_from_description( lsmash_summary_t *summary )
+static enum AVCodecID get_codec_id_from_description
+(
+    lsmash_summary_t *summary
+)
 {
     lsmash_codec_type_t sample_type = summary->sample_type;
 #define ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( codec_id, codec_type )        \
@@ -285,9 +293,29 @@ static enum AVCodecID get_codec_id_from_description( lsmash_summary_t *summary )
 #undef ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE
 }
 
-static lsmash_codec_specific_data_type get_codec_specific_data_type( lsmash_codec_type_t codec_type,
-                                                                     lsmash_codec_specific_format *format1,
-                                                                     lsmash_codec_specific_format *format2 )
+AVCodec *libavsmash_find_decoder
+(
+    codec_configuration_t *config
+)
+{
+    assert( config->ctx );
+    enum AVCodecID codec_id = config->ctx->codec_id;
+    if( codec_id == AV_CODEC_ID_NONE )
+    {
+        /* Try to get any valid codec_id from summaries. */
+        for( uint32_t i = 0; i < config->count && codec_id == AV_CODEC_ID_NONE; i++ )
+            codec_id = get_codec_id_from_description( config->entries[i].summary );
+        config->ctx->codec_id = codec_id;
+    }
+    return avcodec_find_decoder( codec_id );
+}
+
+static lsmash_codec_specific_data_type get_codec_specific_data_type
+(
+    lsmash_codec_type_t           codec_type,
+    lsmash_codec_specific_format *format1,
+    lsmash_codec_specific_format *format2
+)
 {
     *format1 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSPECIFIED;
     *format2 = LSMASH_CODEC_SPECIFIC_FORMAT_UNSPECIFIED;
@@ -347,7 +375,12 @@ static lsmash_codec_specific_data_type get_codec_specific_data_type( lsmash_code
     return LSMASH_CODEC_SPECIFIC_DATA_TYPE_UNSPECIFIED;
 }
 
-static int queue_extradata( codec_configuration_t *config, uint8_t *extradata, int extradata_size )
+static int queue_extradata
+(
+    codec_configuration_t *config,
+    uint8_t               *extradata,
+    int                    extradata_size
+)
 {
     if( extradata && extradata_size > 0 )
     {
@@ -373,7 +406,11 @@ static int queue_extradata( codec_configuration_t *config, uint8_t *extradata, i
     return 0;
 }
 
-static int prepare_new_decoder_configuration( codec_configuration_t *config, uint32_t new_index )
+static int prepare_new_decoder_configuration
+(
+    codec_configuration_t *config,
+    uint32_t               new_index
+)
 {
     if( new_index == 0 )
         new_index = 1;
@@ -522,7 +559,14 @@ fail:
     return -1;
 }
 
-int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, codec_configuration_t *config, AVPacket *pkt )
+int get_sample
+(
+    lsmash_root_t         *root,
+    uint32_t               track_ID,
+    uint32_t               sample_number,
+    codec_configuration_t *config,
+    AVPacket              *pkt
+)
 {
     if( !config->update_pending && config->dequeue_packet )
     {
@@ -594,7 +638,10 @@ int get_sample( lsmash_root_t *root, uint32_t track_ID, uint32_t sample_number, 
     return 0;
 }
 
-void libavsmash_flush_buffers( codec_configuration_t *config )
+void libavsmash_flush_buffers
+(
+    codec_configuration_t *config
+)
 {
     /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
      * It seems this brings about more stable composition when seeking. */
@@ -620,7 +667,12 @@ void libavsmash_flush_buffers( codec_configuration_t *config )
     config->queue.index       = config->index;
 }
 
-void update_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )
+void update_configuration
+(
+    lsmash_root_t         *root,
+    uint32_t               track_ID,
+    codec_configuration_t *config
+)
 {
     uint32_t new_index = config->queue.index ? config->queue.index : 1;
     if( !config->update_pending || config->queue.codec_id == AV_CODEC_ID_NONE )
@@ -823,7 +875,12 @@ fail:
                              "%sIt is recommended you reopen the file.", error_string );
 }
 
-int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, codec_configuration_t *config )
+int initialize_decoder_configuration
+(
+    lsmash_root_t         *root,
+    uint32_t               track_ID,
+    codec_configuration_t *config
+)
 {
     /* Note: the input buffer for libavcodec's decoders must be FF_INPUT_BUFFER_PADDING_SIZE larger than the actual read bytes. */
     uint32_t input_buffer_size = lsmash_get_max_sample_size_in_media_timeline( root, track_ID );
@@ -929,7 +986,10 @@ int initialize_decoder_configuration( lsmash_root_t *root, uint32_t track_ID, co
     return config->error ? -1 : 0;
 }
 
-void cleanup_configuration( codec_configuration_t *config )
+void cleanup_configuration
+(
+    codec_configuration_t *config
+)
 {
     if( config->entries )
     {

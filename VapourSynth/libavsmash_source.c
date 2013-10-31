@@ -432,10 +432,10 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
         return -1;
     }
     /* libavcodec */
-    AVStream *stream = hp->format_ctx->streams[i];
-    AVCodecContext *ctx = stream->codec;
+    AVStream       *stream = hp->format_ctx->streams[i];
+    AVCodecContext *ctx    = stream->codec;
     vdhp->config.ctx = ctx;
-    AVCodec *codec = avcodec_find_decoder( ctx->codec_id );
+    AVCodec *codec = libavsmash_find_decoder( &vdhp->config );
     if( !codec )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find %s decoder.", codec->name );
