@@ -32,7 +32,7 @@
 #	define VS_EXTERN_C
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(_WIN64)
 #	define VS_CC __stdcall
 #else
 #	define VS_CC
@@ -149,6 +149,16 @@ typedef enum VSNodeFlags {
     nfNoCache = 1,
 } VSNodeFlags;
 
+typedef enum VSPropTypes {
+    ptUnset = 'u',
+    ptInt = 'i',
+    ptFloat = 'f',
+    ptData = 's',
+    ptNode = 'c',
+    ptFrame = 'v',
+    ptFunction = 'm'
+} VSPropTypes;
+
 typedef enum VSGetPropErrors {
     peUnset = 1,
     peType  = 2,
@@ -159,7 +169,7 @@ typedef enum VSPropAppendMode {
     paReplace = 0,
     paAppend  = 1,
     paTouch   = 2
-} PropAppendMode;
+} VSPropAppendMode;
 
 typedef struct VSCoreInfo {
     const char *versionString;
@@ -189,7 +199,7 @@ typedef enum VSActivationReason {
 
 typedef enum VSMessageType {
     mtDebug = 0,
-    mtWarnin = 1,
+    mtWarning = 1,
     mtCritical = 2,
     mtFatal
 } VSMessageType;
@@ -274,8 +284,8 @@ typedef int (VS_CC *VSPropSetFunc)(VSMap *map, const char *key, VSFuncRef *func,
 typedef void (VS_CC *VSConfigPlugin)(const char *identifier, const char *defaultNamespace, const char *name, int apiVersion, int readonly, VSPlugin *plugin);
 typedef void (VS_CC *VSInitPlugin)(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin);
 
-typedef VSPlugin *(VS_CC *VSGetPluginId)(const char *identifier, VSCore *core);
-typedef VSPlugin *(VS_CC *VSGetPluginNs)(const char *ns, VSCore *core);
+typedef VSPlugin *(VS_CC *VSGetPluginById)(const char *identifier, VSCore *core);
+typedef VSPlugin *(VS_CC *VSGetPluginByNs)(const char *ns, VSCore *core);
 
 typedef VSMap *(VS_CC *VSGetPlugins)(VSCore *core);
 typedef VSMap *(VS_CC *VSGetFunctions)(VSPlugin *plugin);
@@ -288,8 +298,8 @@ typedef void (VS_CC *VSReleaseFrameEarly)(VSNodeRef *node, int n, VSFrameContext
 
 typedef int64_t (VS_CC *VSSetMaxCacheSize)(int64_t bytes, VSCore *core);
 
-typedef void (VS_CC *VSMessageHandler)(int msgType, const char *msg);
-typedef void (VS_CC *VSSetMessageHandler)(VSMessageHandler handler);
+typedef void (VS_CC *VSMessageHandler)(int msgType, const char *msg, void *userData);
+typedef void (VS_CC *VSSetMessageHandler)(VSMessageHandler handler, void *userData);
 
 struct VSAPI {
     VSCreateCore createCore;
@@ -309,11 +319,11 @@ struct VSAPI {
     VSCopyFrameProps copyFrameProps;
 
     VSRegisterFunction registerFunction;
-    VSGetPluginId getPluginId;
-    VSGetPluginNs getPluginNs;
+    VSGetPluginById getPluginById;
+    VSGetPluginByNs getPluginByNs;
     VSGetPlugins getPlugins;
     VSGetFunctions getFunctions;
-    VSCreateFilter createFilter; // do never use inside a filter's getframe function
+    VSCreateFilter createFilter;
     VSSetError setError; // use to signal errors outside filter getframe functions
     VSGetError getError; // use to query errors, returns 0 if no error
     VSSetFilterError setFilterError; // use to signal errors in the filter getframe function
