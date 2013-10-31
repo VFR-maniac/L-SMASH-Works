@@ -727,7 +727,7 @@ static void create_video_frame_order_list
     lwlibav_option_t               *opt
 )
 {
-    if( !opt->apply_repeat_flag || !(vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
+    if( !(vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
         goto disable_repeat;
     video_frame_info_t *info                      = vdhp->frame_list;
     uint32_t            frame_count               = vdhp->frame_count;
@@ -739,6 +739,7 @@ static void create_video_frame_order_list
     /* Check repeat_pict and order_count. */
     if( specified_field_dominance > 0 && (lw_field_info_t)specified_field_dominance != info[1].field_info )
         ++order_count;
+    int             enable_repeat   = 0;
     int             complete_frame  = 1;
     int             repeat_field    = 1;
     lw_field_info_t next_field_info = info[1].field_info;
@@ -755,29 +756,35 @@ static void create_video_frame_order_list
         }
         else if( field_info != next_field_info && (!repeat_field || !complete_frame) )
             goto disable_repeat;
-        switch( repeat_pict )
-        {
-            case 5 :    /* frame tripling */
-                if( no_support_frame_tripling )
+        if( opt->apply_repeat_flag )
+            switch( repeat_pict )
+            {
+                case 5 :    /* frame tripling */
+                    if( no_support_frame_tripling )
+                        ++order_count;
+                case 3 :    /* frame doubling */
                     ++order_count;
-            case 3 :    /* frame doubling */
-                ++order_count;
-                break;
-            case 2 :    /* field tripling */
-                repeat_field ^= 1;
-                order_count += repeat_field;
-                break;
-            case 0 :    /* PAFF field coded picture */
-                complete_frame ^= 1;
-                order_count -= complete_frame;
-                break;
-            default :
-                break;
+                    enable_repeat |= 1;
+                    break;
+                case 2 :    /* field tripling */
+                    repeat_field  ^= 1;
+                    order_count   += repeat_field;
+                    enable_repeat |= 1;
+                    break;
+                default :
+                    break;
+            }
+        if( repeat_pict == 0 )
+        {
+            /* PAFF field coded picture */
+            complete_frame ^= 1;
+            order_count    -= complete_frame;
+            enable_repeat  |= 1;
         }
         if( field_shift )
             next_field_info = field_info == LW_FIELD_INFO_TOP ? LW_FIELD_INFO_BOTTOM : LW_FIELD_INFO_TOP;
     }
-    if( frame_count == order_count )
+    if( !enable_repeat )
         goto disable_repeat;
     /* Allocate frame cache buffers. */
     for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
@@ -815,32 +822,36 @@ static void create_video_frame_order_list
         lw_field_info_t field_info  = info[i].field_info;
         order_list[t_count++].top    = i;
         order_list[b_count++].bottom = i;
-        switch( repeat_pict )
-        {
-            case 5 :    /* frame tripling */
-                if( no_support_frame_tripling )
-                {
+        if( opt->apply_repeat_flag )
+            switch( repeat_pict )
+            {
+                case 5 :    /* frame tripling */
+                    if( no_support_frame_tripling )
+                    {
+                        order_list[t_count++].top    = i;
+                        order_list[b_count++].bottom = i;
+                    }
+                case 3 :    /* frame doubling */
                     order_list[t_count++].top    = i;
                     order_list[b_count++].bottom = i;
-                }
-            case 3 :    /* frame doubling */
-                order_list[t_count++].top    = i;
-                order_list[b_count++].bottom = i;
-                break;
-            case 2 :    /* field tripling */
-                if( field_info == LW_FIELD_INFO_TOP )
-                    order_list[t_count++].top = i;
-                else if( field_info == LW_FIELD_INFO_BOTTOM )
-                    order_list[b_count++].bottom = i;
-                break;
-            case 0 :    /* PAFF field coded picture */
-                if( field_info == LW_FIELD_INFO_BOTTOM )
-                    --t_count;
-                else
-                    --b_count;
-                complete_frame ^= 1;
-            default :
-                break;
+                    break;
+                case 2 :    /* field tripling */
+                    if( field_info == LW_FIELD_INFO_TOP )
+                        order_list[t_count++].top = i;
+                    else if( field_info == LW_FIELD_INFO_BOTTOM )
+                        order_list[b_count++].bottom = i;
+                    break;
+                default :
+                    break;
+            }
+        if( repeat_pict == 0 )
+        {
+            /* PAFF field coded picture */
+            if( field_info == LW_FIELD_INFO_BOTTOM )
+                --t_count;
+            else
+                --b_count;
+            complete_frame ^= 1;
         }
     }
     --t_count;
@@ -863,7 +874,7 @@ static void create_video_frame_order_list
     vohp->frame_count          = vohp->frame_order_count;
     return;
 disable_repeat:
-    if( opt->apply_repeat_flag && vdhp->lh.show_log )
+    if( vdhp->lh.show_log && opt->apply_repeat_flag )
         vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
     vohp->repeat_control       = 0;
     vohp->repeat_correction_ts = 0;

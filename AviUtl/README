@@ -169,10 +169,11 @@
                 If unchecked, try to activate the first detected audio stream.
             + Apply repeat flag : check box (default : unchecked)
                 Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if checked and usable.
-                If unchecked, video frames consisting of two separated field coded pictures are displayed twice consecutively.
             + Field dominance : combo box (default : Obey source flags)
                 Which field, top or bottom, is displayed first.
-                This settings is enabled only if Apply repeat flag is checked.
+                This settings is enabled only if one or more of the following conditions is true.
+                    - 'Apply repeat flag' is checked.
+                    - There is a video frame consisting of two separated field coded pictures.
         [Dummy reader]
             Dummy reader is used when deactivating video stream or the input file has no video stream
             since AviUtl can't handle any input file without video stream.

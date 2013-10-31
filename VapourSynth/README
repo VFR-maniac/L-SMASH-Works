@@ -97,10 +97,11 @@
                     Same as 'dr' of LibavSMASHSource().
                 + repeat (default : 0)
                     Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if set to 1 and usable.
-                    If set to 0, video frames consisting of two separated field coded pictures are displayed twice consecutively.
                 + dominance : (default : 0)
                     Which field, top or bottom, is displayed first.
                         - 0 : Obey source flags
                         - 1 : TFF i.e. Top -> Bottom
                         - 2 : BFF i.e. Bottom -> Top
-                    This option is enabled only if 'repeat' is set to 0.
+                    This option is enabled only if one or more of the following conditions is true.
+                        - 'repeat' is set to 0.
+                        - There is a video frame consisting of two separated field coded pictures.
