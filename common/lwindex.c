@@ -285,10 +285,10 @@ static void interpolate_pts
 static int poc_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp,
-    AVRational                      time_base
+    AVRational                      time_base,
+    int                             max_num_reorder_pics
 )
 {
-#define H264_MAX_NUM_REORDER_FRAMES 16
     video_frame_info_t *info = &vdhp->frame_list[1];
     /* Deduplicate POCs. */
     int64_t  poc_offset            = 0;
@@ -308,7 +308,7 @@ static int poc_genarate_pts
             {
                 /* Pictures with negative POC shall precede IDR-picture in composition order.
                  * The minimum POC is added to poc_offset when we encounter the next coded video sequence. */
-                if( last_idr == UINT32_MAX || i > last_idr + 2 * H264_MAX_NUM_REORDER_FRAMES )
+                if( last_idr == UINT32_MAX || i > last_idr + max_num_reorder_pics )
                 {
                     if( !invalid_poc_present )
                     {
@@ -331,7 +331,7 @@ static int poc_genarate_pts
         poc_offset -= poc_min;
         int64_t poc_max = 0;
         for( uint32_t j = last_idr; j < i; j++ )
-            if( info[j].poc >= 0 || (j <= last_idr + 2 * H264_MAX_NUM_REORDER_FRAMES) )
+            if( info[j].poc >= 0 || (j <= last_idr + max_num_reorder_pics) )
             {
                 info[j].poc += poc_offset;
                 if( poc_max < info[j].poc )
@@ -487,7 +487,7 @@ static int decide_video_seek_method
           && (vdhp->codec_id == AV_CODEC_ID_H264 || vdhp->codec_id == AV_CODEC_ID_HEVC) )
     {
         /* Generate PTS. */
-        if( poc_genarate_pts( vdhp, time_base ) < 0 )
+        if( poc_genarate_pts( vdhp, time_base, vdhp->codec_id == AV_CODEC_ID_H264 ? 32 : 15 ) < 0 )
         {
             if( vdhp->lh.show_log )
                 vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory for PTS generation." );
