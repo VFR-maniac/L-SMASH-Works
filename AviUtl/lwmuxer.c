@@ -52,7 +52,7 @@ do \
 { \
     char temp[512]; \
     wsprintf( temp, __VA_ARGS__ ); \
-    MessageBox( HWND_DESKTOP, temp, "lsmashmuxer", uType ); \
+    MessageBox( HWND_DESKTOP, temp, "lwmuxer", uType ); \
 } while( 0 )
 #ifdef DEBUG
 #define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... ) \
@@ -60,7 +60,7 @@ do \
 { \
     char temp[512]; \
     wsprintf( temp, __VA_ARGS__ ); \
-    MessageBox( HWND_DESKTOP, temp, "lsmashmuxer", uType ); \
+    MessageBox( HWND_DESKTOP, temp, "lwmuxer", uType ); \
 } while( 0 )
 #else
 #define DEBUG_MESSAGE_BOX_DESKTOP( uType, ... )
@@ -720,20 +720,20 @@ static int get_input_movies( lsmash_handler_t *hp, void *editp, FILTER *fp, int 
         FRAME_STATUS fs;
         if( !fp->exfunc->get_frame_status( editp, frame_s + i, &fs ) )
         {
-            MessageBox( HWND_DESKTOP, "Failed to get the status of the first frame.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "Failed to get the status of the first frame.", "lwmuxer", MB_ICONERROR | MB_OK );
             goto fail;
         }
         int source_file_id;
         int source_video_number;
         if( !fp->exfunc->get_source_video_number( editp, fs.video, &source_file_id, &source_video_number ) )
         {
-            MessageBox( HWND_DESKTOP, "Failed to get the number of the source video.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "Failed to get the number of the source video.", "lwmuxer", MB_ICONERROR | MB_OK );
             goto fail;
         }
         FILE_INFO fi;
         if( !fp->exfunc->get_source_file_info( editp, &fi, source_file_id ) )
         {
-            MessageBox( HWND_DESKTOP, "Failed to get the information of the source file.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "Failed to get the information of the source file.", "lwmuxer", MB_ICONERROR | MB_OK );
             goto fail;
         }
         /* Check if encountered a new sequence. */
@@ -982,7 +982,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
                                                       + sequence->media_start_sample_number - 1;
             if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, second_largest_cts_sample_number, &cts ) )
             {
-                MessageBox( HWND_DESKTOP, "Failed to get the second largest CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                MessageBox( HWND_DESKTOP, "Failed to get the second largest CTS from an input track.", "lwmuxer", MB_ICONERROR | MB_OK );
                 return -1;
             }
             second_largest_ts = (cts - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
@@ -991,7 +991,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
                                            + sequence->media_start_sample_number - 1;
         if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, largest_cts_sample_number, &cts ) )
         {
-            MessageBox( HWND_DESKTOP, "Failed to get the largest CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "Failed to get the largest CTS from an input track.", "lwmuxer", MB_ICONERROR | MB_OK );
             return -1;
         }
         largest_ts = (cts - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
@@ -1003,7 +1003,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
             uint32_t sample_delta;
             if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sequence->media_end_sample_number, &sample_delta ) )
             {
-                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lwmuxer", MB_ICONERROR | MB_OK );
                 return -1;
             }
             last_composition_duration = sample_delta * in_track->timescale_integrator;
@@ -1017,7 +1017,7 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
                                     + sequence->media_start_sample_number - 1;
     if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, decoding_sample_number, &hp->composition_delay_time ) )
     {
-        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lwmuxer", MB_ICONERROR | MB_OK );
         return -1;
     }
     hp->composition_delay_time = (hp->composition_delay_time - sequence->smallest_cts) * in_track->timescale_integrator + edit_offset;
@@ -1108,7 +1108,7 @@ static int do_mux( lsmash_handler_t *hp )
                     uint64_t next_cts;
                     if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, sequence[type]->presentation_end_next_sample_number, &next_cts ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an output track.", "lwmuxer", MB_ICONERROR | MB_OK );
                         break;
                     }
                     next_cts = (next_cts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
@@ -1159,7 +1159,7 @@ static int do_mux( lsmash_handler_t *hp )
                     uint64_t reordered_ts;
                     if( lsmash_get_cts_from_media_timeline( input->root, in_track->track_ID, decoding_sample_number, &reordered_ts ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to get CTS from an input track.", "lwmuxer", MB_ICONERROR | MB_OK );
                         break;
                     }
                     reordered_ts = (reordered_ts - sequence[type]->smallest_cts) * in_track->timescale_integrator + out_track->edit_offset;
@@ -1176,7 +1176,7 @@ static int do_mux( lsmash_handler_t *hp )
             {
                 if( lsmash_check_sample_existence_in_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number ) )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to get a sample.", "lwmuxer", MB_ICONERROR | MB_OK );
                     break;
                 }
                 /* no more samples in this track */
@@ -1197,7 +1197,7 @@ static int do_mux( lsmash_handler_t *hp )
             if( lsmash_get_sample_delta_from_media_timeline( input->root, in_track->track_ID, sequence[type]->current_sample_number, &sample_delta ) )
             {
                 lsmash_delete_sample( sample[type] );
-                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                MessageBox( HWND_DESKTOP, "Failed to get sample delta.", "lwmuxer", MB_ICONERROR | MB_OK );
                 break;
             }
             sample_delta *= in_track->timescale_integrator;
@@ -1217,7 +1217,7 @@ static int do_mux( lsmash_handler_t *hp )
                 if( lsmash_append_sample( output->root, out_track->track_ID, sample[type] ) )
                 {
                     lsmash_delete_sample( sample[type] );
-                    MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to append a sample.", "lwmuxer", MB_ICONERROR | MB_OK );
                     break;
                 }
                 num_consecutive_sample_skip = 0;
@@ -1257,7 +1257,7 @@ static int do_mux( lsmash_handler_t *hp )
     for( uint32_t i = 0; i < 2; i++ )
         if( output->track[i].active
          && lsmash_flush_pooled_samples( output->root, output->track[i].track_ID, sequence[i]->last_sample_delta ) )
-            MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "Failed to flush samples.", "lwmuxer", MB_ICONERROR | MB_OK );
     int abort = progress_dlg.abort;
     close_progress_dlg( &progress_dlg );
     return abort;
@@ -1288,7 +1288,7 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
                 edit.start_time = ISOM_EDIT_MODE_EMPTY;
                 edit.rate       = ISOM_EDIT_MODE_NORMAL;
                 if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, edit ) )
-                    MessageBox( HWND_DESKTOP, "Failed to create an empty edit of an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to create an empty edit of an output track.", "lwmuxer", MB_ICONERROR | MB_OK );
             }
             if( sequence->number_of_samples )
             {
@@ -1298,7 +1298,7 @@ static int construct_timeline_maps( lsmash_handler_t *hp )
                 edit.rate       = ISOM_EDIT_MODE_NORMAL;
                 if( lsmash_create_explicit_timeline_map( output->root, out_track->track_ID, edit ) )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to create the timeline map of an output track.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to create the timeline map of an output track.", "lwmuxer", MB_ICONERROR | MB_OK );
                     continue;
                 }
             }
@@ -1322,7 +1322,7 @@ static int validate_chapter( char *chapter_file )
     FILE *fp = fopen( chapter_file, "rb" );
     if( !fp )
     {
-        MessageBox( HWND_DESKTOP, "Failed to open the chapter file.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to open the chapter file.", "lwmuxer", MB_ICONERROR | MB_OK );
         return -1;
     }
     if( fgets( buff, CHAPTER_BUFSIZE, fp ) )
@@ -1332,10 +1332,10 @@ static int validate_chapter( char *chapter_file )
             && isdigit( p_buff[3] ) && isdigit( p_buff[4] ) && p_buff[5] == ':' ) )
             ret = 0;
         else
-            MessageBox( HWND_DESKTOP, "The chapter file is malformed.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+            MessageBox( HWND_DESKTOP, "The chapter file is malformed.", "lwmuxer", MB_ICONERROR | MB_OK );
     }
     else
-        MessageBox( HWND_DESKTOP, "Failed to read the chapter file.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+        MessageBox( HWND_DESKTOP, "Failed to read the chapter file.", "lwmuxer", MB_ICONERROR | MB_OK );
     fclose( fp );
     return ret;
 }
@@ -1464,7 +1464,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                 opt = lw_malloc_zero( sizeof(option_t) );
                 if( !opt )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to allocate memory for option.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to allocate memory for option.", "lwmuxer", MB_ICONERROR | MB_OK );
                     return FALSE;
                 }
                 fp->ex_data_ptr  = opt;
@@ -1493,7 +1493,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     int frame_e;
                     if( !fp->exfunc->get_select_frame( editp, &frame_s, &frame_e ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lwmuxer", MB_ICONERROR | MB_OK );
                         return FALSE;
                     }
                     lsmash_handler_t h       = { 0 };
@@ -1502,28 +1502,28 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     get_settings( &h );
                     if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lwmuxer", MB_ICONERROR | MB_OK );
                         return exporter_error( &h );
                     }
                     if( open_output_file( &h, fp, file_name ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lsmashmuxer", MB_ICONERROR  | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lwmuxer", MB_ICONERROR  | MB_OK );
                         return exporter_error( &h );
                     }
                     if( write_reference_chapter( &h, fp ) )
-                        MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lsmashmuxer", MB_ICONWARNING  | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to set reference chapter.", "lwmuxer", MB_ICONWARNING  | MB_OK );
                     /* Mux with a progress dialog.
                      * Users can abort muxing by pressing Cancel button on it. */
                     int abort = do_mux( &h );
                     /* Finalize with or without a progress dialog.
                      * Users can NOT abort finalizing. */
                     if( construct_timeline_maps( &h ) )
-                        MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to costruct timeline maps.", "lwmuxer", MB_ICONERROR | MB_OK );
                     if( write_chapter_list( &h, fp ) )
-                        MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lsmashmuxer", MB_ICONWARNING | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to write chapter list.", "lwmuxer", MB_ICONWARNING | MB_OK );
                     if( finish_movie( h.output, !abort && opt->optimize_pd ) )
                     {
-                        MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lsmashmuxer", MB_ICONERROR | MB_OK );
+                        MessageBox( HWND_DESKTOP, "Failed to finish movie.", "lwmuxer", MB_ICONERROR | MB_OK );
                         return exporter_error( &h );
                     }
                     cleanup_handler( &h );
@@ -1553,7 +1553,7 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         fclose( existence_check );
                         if( MessageBox( HWND_DESKTOP,
                                         "Do you want to clear which chapter file is currently selected?",
-                                        "lsmashmuxer",
+                                        "lwmuxer",
                                         MB_ICONQUESTION | MB_YESNO ) == IDYES )
                         {
                             disable_chapter( hwnd, opt );
