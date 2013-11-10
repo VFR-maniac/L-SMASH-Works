@@ -121,7 +121,7 @@ void au_message_box_desktop
     if( written )
     {
         UINT uType = *(UINT *)lhp->priv;
-        MessageBox( HWND_DESKTOP, message, "lsmashinput", uType );
+        MessageBox( HWND_DESKTOP, message, "lwinput", uType );
     }
 }
 
