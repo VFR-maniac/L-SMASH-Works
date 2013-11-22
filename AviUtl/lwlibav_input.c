@@ -275,10 +275,6 @@ static void close_file( void *private_stuff )
     libav_handler_t *hp = (libav_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->vdh.frame_buffer )
-        avcodec_free_frame( &hp->vdh.frame_buffer );
-    if( hp->adh.frame_buffer )
-        avcodec_free_frame( &hp->adh.frame_buffer );
     if( hp->lwh.file_path )
         free( hp->lwh.file_path );
     free( hp );
