@@ -769,7 +769,7 @@ void update_configuration
     config->delay_count       = 0;
     config->queue.delay_count = 0;
     /* Set up decoder basic settings by actual decoding. */
-    AVFrame *picture = avcodec_alloc_frame();
+    AVFrame *picture = av_frame_alloc();
     if( !picture )
     {
         strcpy( error_string, "Failed to alloc AVFrame to set up a decoder configuration.\n" );

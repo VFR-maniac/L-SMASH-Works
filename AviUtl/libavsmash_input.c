@@ -409,7 +409,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
     if( !vdhp->config.ctx )
         return 0;
-    vdhp->frame_buffer = avcodec_alloc_frame();
+    vdhp->frame_buffer = av_frame_alloc();
     if( !vdhp->frame_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate video frame buffer." );
@@ -451,7 +451,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     libavsmash_audio_decode_handler_t *adhp = &hp->adh;
     if( !adhp->config.ctx )
         return 0;
-    adhp->frame_buffer = avcodec_alloc_frame();
+    adhp->frame_buffer = av_frame_alloc();
     if( !adhp->frame_buffer )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate audio frame buffer." );

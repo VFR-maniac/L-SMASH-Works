@@ -150,7 +150,7 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     VSVideoInfo                       *vi   = &hp->vi;
     lw_log_handler_t                  *lhp  = &vdhp->config.lh;
-    vdhp->frame_buffer = avcodec_alloc_frame();
+    vdhp->frame_buffer = av_frame_alloc();
     if( !vdhp->frame_buffer )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate video frame buffer." );

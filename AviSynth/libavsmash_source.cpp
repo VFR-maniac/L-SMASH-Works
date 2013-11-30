@@ -238,7 +238,7 @@ void LSMASHVideoSource::prepare_video_decoding
     IScriptEnvironment *env
 )
 {
-    vdh.frame_buffer = avcodec_alloc_frame();
+    vdh.frame_buffer = av_frame_alloc();
     if( !vdh.frame_buffer )
         env->ThrowError( "LSMASHVideoSource: failed to allocate video frame buffer." );
     /* Initialize the video decoder configuration. */
@@ -475,7 +475,7 @@ void LSMASHAudioSource::prepare_audio_decoding
     IScriptEnvironment *env
 )
 {
-    adh.frame_buffer = avcodec_alloc_frame();
+    adh.frame_buffer = av_frame_alloc();
     if( !adh.frame_buffer )
         env->ThrowError( "LSMASHAudioSource: failed to allocate audio frame buffer." );
     /* Initialize the audio decoder configuration. */

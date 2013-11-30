@@ -496,7 +496,7 @@ int try_decode_audio_frame
     char                     *error_string
 )
 {
-    AVFrame *picture = avcodec_alloc_frame();
+    AVFrame *picture = av_frame_alloc();
     if( !picture )
     {
         strcpy( error_string, "Failed to alloc AVFrame to set up a decoder configuration.\n" );

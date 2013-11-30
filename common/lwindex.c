@@ -1013,7 +1013,7 @@ static lwindex_helper_t *get_index_helper
         if( ctx->codec_type == AVMEDIA_TYPE_AUDIO || helper->mpeg12_video || helper->vc1_wmv3 )
         {
             helper->decode  = ctx->codec_type == AVMEDIA_TYPE_AUDIO ? avcodec_decode_audio4 : avcodec_decode_video2;
-            helper->picture = avcodec_alloc_frame();
+            helper->picture = av_frame_alloc();
             if( !helper->picture )
                 return NULL;
         }
@@ -2501,10 +2501,10 @@ int lwlibav_construct_index
 )
 {
     /* Allocate frame buffer. */
-    vdhp->frame_buffer = avcodec_alloc_frame();
+    vdhp->frame_buffer = av_frame_alloc();
     if( !vdhp->frame_buffer )
         return -1;
-    adhp->frame_buffer = avcodec_alloc_frame();
+    adhp->frame_buffer = av_frame_alloc();
     if( !adhp->frame_buffer )
     {
         avcodec_free_frame( &vdhp->frame_buffer );
