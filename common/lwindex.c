@@ -282,6 +282,50 @@ static void interpolate_pts
     }
 }
 
+static void interpolate_dts
+(
+    video_frame_info_t *info,       /* 0-origin */
+    uint32_t            frame_count,
+    AVRational          time_base
+)
+{
+    /* Find the first valid DTS. */
+    uint32_t valid_start = UINT32_MAX;
+    for( uint32_t i = 0; i < frame_count; i++ )
+        if( info[i].dts != AV_NOPTS_VALUE )
+            valid_start = i;
+    if( valid_start != UINT32_MAX )
+    {
+        /* Generate DTSs. */
+        for( uint32_t i = valid_start; i; i-- )
+            info[i - 1].dts = info[i].dts - time_base.num;
+        while( valid_start < frame_count )
+        {
+            /* Find the next valid DTS. */
+            uint32_t valid_end = UINT32_MAX;
+            for( uint32_t i = valid_start + 1; i < frame_count; i++ )
+                if( info[i].dts != AV_NOPTS_VALUE
+                 && info[i].dts != info[i - 1].dts )
+                    valid_end = i;
+            /* Interpolate DTSs roughly. */
+            if( valid_end != UINT32_MAX )
+                for( uint32_t i = valid_end; i > valid_start + 1; i-- )
+                    info[i - 1].dts = info[i].dts - time_base.num;
+            else
+                for( uint32_t i = valid_start + 1; i < frame_count; i++ )
+                    info[i].dts = info[i - 1].dts + time_base.num;
+            valid_start = valid_end;
+        }
+    }
+    else
+    {
+        /* Generate DTSs. */
+        info[0].dts = 0;
+        for( uint32_t i = 1; i < frame_count; i++ )
+            info[i].dts = info[i - 1].dts + (info[i - 1].repeat_pict == 0 ? 1 : 2) * time_base.num;
+    }
+}
+
 static int poc_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -474,10 +518,9 @@ static int decide_video_seek_method
       || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3
       || vdhp->codec_id == AV_CODEC_ID_VC1IMAGE   || vdhp->codec_id == AV_CODEC_ID_WMV3IMAGE) )
     {
-        /* Generate pseudo-DTS if a raw demuxer doesn't return DTS for each frame. */
-        if( lwhp->raw_demuxer && !(vdhp->lw_seek_flags & SEEK_DTS_BASED) )
-            for( uint32_t i = 1; i <= sample_count; i++ )
-                info[i].dts = i;
+        /* Generate or interpolate DTS if any invalid DTS for each frame. */
+        if( !(vdhp->lw_seek_flags & SEEK_DTS_BASED) )
+            interpolate_dts( &info[1], vdhp->frame_count, time_base );
         /* Generate PTS from DTS. */
         mpeg12_video_vc1_genarate_pts( vdhp );
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
