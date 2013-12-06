@@ -507,7 +507,7 @@ static int prepare_new_decoder_configuration
                 if( lsmash_get_mp4sys_decoder_specific_info( mdp, &cs_data, &cs_data_size ) )
                     goto fail;
                 int ret = queue_extradata( config, cs_data, cs_data_size );
-                free( cs_data );
+                lsmash_free( cs_data );
                 if( ret )
                     goto fail;
             }
