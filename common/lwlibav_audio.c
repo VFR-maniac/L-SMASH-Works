@@ -79,7 +79,6 @@ uint64_t lwlibav_count_overall_pcm_samples
     audio_frame_info_t *frame_list    = adhp->frame_list;
     int      current_sample_rate      = frame_list[1].sample_rate > 0 ? frame_list[1].sample_rate : adhp->ctx->sample_rate;
     uint32_t current_frame_length     = frame_list[1].length;
-    uint32_t audio_frame_count        = 0;
     uint64_t pcm_sample_count         = 0;
     uint64_t overall_pcm_sample_count = 0;
     for( uint32_t i = 1; i <= adhp->frame_count; i++ )
@@ -91,13 +90,11 @@ uint64_t lwlibav_count_overall_pcm_samples
                                             ? pcm_sample_count
                                             : (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
             overall_pcm_sample_count += resampled_sample_count;
-            audio_frame_count = 0;
-            pcm_sample_count  = 0;
+            pcm_sample_count     = 0;
             current_sample_rate  = frame_list[i].sample_rate > 0 ? frame_list[i].sample_rate : adhp->ctx->sample_rate;
             current_frame_length = frame_list[i].length;
         }
         pcm_sample_count += frame_list[i].length;
-        ++audio_frame_count;
     }
     current_sample_rate = frame_list[ adhp->frame_count ].sample_rate > 0
                         ? frame_list[ adhp->frame_count ].sample_rate

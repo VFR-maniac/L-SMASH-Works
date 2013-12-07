@@ -80,7 +80,6 @@ uint64_t libavsmash_count_overall_pcm_samples
     int      current_sample_rate       = 0;     /* after the decoder upsampling */
     uint32_t current_index             = 0;
     uint32_t current_frame_length      = 0;     /* before the decoder upsampling */
-    uint32_t audio_frame_count         = 0;
     uint64_t sequence_pcm_count        = 0;     /* before the decoder upsampling */
     uint64_t prior_sequences_pcm_count = 0;     /* before the decoder upsampling */
     uint64_t overall_pcm_count         = 0;     /* after the decoder and the resampler upsampling */
@@ -130,14 +129,12 @@ uint64_t libavsmash_count_overall_pcm_samples
                                                                         *skip_decoded_samples,
                                                                         current_sample_rate,
                                                                         output_sample_rate );
-                audio_frame_count  = 0;
                 sequence_pcm_count = 0;
             }
             current_sample_rate  = es->sample_rate > 0 ? es->sample_rate : config->ctx->sample_rate;
             current_frame_length = frame_length;
         }
         sequence_pcm_count += frame_length;
-        ++audio_frame_count;
     }
     if( !es || (sequence_pcm_count == 0 && overall_pcm_count == 0) )
         return 0;
