@@ -306,7 +306,8 @@ static int decode_video_picture
     if( frame_number == rap_number && (vdhp->lw_seek_flags & SEEK_DTS_BASED) )
     {
         frame_number = correct_current_frame_number( vdhp, pkt, frame_number, goal );
-        if( frame_number == 0 )
+        if( frame_number == 0
+         || frame_number > rap_number )
             return -2;
         if( *current > frame_number )
             /* It seems we got a more backward frame rather than what we requested. */
