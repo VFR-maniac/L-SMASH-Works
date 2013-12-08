@@ -413,12 +413,13 @@ retry_seek:
         output_length += output_pcm_samples_from_packet( aohp, adhp->ctx, alter_pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_DECODER_DELAY )
         {
-            if( rap_number && (output_flags & AUDIO_DECODER_ERROR) )
+            if( rap_number > 1 && (output_flags & AUDIO_DECODER_ERROR) )
             {
                 /* Retry to seek from more past audio keyframe because libavformat might have failed seek.
                  * This operation occurs only at the first decoding time after seek. */
                 past_rap_number = get_audio_rap( adhp, rap_number - 1 );
-                if( past_rap_number )
+                if( past_rap_number
+                 && past_rap_number < rap_number )
                     goto retry_seek;
             }
             ++ adhp->exh.delay_count;
