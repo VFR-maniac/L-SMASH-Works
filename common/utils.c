@@ -143,7 +143,8 @@ int lw_try_rational_framerate
 (
     double   framerate,
     int64_t *framerate_num,
-    int64_t *framerate_den
+    int64_t *framerate_den,
+    uint64_t timebase
 )
 {
 #define DOUBLE_EPSILON 5e-5
@@ -154,8 +155,11 @@ int lw_try_rational_framerate
     double   exponent;
     double   fps_sig = sigexp10( framerate, &exponent );
     int      i = 1;
-    uint64_t base[2] = { 1001, (uint64_t)1e9 };
-    for( int j = 0; j < 2; j++ )
+    uint64_t base[3] = { timebase, 1001, (uint64_t)1e9 };
+    for( int j = 0; j < 3; j++ )
+    {
+        if( j && base[j] == base[0] )
+            continue;
         while( 1 )
         {
             fps_den = i * base[j];
@@ -170,6 +174,7 @@ int lw_try_rational_framerate
             }
             ++i;
         }
+    }
     return 0;
 #undef DOUBLE_EPSILON
 }

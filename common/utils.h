@@ -117,5 +117,6 @@ int lw_try_rational_framerate
 (
     double   framerate,
     int64_t *framerate_num,
-    int64_t *framerate_den
+    int64_t *framerate_den,
+    uint64_t timebase
 );

@@ -126,18 +126,19 @@ int libavsmash_setup_timestamp_info
     uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
     lsmash_delete_media_timestamps( &ts_list );
     double avg_frame_rate = (sample_count * ((double)media_timescale / composition_duration));
-    if( strict_cfr || composition_timebase != 1 )
+    if( strict_cfr || !lw_try_rational_framerate( avg_frame_rate, framerate_num, framerate_den, composition_timebase ) )
     {
         uint64_t num = (uint64_t)(avg_frame_rate * composition_timebase + 0.5);
         uint64_t den = composition_timebase;
-        reduce_fraction( &num, &den );
+        if( num && den )
+            reduce_fraction( &num, &den );
+        else
+        {
+            num = 1;
+            den = 1;
+        }
         *framerate_num = (int64_t)num;
         *framerate_den = (int64_t)den;
-    }
-    else if( !lw_try_rational_framerate( avg_frame_rate, framerate_num, framerate_den ) )
-    {
-        *framerate_num = (uint64_t)((avg_frame_rate + 0.5) > 1 ? avg_frame_rate + 0.5 : 1);
-        *framerate_den = 1;
     }
     return 0;
 }

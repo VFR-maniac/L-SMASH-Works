@@ -182,20 +182,24 @@ void lwlibav_setup_timestamp_info
     uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
     double stream_framerate = (vohp->frame_count - (vohp->repeat_correction_ts ? 1 : 0))
                             * ((double)stream_timescale / stream_duration);
-    if( strict_cfr || stream_timebase != 1 )
+    if( strict_cfr || !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den, stream_timebase ) )
     {
         if( stream_timebase > INT_MAX || (uint64_t)(stream_framerate * stream_timebase + 0.5) > INT_MAX )
             goto fail;
         uint64_t num = (uint64_t)(stream_framerate * stream_timebase + 0.5);
         uint64_t den = stream_timebase;
-        reduce_fraction( &num, &den );
+        if( num && den )
+            reduce_fraction( &num, &den );
+        else if( video_stream->avg_frame_rate.num == 0
+              || video_stream->avg_frame_rate.den == 0 )
+        {
+            num = 1;
+            den = 1;
+        }
+        else
+            goto fail;
         *framerate_num = (int64_t)num;
         *framerate_den = (int64_t)den;
-    }
-    else if( !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den ) )
-    {
-        *framerate_num = (uint64_t)((stream_framerate + 0.5) > 1 ? stream_framerate + 0.5 : 1);
-        *framerate_den = 1;
     }
     return;
 fail:
