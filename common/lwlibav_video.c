@@ -75,66 +75,13 @@ int lwlibav_get_desired_video_track
     return 0;
 }
 
-static inline double lwlibav_round( double x )
-{
-    return x > 0 ? floor( x + 0.5 ) : ceil( x - 0.5 );
-}
-
-static inline double sigexp10( double value, double *exponent )
-{
-    /* This function separates significand and exp10 from double floating point. */
-    *exponent = 1;
-    while( value < 1 )
-    {
-        value *= 10;
-        *exponent /= 10;
-    }
-    while( value >= 10 )
-    {
-        value /= 10;
-        *exponent *= 10;
-    }
-    return value;
-}
-
-static int try_ntsc_framerate
-(
-    double framerate,
-    int   *framerate_num,
-    int   *framerate_den
-)
-{
-#define DOUBLE_EPSILON 5e-5
-    if( framerate == 0 )
-        return 0;
-    double exponent;
-    double fps_sig = sigexp10( framerate, &exponent );
-    uint64_t fps_den;
-    uint64_t fps_num;
-    int i = 1;
-    while( 1 )
-    {
-        fps_den = i * 1001;
-        fps_num = (uint64_t)(lwlibav_round( fps_den * fps_sig ) * exponent);
-        if( fps_num > INT_MAX )
-            return 0;
-        if( fabs( ((double)fps_num / fps_den) / exponent - fps_sig ) < DOUBLE_EPSILON )
-            break;
-        ++i;
-    }
-    *framerate_num = (int)fps_num;
-    *framerate_den = (int)fps_den;
-    return 1;
-#undef DOUBLE_EPSILON
-}
-
 void lwlibav_setup_timestamp_info
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
-    int                            *framerate_num,
-    int                            *framerate_den
+    int64_t                        *framerate_num,
+    int64_t                        *framerate_den
 )
 {
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
@@ -143,25 +90,30 @@ void lwlibav_setup_timestamp_info
      || ((lwhp->format_flags & AVFMT_TS_DISCONT) && !(vdhp->lw_seek_flags & SEEK_DTS_BASED))
      || !(vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
     {
-        *framerate_num = video_stream->avg_frame_rate.num;
-        *framerate_den = video_stream->avg_frame_rate.den;
+        *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
+        *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
         return;
     }
     video_frame_info_t *info = vdhp->frame_list;
     int64_t  first_ts;
     int64_t  largest_ts;
     int64_t  second_largest_ts;
+    uint64_t first_duration;
     uint64_t stream_timebase;
+    int      strict_cfr;
     if( !(lwhp->format_flags & AVFMT_TS_DISCONT)
      && (vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
     {
         first_ts          = info[1].pts;
-        largest_ts        = info[2].pts;
-        second_largest_ts = info[1].pts;
-        stream_timebase   = info[2].pts - info[1].pts;
+        largest_ts        = first_ts;
+        second_largest_ts = first_ts;
+        first_duration    = info[2].pts - info[1].pts;
+        stream_timebase   = first_duration;
+        strict_cfr        = (first_duration != 0);
         for( uint32_t i = 3; i <= vdhp->frame_count; i++ )
         {
-            if( info[i].pts == info[i - 1].pts )
+            uint64_t duration = info[i].pts - info[i - 1].pts;
+            if( duration )
             {
                 if( vdhp->lh.show_log )
                     vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
@@ -169,7 +121,9 @@ void lwlibav_setup_timestamp_info
                                        info[i].pts, i );
                 goto fail;
             }
-            stream_timebase   = get_gcd( stream_timebase, info[i].pts - info[i - 1].pts );
+            if( strict_cfr && duration != first_duration )
+                strict_cfr = 0;
+            stream_timebase   = get_gcd( stream_timebase, duration );
             second_largest_ts = largest_ts;
             largest_ts        = info[i].pts;
         }
@@ -189,10 +143,12 @@ void lwlibav_setup_timestamp_info
             curr = 2;
         }
         first_ts          = info[prev].dts;
-        largest_ts        = info[curr].dts;
-        second_largest_ts = info[prev].dts;
-        stream_timebase   = info[curr].dts - info[prev].dts;
-        for( uint32_t i = 3; i <= vdhp->frame_count; i++ )
+        largest_ts        = first_ts;
+        second_largest_ts = first_ts;
+        first_duration    = info[curr].dts - info[prev].dts;
+        stream_timebase   = first_duration;
+        strict_cfr        = (first_duration != 0);
+        for( uint32_t i = 2; i <= vdhp->frame_count; i++ )
         {
             if( vdhp->order_converter )
             {
@@ -204,7 +160,8 @@ void lwlibav_setup_timestamp_info
                 prev = i - 1;
                 curr = i;
             }
-            if( info[curr].dts == info[prev].dts )
+            uint64_t duration = info[curr].dts - info[prev].dts;
+            if( duration == 0 )
             {
                 if( vdhp->lh.show_log )
                     vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
@@ -212,7 +169,9 @@ void lwlibav_setup_timestamp_info
                                        info[curr].dts, curr );
                 goto fail;
             }
-            stream_timebase   = get_gcd( stream_timebase, info[curr].dts - info[prev].dts );
+            if( strict_cfr && duration != first_duration )
+                strict_cfr = 0;
+            stream_timebase   = get_gcd( stream_timebase, duration );
             second_largest_ts = largest_ts;
             largest_ts        = info[curr].dts;
         }
@@ -223,16 +182,25 @@ void lwlibav_setup_timestamp_info
     uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
     double stream_framerate = (vohp->frame_count - (vohp->repeat_correction_ts ? 1 : 0))
                             * ((double)stream_timescale / stream_duration);
-    if( try_ntsc_framerate( stream_framerate, framerate_num, framerate_den ) )
-        return;
-    if( stream_timebase > INT_MAX || (uint64_t)(stream_framerate * stream_timebase + 0.5) > INT_MAX )
-        goto fail;
-    *framerate_num = (int)(stream_framerate * stream_timebase + 0.5);
-    *framerate_den = (int)stream_timebase;
+    if( strict_cfr || stream_timebase != 1 )
+    {
+        if( stream_timebase > INT_MAX || (uint64_t)(stream_framerate * stream_timebase + 0.5) > INT_MAX )
+            goto fail;
+        uint64_t num = (uint64_t)(stream_framerate * stream_timebase + 0.5);
+        uint64_t den = stream_timebase;
+        reduce_fraction( &num, &den );
+        *framerate_num = (int64_t)num;
+        *framerate_den = (int64_t)den;
+    }
+    else if( !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den ) )
+    {
+        *framerate_num = (uint64_t)((stream_framerate + 0.5) > 1 ? stream_framerate + 0.5 : 1);
+        *framerate_den = 1;
+    }
     return;
 fail:
-    *framerate_num = video_stream->avg_frame_rate.num;
-    *framerate_den = video_stream->avg_frame_rate.den;
+    *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
+    *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
     return;
 }
 

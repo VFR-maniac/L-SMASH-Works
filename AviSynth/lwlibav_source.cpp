@@ -90,8 +90,8 @@ LWLibavVideoSource::LWLibavVideoSource
     vdh.lh = lh;
     vi.num_frames = voh.frame_count;
     /* Set average framerate. */
-    int fps_num;
-    int fps_den;
+    int64_t fps_num = 25;
+    int64_t fps_den = 1;
     lwlibav_setup_timestamp_info( &lwh, &vdh, &voh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;

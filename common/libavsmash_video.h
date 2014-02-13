@@ -47,6 +47,14 @@ typedef struct
     AVFrame              *first_valid_frame;
 } libavsmash_video_decode_handler_t;
 
+int libavsmash_setup_timestamp_info
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    int64_t                           *framerate_num,
+    int64_t                           *framerate_den,
+    uint32_t                           sample_count
+);
+
 static inline uint32_t get_decoding_sample_number
 (
     order_converter_t *order_converter,

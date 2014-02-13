@@ -22,6 +22,8 @@
 
 #include "cpp_compat.h"
 
+#include <inttypes.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -37,6 +39,108 @@ extern "C"
 #include "video_output.h"
 #include "libavsmash.h"
 #include "libavsmash_video.h"
+
+int libavsmash_setup_timestamp_info
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    int64_t                           *framerate_num,
+    int64_t                           *framerate_den,
+    uint32_t                           sample_count
+)
+{
+    uint64_t media_timescale = lsmash_get_media_timescale( vdhp->root, vdhp->track_ID );
+    if( sample_count == 1 )
+    {
+        /* Calculate average framerate. */
+        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_ID );
+        if( media_duration == 0 )
+            media_duration = INT32_MAX;
+        reduce_fraction( &media_timescale, &media_duration );
+        *framerate_num = (int64_t)media_timescale;
+        *framerate_den = (int64_t)media_duration;
+        return 0;
+    }
+    lw_log_handler_t *lhp = &vdhp->config.lh;
+    lsmash_media_ts_list_t ts_list;
+    if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_ID, &ts_list ) )
+    {
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to get timestamps." );
+        return -1;
+    }
+    if( ts_list.sample_count != sample_count )
+    {
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to count number of video samples." );
+        return -1;
+    }
+    uint32_t composition_sample_delay;
+    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
+    {
+        lsmash_delete_media_timestamps( &ts_list );
+        if( lhp->show_log )
+            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to get composition delay." );
+        return -1;
+    }
+    if( composition_sample_delay )
+    {
+        /* Consider composition order for keyframe detection.
+         * Note: sample number for L-SMASH is 1-origin. */
+        vdhp->order_converter = (order_converter_t *)lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
+        if( !vdhp->order_converter )
+        {
+            lsmash_delete_media_timestamps( &ts_list );
+            if( lhp->show_log )
+                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to allocate memory." );
+            return -1;
+        }
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            ts_list.timestamp[i].dts = i + 1;
+        lsmash_sort_timestamps_composition_order( &ts_list );
+        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
+            vdhp->order_converter[i + 1].composition_to_decoding = (uint32_t)ts_list.timestamp[i].dts;
+    }
+    /* Calculate average framerate. */
+    uint64_t largest_cts          = ts_list.timestamp[0].cts;
+    uint64_t second_largest_cts   = 0;
+    uint64_t first_duration       = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
+    uint64_t composition_timebase = first_duration;
+    int      strict_cfr           = 1;
+    for( uint32_t i = 1; i < ts_list.sample_count; i++ )
+    {
+        uint64_t duration = ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts;
+        if( duration == 0 )
+        {
+            lsmash_delete_media_timestamps( &ts_list );
+            if( lhp->show_log )
+                lhp->show_log( lhp, LW_LOG_WARNING, "Detected CTS duplication at frame %"PRIu32, i );
+            return 0;
+        }
+        if( strict_cfr && duration != first_duration )
+            strict_cfr = 0;
+        composition_timebase = get_gcd( composition_timebase, duration );
+        second_largest_cts   = largest_cts;
+        largest_cts          = ts_list.timestamp[i].cts;
+    }
+    uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
+    uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
+    lsmash_delete_media_timestamps( &ts_list );
+    double avg_frame_rate = (sample_count * ((double)media_timescale / composition_duration));
+    if( strict_cfr || composition_timebase != 1 )
+    {
+        uint64_t num = (uint64_t)(avg_frame_rate * composition_timebase + 0.5);
+        uint64_t den = composition_timebase;
+        reduce_fraction( &num, &den );
+        *framerate_num = (int64_t)num;
+        *framerate_den = (int64_t)den;
+    }
+    else if( !lw_try_rational_framerate( avg_frame_rate, framerate_num, framerate_den ) )
+    {
+        *framerate_num = (uint64_t)((avg_frame_rate + 0.5) > 1 ? avg_frame_rate + 0.5 : 1);
+        *framerate_den = 1;
+    }
+    return 0;
+}
 
 static int decode_video_sample
 (

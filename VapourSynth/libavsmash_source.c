@@ -285,80 +285,6 @@ static uint32_t open_file
     return movie_param.number_of_tracks;
 }
 
-static int setup_timestamp_info( lsmas_handler_t *hp, uint64_t media_timescale )
-{
-    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
-    VSVideoInfo                       *vi   = &hp->vi;
-    lw_log_handler_t                  *lhp  = &vdhp->config.lh;
-    if( vi->numFrames == 1 )
-    {
-        /* Calculate average framerate. */
-        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_ID );
-        if( media_duration == 0 )
-            media_duration = UINT32_MAX;
-        reduce_fraction( &media_timescale, &media_duration );
-        vi->fpsNum = (int64_t)media_timescale;
-        vi->fpsDen = (int64_t)media_duration;
-        return 0;
-    }
-    lsmash_media_ts_list_t ts_list;
-    if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_ID, &ts_list ) )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get timestamps." );
-        return -1;
-    }
-    if( ts_list.sample_count != vi->numFrames )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to count number of video samples." );
-        return -1;
-    }
-    uint32_t composition_sample_delay;
-    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
-    {
-        lsmash_delete_media_timestamps( &ts_list );
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get composition delay." );
-        return -1;
-    }
-    if( composition_sample_delay )
-    {
-        /* Consider composition order for keyframe detection.
-         * Note: sample number for L-SMASH is 1-origin. */
-        vdhp->order_converter = lw_malloc_zero( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
-        if( !vdhp->order_converter )
-        {
-            lsmash_delete_media_timestamps( &ts_list );
-            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory." );
-            return -1;
-        }
-        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
-            ts_list.timestamp[i].dts = i + 1;
-        lsmash_sort_timestamps_composition_order( &ts_list );
-        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
-            vdhp->order_converter[i + 1].composition_to_decoding = (uint32_t)ts_list.timestamp[i].dts;
-    }
-    /* Calculate average framerate. */
-    uint64_t largest_cts          = ts_list.timestamp[1].cts;
-    uint64_t second_largest_cts   = ts_list.timestamp[0].cts;
-    uint64_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
-    for( uint32_t i = 2; i < ts_list.sample_count; i++ )
-    {
-        if( ts_list.timestamp[i].cts == ts_list.timestamp[i - 1].cts )
-        {
-            lsmash_delete_media_timestamps( &ts_list );
-            return 0;
-        }
-        composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
-        second_largest_cts = largest_cts;
-        largest_cts = ts_list.timestamp[i].cts;
-    }
-    uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
-    uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
-    lsmash_delete_media_timestamps( &ts_list );
-    vi->fpsNum = (int64_t)((vi->numFrames * ((double)media_timescale / composition_duration)) * composition_timebase + 0.5);
-    vi->fpsDen = (int64_t)composition_timebase;
-    return 0;
-}
-
 static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int threads, uint32_t number_of_tracks )
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
@@ -420,10 +346,11 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     }
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
         return -1;
-    hp->vi.numFrames = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
     hp->media_timescale = media_param.timescale;
-    if( setup_timestamp_info( hp, hp->media_timescale ) )
-        return -1;
+    hp->vi.numFrames    = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
+    hp->vi.fpsNum       = 25;
+    hp->vi.fpsDen       = 1;
+    libavsmash_setup_timestamp_info( vdhp, &hp->vi.fpsNum, &hp->vi.fpsDen, hp->vi.numFrames );
     /* libavformat */
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == hp->format_ctx->nb_streams )

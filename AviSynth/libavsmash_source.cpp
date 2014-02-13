@@ -109,68 +109,6 @@ uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *e
     return movie_param.number_of_tracks;
 }
 
-static void setup_timestamp_info( libavsmash_video_decode_handler_t *hp, VideoInfo *vi, uint64_t media_timescale, IScriptEnvironment *env )
-{
-    if( vi->num_frames == 1 )
-    {
-        /* Calculate average framerate. */
-        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( hp->root, hp->track_ID );
-        if( media_duration == 0 )
-            media_duration = INT32_MAX;
-        reduce_fraction( &media_timescale, &media_duration );
-        vi->fps_numerator   = (unsigned int)media_timescale;
-        vi->fps_denominator = (unsigned int)media_duration;
-        return;
-    }
-    lsmash_media_ts_list_t ts_list;
-    if( lsmash_get_media_timestamps( hp->root, hp->track_ID, &ts_list ) )
-        env->ThrowError( "LSMASHVideoSource: failed to get timestamps." );
-    if( ts_list.sample_count != vi->num_frames )
-        env->ThrowError( "LSMASHVideoSource: failed to count number of video samples." );
-    uint32_t composition_sample_delay;
-    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
-    {
-        lsmash_delete_media_timestamps( &ts_list );
-        env->ThrowError( "LSMASHVideoSource: failed to get composition delay." );
-    }
-    if( composition_sample_delay )
-    {
-        /* Consider composition order for keyframe detection.
-         * Note: sample number for L-SMASH is 1-origin. */
-        hp->order_converter = (order_converter_t *)malloc( (ts_list.sample_count + 1) * sizeof(order_converter_t) );
-        if( !hp->order_converter )
-        {
-            lsmash_delete_media_timestamps( &ts_list );
-            env->ThrowError( "LSMASHVideoSource: failed to allocate memory." );
-        }
-        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
-            ts_list.timestamp[i].dts = i + 1;
-        lsmash_sort_timestamps_composition_order( &ts_list );
-        for( uint32_t i = 0; i < ts_list.sample_count; i++ )
-            hp->order_converter[i + 1].composition_to_decoding = (uint32_t)ts_list.timestamp[i].dts;
-    }
-    /* Calculate average framerate. */
-    uint64_t largest_cts          = ts_list.timestamp[1].cts;
-    uint64_t second_largest_cts   = ts_list.timestamp[0].cts;
-    uint64_t composition_timebase = ts_list.timestamp[1].cts - ts_list.timestamp[0].cts;
-    for( uint32_t i = 2; i < ts_list.sample_count; i++ )
-    {
-        if( ts_list.timestamp[i].cts == ts_list.timestamp[i - 1].cts )
-        {
-            lsmash_delete_media_timestamps( &ts_list );
-            return;
-        }
-        composition_timebase = get_gcd( composition_timebase, ts_list.timestamp[i].cts - ts_list.timestamp[i - 1].cts );
-        second_largest_cts = largest_cts;
-        largest_cts = ts_list.timestamp[i].cts;
-    }
-    uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
-    uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
-    lsmash_delete_media_timestamps( &ts_list );
-    vi->fps_numerator   = (unsigned int)((vi->num_frames * ((double)media_timescale / composition_duration)) * composition_timebase + 0.5);
-    vi->fps_denominator = (unsigned int)composition_timebase;
-}
-
 void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_number, int threads, IScriptEnvironment *env )
 {
     uint32_t number_of_tracks = open_file( source, env );
@@ -213,7 +151,14 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
     if( get_summaries( vdh.root, vdh.track_ID, &vdh.config ) )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
     vi.num_frames = lsmash_get_sample_count_in_media_timeline( vdh.root, vdh.track_ID );
-    setup_timestamp_info( &vdh, &vi, media_param.timescale, env );
+    /* Calculate average framerate. */
+    {
+        int64_t fps_num = 25;
+        int64_t fps_den = 1;
+        libavsmash_setup_timestamp_info( &vdh, &fps_num, &fps_den, vi.num_frames );
+        vi.fps_numerator   = (unsigned int)fps_num;
+        vi.fps_denominator = (unsigned int)fps_den;
+    }
     /* libavformat */
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == format_ctx->nb_streams )

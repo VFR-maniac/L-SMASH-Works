@@ -104,8 +104,8 @@ void lwlibav_setup_timestamp_info
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
-    int                            *framerate_num,
-    int                            *framerate_den
+    int64_t                        *framerate_num,
+    int64_t                        *framerate_den
 );
 
 void lwlibav_find_random_accessible_point

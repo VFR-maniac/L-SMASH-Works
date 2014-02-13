@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <math.h>
 
 #include "utils.h"
 
@@ -107,4 +108,68 @@ int lw_check_file_extension
         return -1;
     const char *ext = &file_name[file_name_length - extension_length];
     return ext[-1] != '.' || memcmp( extension, ext, extension_length ) ? -1 : 0;
+}
+
+static inline double lw_round
+(
+    double x
+)
+{
+    return x > 0 ? floor( x + 0.5 ) : ceil( x - 0.5 );
+}
+
+static inline double sigexp10
+(
+    double  value,
+    double *exponent
+)
+{
+    /* This function separates significand and exp10 from double floating point. */
+    *exponent = 1;
+    while( value < 1 )
+    {
+        value *= 10;
+        *exponent /= 10;
+    }
+    while( value >= 10 )
+    {
+        value /= 10;
+        *exponent *= 10;
+    }
+    return value;
+}
+
+int lw_try_rational_framerate
+(
+    double   framerate,
+    int64_t *framerate_num,
+    int64_t *framerate_den
+)
+{
+#define DOUBLE_EPSILON 5e-5
+    if( framerate == 0 )
+        return 0;
+    uint64_t fps_den;
+    uint64_t fps_num;
+    double   exponent;
+    double   fps_sig = sigexp10( framerate, &exponent );
+    int      i = 1;
+    uint64_t base[2] = { 1001, (uint64_t)1e9 };
+    for( int j = 0; j < 2; j++ )
+        while( 1 )
+        {
+            fps_den = i * base[j];
+            fps_num = (uint64_t)(lw_round( fps_den * fps_sig ) * exponent);
+            if( fps_num > INT_MAX )
+                break;
+            if( fabs( ((double)fps_num / fps_den) / exponent - fps_sig ) < DOUBLE_EPSILON )
+            {
+                *framerate_num = (int)fps_num;
+                *framerate_den = (int)fps_den;
+                return 1;
+            }
+            ++i;
+        }
+    return 0;
+#undef DOUBLE_EPSILON
 }

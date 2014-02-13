@@ -112,3 +112,10 @@ int lw_check_file_extension
     const char *file_name,
     const char *extension
 );
+
+int lw_try_rational_framerate
+(
+    double   framerate,
+    int64_t *framerate_num,
+    int64_t *framerate_den
+);
