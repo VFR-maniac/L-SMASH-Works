@@ -110,10 +110,10 @@ void lwlibav_setup_timestamp_info
         first_duration    = info[2].pts - info[1].pts;
         stream_timebase   = first_duration;
         strict_cfr        = (first_duration != 0);
-        for( uint32_t i = 3; i <= vdhp->frame_count; i++ )
+        for( uint32_t i = 2; i <= vdhp->frame_count; i++ )
         {
             uint64_t duration = info[i].pts - info[i - 1].pts;
-            if( duration )
+            if( duration == 0 )
             {
                 if( vdhp->lh.show_log )
                     vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,

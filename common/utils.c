@@ -155,7 +155,7 @@ int lw_try_rational_framerate
     double   exponent;
     double   fps_sig = sigexp10( framerate, &exponent );
     int      i = 1;
-    uint64_t base[3] = { timebase, 1001, (uint64_t)1e9 };
+    uint64_t base[3] = { timebase, 1001, 1 };
     for( int j = 0; j < 3; j++ )
     {
         if( j && base[j] == base[0] )
