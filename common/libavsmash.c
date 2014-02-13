@@ -799,7 +799,6 @@ void update_configuration
                 avcodec_free_frame( &picture );
                 goto fail;
             }
-            avcodec_get_frame_defaults( picture );
             int dummy;
             avcodec_decode_video2( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
@@ -825,7 +824,6 @@ void update_configuration
                 avcodec_free_frame( &picture );
                 goto fail;
             }
-            avcodec_get_frame_defaults( picture );
             int dummy;
             avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
             if( upsampling == 0 && picture->nb_samples > 0 )

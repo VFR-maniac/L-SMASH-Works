@@ -534,7 +534,6 @@ int try_decode_audio_frame
             }
         }
         /* Try decode a frame. */
-        avcodec_get_frame_defaults( picture );
         do
         {
             int dummy;

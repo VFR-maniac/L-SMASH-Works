@@ -189,7 +189,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)adhp ) < 0 )
         return -1;
-    avcodec_get_frame_defaults( adhp->frame_buffer );
 #ifndef DEBUG_AUDIO
     adhp->lh.level = LW_LOG_FATAL;
 #endif

@@ -122,7 +122,6 @@ uint64_t output_pcm_samples_from_packet
     int      output_audio  = 0;
     do
     {
-        avcodec_get_frame_defaults( frame_buffer );
         int decode_complete;
         int consumed_data_length = avcodec_decode_audio4( ctx, frame_buffer, &decode_complete, pkt );
         if( consumed_data_length < 0 )

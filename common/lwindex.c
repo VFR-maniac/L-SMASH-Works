@@ -1199,7 +1199,6 @@ static void investigate_pix_fmt_by_decoding
 )
 {
     int got_picture;
-    avcodec_get_frame_defaults( picture );
     avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
 }
 
@@ -1265,7 +1264,6 @@ static int get_picture_type
      && (enum AVPictureType)helper->parser_ctx->pict_type != AV_PICTURE_TYPE_I )
     {
         int decode_complete;
-        avcodec_get_frame_defaults( helper->picture );
         helper->decode( ctx, helper->picture, &decode_complete, pkt );
         if( !decode_complete )
         {
@@ -1509,7 +1507,6 @@ static void create_index
         free( video_info );
         return;
     }
-    avcodec_get_frame_defaults( adhp->frame_buffer );
     /*
         # Structure of Libav reader index file
         <LibavReaderIndexFile=12>

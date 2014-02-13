@@ -214,7 +214,6 @@ void LWLibavAudioSource::prepare_audio_decoding
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)&adh ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
     /* */
-    avcodec_get_frame_defaults( adh.frame_buffer );
     as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout, sample_rate );
     /* Count the number of PCM audio samples. */
     vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
