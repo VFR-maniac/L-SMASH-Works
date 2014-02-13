@@ -385,6 +385,6 @@ void libavsmash_cleanup_audio_decode_handler
 )
 {
     if( adhp->frame_buffer )
-        avcodec_free_frame( &adhp->frame_buffer );
+        av_frame_free( &adhp->frame_buffer );
     cleanup_configuration( &adhp->config );
 }

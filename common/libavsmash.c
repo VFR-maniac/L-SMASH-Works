@@ -796,7 +796,7 @@ void update_configuration
                     strcpy( error_string, "Failed to set up pixel format.\n" );
                 else
                     strcpy( error_string, "Failed to set up resolution.\n" );
-                avcodec_free_frame( &picture );
+                av_frame_free( &picture );
                 goto fail;
             }
             int dummy;
@@ -821,7 +821,7 @@ void update_configuration
                     strcpy( error_string, "Failed to set up channels.\n" );
                 else
                     strcpy( error_string, "Failed to set up sample format.\n" );
-                avcodec_free_frame( &picture );
+                av_frame_free( &picture );
                 goto fail;
             }
             int dummy;
@@ -847,7 +847,7 @@ void update_configuration
         extended->frame_length   = ctx->frame_size;
         extended->upsampling     = upsampling > 0 ? upsampling : 1;
     }
-    avcodec_free_frame( &picture );
+    av_frame_free( &picture );
     /* Reopen/flush with the requested number of threads. */
     ctx->thread_count = thread_count;
     libavsmash_flush_buffers( config );

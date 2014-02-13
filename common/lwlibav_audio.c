@@ -460,7 +460,7 @@ void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp 
     if( adhp->index_entries )
         av_freep( &adhp->index_entries );
     if( adhp->frame_buffer )
-        avcodec_free_frame( &adhp->frame_buffer );
+        av_frame_free( &adhp->frame_buffer );
     if( adhp->ctx )
     {
         avcodec_close( adhp->ctx );
@@ -529,7 +529,7 @@ int try_decode_audio_frame
                     strcpy( error_string, "Failed to set up channels.\n" );
                 else
                     strcpy( error_string, "Failed to set up sample format.\n" );
-                avcodec_free_frame( &picture );
+                av_frame_free( &picture );
                 return -1;
             }
         }
@@ -546,6 +546,6 @@ int try_decode_audio_frame
         } while( pkt.size > 0 );
         ++frame_number;
     } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
-    avcodec_free_frame( &picture );
+    av_frame_free( &picture );
     return 0;
 }

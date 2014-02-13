@@ -890,14 +890,7 @@ void lwlibav_cleanup_video_decode_handler
     if( vdhp->index_entries )
         av_freep( &vdhp->index_entries );
     if( vdhp->frame_buffer )
-    {
-        /* Libavcodec frees the buffers internally in avcodec_close() when reference-count is disabled.
-         * In that case, av_frame_free() will make double free and this branch shall avoid this. */
-        if( vdhp->ctx && vdhp->ctx->refcounted_frames )
-            av_frame_free( &vdhp->frame_buffer );
-        else
-            avcodec_free_frame( &vdhp->frame_buffer );
-    }
+        av_frame_free( &vdhp->frame_buffer );
     if( vdhp->first_valid_frame )
         av_frame_free( &vdhp->first_valid_frame );
     if( vdhp->movable_frame_buffer )

@@ -1467,7 +1467,7 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
         if( helper->bsf )
             av_bitstream_filter_close( helper->bsf );
         if( helper->picture )
-            avcodec_free_frame( &helper->picture );
+            av_frame_free( &helper->picture );
         if( helper->buffer )
             av_free( helper->buffer );
         lwlibav_extradata_handler_t *list = &helper->exh;
@@ -2547,7 +2547,7 @@ int lwlibav_construct_index
     adhp->frame_buffer = av_frame_alloc();
     if( !adhp->frame_buffer )
     {
-        avcodec_free_frame( &vdhp->frame_buffer );
+        av_frame_free( &vdhp->frame_buffer );
         return -1;
     }
     /* Try to open the index file. */
@@ -2555,8 +2555,8 @@ int lwlibav_construct_index
     char *index_file_path = (char *)lw_malloc_zero(file_path_length + 5);
     if( !index_file_path )
     {
-        avcodec_free_frame( &vdhp->frame_buffer );
-        avcodec_free_frame( &adhp->frame_buffer );
+        av_frame_free( &vdhp->frame_buffer );
+        av_frame_free( &adhp->frame_buffer );
         return -1;
     }
     memcpy( index_file_path, opt->file_path, file_path_length );
@@ -2617,9 +2617,9 @@ int lwlibav_construct_index
     return 0;
 fail:
     if( vdhp->frame_buffer )
-        avcodec_free_frame( &vdhp->frame_buffer );
+        av_frame_free( &vdhp->frame_buffer );
     if( adhp->frame_buffer )
-        avcodec_free_frame( &adhp->frame_buffer );
+        av_frame_free( &adhp->frame_buffer );
     if( lwhp->file_path )
         lw_freep( &lwhp->file_path );
     return -1;
