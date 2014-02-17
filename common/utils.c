@@ -164,12 +164,12 @@ int lw_try_rational_framerate
         {
             fps_den = i * base[j];
             fps_num = (uint64_t)(lw_round( fps_den * fps_sig ) * exponent);
-            if( fps_num > INT_MAX )
+            if( fps_num > INT32_MAX )
                 break;
             if( fabs( ((double)fps_num / fps_den) / exponent - fps_sig ) < DOUBLE_EPSILON )
             {
-                *framerate_num = (int)fps_num;
-                *framerate_den = (int)fps_den;
+                *framerate_num = (int64_t)fps_num;
+                *framerate_den = (int64_t)fps_den;
                 return 1;
             }
             ++i;
