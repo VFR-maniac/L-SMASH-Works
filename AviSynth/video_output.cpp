@@ -188,7 +188,7 @@ static int make_frame_planar_yuv_stacked
         const int lsb_offset = src_height * dst_picture.linesize[i];
         for( int j = 0; j < src_height; j++ )
         {
-            /* Here, if available, use SIMD operations.
+            /* Here, if available, use SIMD instructions.
              * Note: There is assumption that the address of a given data can be divided by 32 or 16.
              *       The destination is always 32 byte alignment unless AviSynth legacy alignment is used.
              *       The source is not always 32 or 16 byte alignment if the frame buffer is from libavcodec directly. */
@@ -210,8 +210,10 @@ static int make_frame_planar_yuv_stacked
                 __m256i ymm0 = _mm256_load_si256( (__m256i *)(src + 2 * k     ) );
                 __m256i ymm1 = _mm256_load_si256( (__m256i *)(src + 2 * k + 32) );
                 __m256i mask = _mm256_load_si256( (__m256i *)sp16 );
-                _mm256_store_si256( (__m256i *)(dst + k + lsb_offset), _mm256_packus_epi16( _mm256_and_si256 ( ymm0, mask ), _mm256_and_si256 ( ymm1, mask ) ) );
-                _mm256_store_si256( (__m256i *)(dst + k             ), _mm256_packus_epi16( _mm256_srli_epi16( ymm0,    8 ), _mm256_srli_epi16( ymm1,    8 ) ) );
+                __m256i ymm2 = _mm256_packus_epi16( _mm256_and_si256 ( ymm0, mask ), _mm256_and_si256 ( ymm1, mask ) );
+                __m256i ymm3 = _mm256_packus_epi16( _mm256_srli_epi16( ymm0,    8 ), _mm256_srli_epi16( ymm1,    8 ) );
+                _mm256_store_si256( (__m256i *)(dst + k + lsb_offset), _mm256_permute4x64_epi64( ymm2, _MM_SHUFFLE( 3, 1, 2, 0 ) ) );
+                _mm256_store_si256( (__m256i *)(dst + k             ), _mm256_permute4x64_epi64( ymm3, _MM_SHUFFLE( 3, 1, 2, 0 ) ) );
             }
 #endif
             /* SSE2 */
