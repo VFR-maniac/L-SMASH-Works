@@ -818,7 +818,7 @@ static void create_video_frame_order_list
                 default :
                     break;
             }
-        if( repeat_pict == 0 )
+        if( repeat_pict == 0 && !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
         {
             /* PAFF field coded picture */
             complete_frame ^= 1;
@@ -888,7 +888,7 @@ static void create_video_frame_order_list
                 default :
                     break;
             }
-        if( repeat_pict == 0 )
+        if( repeat_pict == 0 && !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
         {
             /* PAFF field coded picture */
             if( field_info == LW_FIELD_INFO_BOTTOM )
@@ -1691,6 +1691,10 @@ static void create_index
                     video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
                     last_keyframe_pts = pkt.pts;
                 }
+                if( repeat_pict == 0 && field_info == LW_FIELD_INFO_UNKNOWN && pkt_ctx->pix_fmt == AV_PIX_FMT_NONE
+                 && (pkt_ctx->codec_id == AV_CODEC_ID_H264 || pkt_ctx->codec_id == AV_CODEC_ID_HEVC)
+                 && (pkt_ctx->width == 0 || pkt_ctx->height == 0) )
+                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_CORRUPT;
                 /* Set maximum resolution. */
                 if( vdhp->max_width  < pkt_ctx->width )
                     vdhp->max_width  = pkt_ctx->width;
@@ -2216,6 +2220,11 @@ static int parse_index
                         video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
                         last_keyframe_pts = pts;
                     }
+                    if( repeat_pict == 0 && field_info == LW_FIELD_INFO_UNKNOWN
+                     && av_get_pix_fmt( (const char *)pix_fmt ) == AV_PIX_FMT_NONE
+                     && ((enum AVCodecID)codec_id == AV_CODEC_ID_H264 || (enum AVCodecID)codec_id == AV_CODEC_ID_HEVC)
+                     && (width == 0 || height == 0) )
+                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_CORRUPT;
                 }
                 if( video_sample_count + 1 == video_info_count )
                 {

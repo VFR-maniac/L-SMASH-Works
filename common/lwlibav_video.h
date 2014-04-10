@@ -25,6 +25,7 @@ typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
 
 #define LW_VFRAME_FLAG_KEY     0x1
 #define LW_VFRAME_FLAG_LEADING 0x2
+#define LW_VFRAME_FLAG_CORRUPT 0x4
 
 typedef enum
 {
