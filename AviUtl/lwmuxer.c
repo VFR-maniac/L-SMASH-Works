@@ -161,6 +161,7 @@ typedef struct
     FILE_INFO                 fi;
     lsmash_root_t            *root;
     input_track_t             track[2];
+    lsmash_file_parameters_t  file_param;
     lsmash_movie_parameters_t movie_param;
     order_converter_t        *order_converter;
 } input_movie_t;
@@ -205,10 +206,11 @@ typedef struct
 
 typedef struct
 {
-    lsmash_root_t *root;
-    output_track_t track[2];
-    uint32_t       number_of_tracks;
-    double         largest_dts;
+    lsmash_root_t           *root;
+    output_track_t           track[2];
+    lsmash_file_parameters_t file_param;
+    uint32_t                 number_of_tracks;
+    double                   largest_dts;
 } output_movie_t;
 
 typedef struct
@@ -434,8 +436,16 @@ static int open_input_movie( lsmash_handler_t *hp, FILE_INFO *fi, int file_id )
         return -1;
     }
     input_array[hp->number_of_inputs] = input;
-    input->root = lsmash_open_movie( fi->name, LSMASH_FILE_MODE_READ );
+    /* Open an input file. */
+    input->root = lsmash_create_root();
     if( !input->root )
+        return -1;
+    if( lsmash_open_file( fi->name, 1, &input->file_param ) < 0 )
+        return -1;
+    lsmash_file_t *file = lsmash_set_file( input->root, &input->file_param );
+    if( !file )
+        return -1;
+    if( lsmash_read_file( file, &input->file_param ) < 0 )
         return -1;
     lsmash_initialize_movie_parameters( &input->movie_param );
     lsmash_get_movie_parameters( input->root, &input->movie_param );
@@ -864,8 +874,12 @@ static int setup_sequence_order_converter( sequence_t *sequence, uint32_t *compo
 static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
 {
     output_movie_t *output = hp->output;
-    output->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_WRITE );
+    output->root = lsmash_create_root();
     if( !output->root )
+        return -1;
+    if( lsmash_open_file( file_name, 0, &output->file_param ) < 0 )
+        return -1;
+    if( !lsmash_set_file( output->root, &output->file_param ) )
         return -1;
 #ifdef DEBUG
     char log_file_name[MAX_PATH + 10];
@@ -1387,7 +1401,10 @@ static void cleanup_handler( lsmash_handler_t *hp )
         return;
     output_movie_t *output = hp->output;
     if( output )
+    {
+        lsmash_close_file( &output->file_param );
         lsmash_destroy_root( output->root );
+    }
     if( hp->input )
         for( uint32_t i = 0; i < hp->number_of_inputs; i++ )
         {
@@ -1396,6 +1413,7 @@ static void cleanup_handler( lsmash_handler_t *hp )
             {
                 if( input->order_converter )
                     free( input->order_converter );
+                lsmash_close_file( &input->file_param );
                 lsmash_destroy_root( input->root );
                 for( uint32_t j = 0; j < 2; j++ )
                 {
