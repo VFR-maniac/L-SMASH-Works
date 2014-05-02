@@ -193,28 +193,44 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
     char file_name[MAX_PATH];
     if( !fp->exfunc->dlg_get_save_name( (LPSTR)file_name, DUMP_FILE_EXT TIMECODE_FILE_EXT, NULL ) )
         return FALSE;
-    lsmash_file_mode mode = LSMASH_FILE_MODE_READ;
+    /* Open the input file. */
+    lsmash_root_t *root = lsmash_create_root();
+    if( !root )
+    {
+        fprintf( stderr, "Failed to create a ROOT.\n" );
+        return -1;
+    }
+    lsmash_file_parameters_t file_param = { 0 };
+    if( lsmash_open_file( fi.name, 1, &file_param ) < 0 )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to open an input file.", "lwdumper", MB_ICONERROR | MB_OK );
+        goto fail;
+    }
     if( check_extension( file_name, ".txt" ) )
-        mode |= LSMASH_FILE_MODE_DUMP;
+        file_param.mode |= LSMASH_FILE_MODE_DUMP;
     else if( !check_extension( file_name, ".tmc" ) )
     {
         MessageBox( HWND_DESKTOP, "Failed to decide the output file format.", "lwdumper", MB_ICONERROR | MB_OK );
-        return FALSE;
+        goto fail;
     }
-    lsmash_root_t *root = lsmash_open_movie( fi.name, mode );
-    if( !root )
+    lsmash_file_t *file = lsmash_set_file( root, &file_param );
+    if( !file )
     {
-        MessageBox( HWND_DESKTOP, "Failed to open the input file.", "lwdumper", MB_ICONERROR | MB_OK );
-        return FALSE;
+        MessageBox( HWND_DESKTOP, "Failed to add a file into a ROOT.", "lwdumper", MB_ICONERROR | MB_OK );
+        goto fail;
     }
-    if( mode & LSMASH_FILE_MODE_DUMP )
+    if( lsmash_read_file( file, &file_param ) < 0 )
+    {
+        MessageBox( HWND_DESKTOP, "Failed to read a file.", "lwdumper", MB_ICONERROR | MB_OK );
+        goto fail;
+    }
+    if( file_param.mode & LSMASH_FILE_MODE_DUMP )
     {
         /* Open the output file to dump the input file. */
         if( lsmash_print_movie( root, file_name ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to dump the box structure.", "lwdumper", MB_ICONERROR | MB_OK );
-            lsmash_destroy_root( root );
-            return FALSE;
+            goto fail;
         }
     }
     else
@@ -224,34 +240,32 @@ BOOL func_WndProc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, void *
         if( track_ID == 0 )
         {
             MessageBox( HWND_DESKTOP, "Failed to get video track_ID.", "lwdumper", MB_ICONERROR | MB_OK );
-            lsmash_destroy_root( root );
-            return FALSE;
+            goto fail;
         }
         uint32_t media_timescale = lsmash_get_media_timescale( root, track_ID );
         if( media_timescale == 0 )
         {
             MessageBox( HWND_DESKTOP, "Failed to get video timescale.", "lwdumper", MB_ICONERROR | MB_OK );
-            lsmash_destroy_root( root );
-            return FALSE;
+            goto fail;
         }
         if( lsmash_construct_timeline( root, track_ID ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to construct timeline.", "lwdumper", MB_ICONERROR | MB_OK );
-            lsmash_destroy_root( root );
-            return FALSE;
+            goto fail;
         }
         lsmash_discard_boxes( root );
         lsmash_media_ts_list_t ts_list;
         if( get_media_timestamps( root, track_ID, &ts_list ) )
         {
             MessageBox( HWND_DESKTOP, "Failed to get media timestamps.", "lwdumper", MB_ICONERROR | MB_OK );
-            lsmash_destroy_root( root );
-            return FALSE;
+            goto fail;
         }
         if( output_timecodes( file_name, &ts_list, media_timescale ) )
             MessageBox( HWND_DESKTOP, "Failed to open the output file.", "lwdumper", MB_ICONERROR | MB_OK );
         lsmash_delete_media_timestamps( &ts_list );
     }
+fail:
+    lsmash_close_file( &file_param );
     lsmash_destroy_root( root );
     return FALSE;
 }
