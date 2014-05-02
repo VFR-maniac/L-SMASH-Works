@@ -44,6 +44,9 @@ extern "C"
 #include "audio_output.h"
 #include "libavsmash_source.h"
 
+static const char func_name_video_source[] = "LSMASHVideoSource";
+static const char func_name_audio_source[] = "LSMASHAudioSource";
+
 LSMASHVideoSource::LSMASHVideoSource
 (
     const char         *source,
@@ -81,31 +84,18 @@ LSMASHVideoSource::~LSMASHVideoSource()
     libavsmash_cleanup_video_output_handler( &voh );
     if( format_ctx )
         avformat_close_input( &format_ctx );
+    lsmash_close_file( &file_param );
     lsmash_destroy_root( vdh.root );
 }
 
 uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *env )
 {
-    /* L-SMASH */
-    vdh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !vdh.root )
-        env->ThrowError( "LSMASHVideoSource: failed to lsmash_open_movie." );
-    lsmash_movie_parameters_t movie_param;
-    lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( vdh.root, &movie_param );
-    if( movie_param.number_of_tracks == 0 )
-        env->ThrowError( "LSMASHVideoSource: the number of tracks equals 0." );
-    /* libavformat */
-    av_register_all();
-    avcodec_register_all();
-    if( avformat_open_input( &format_ctx, source, NULL, NULL ) )
-        env->ThrowError( "LSMASHVideoSource: failed to avformat_open_input." );
-    if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to avformat_find_stream_info." );
-    /* */
     lw_log_handler_t *lhp = &vdh.config.lh;
+    lhp->name     = func_name_video_source;
     lhp->level    = LW_LOG_FATAL;
     lhp->show_log = throw_error;
+    lsmash_movie_parameters_t movie_param;
+    vdh.root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
     return movie_param.number_of_tracks;
 }
 
@@ -242,31 +232,18 @@ LSMASHAudioSource::~LSMASHAudioSource()
     libavsmash_cleanup_audio_output_handler( &aoh );
     if( format_ctx )
         avformat_close_input( &format_ctx );
+    lsmash_close_file( &file_param );
     lsmash_destroy_root( adh.root );
 }
 
 uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *env )
 {
-    /* L-SMASH */
-    adh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !adh.root )
-        env->ThrowError( "LSMASHAudioSource: failed to lsmash_open_movie." );
-    lsmash_movie_parameters_t movie_param;
-    lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( adh.root, &movie_param );
-    if( movie_param.number_of_tracks == 0 )
-        env->ThrowError( "LSMASHAudioSource: the number of tracks equals 0." );
-    /* libavformat */
-    av_register_all();
-    avcodec_register_all();
-    if( avformat_open_input( &format_ctx, source, NULL, NULL ) )
-        env->ThrowError( "LSMASHAudioSource: failed to avformat_open_input." );
-    if( avformat_find_stream_info( format_ctx, NULL ) < 0 )
-        env->ThrowError( "LSMASHAudioSource: failed to avformat_find_stream_info." );
-    /* */
     lw_log_handler_t *lhp = &adh.config.lh;
+    lhp->name     = func_name_audio_source;
     lhp->level    = LW_LOG_FATAL;
     lhp->show_log = throw_error;
+    lsmash_movie_parameters_t movie_param;
+    adh.root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
     return movie_param.number_of_tracks;
 }
 

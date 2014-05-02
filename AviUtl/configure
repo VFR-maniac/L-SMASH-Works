@@ -187,7 +187,7 @@ fi
 
 # -- check lsmash -----------------------------------------------------------------------------
 log_echo "checking for liblsmash..."
-if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "lsmash.h" "lsmash_open_movie(0,0);" ; then
+if ! cc_check "$CFLAGS" "$LDFLAGS $LIBS $XLIBS" "lsmash.h" "lsmash_create_root();" ; then
     log_echo "error: liblsmash checking failed"
     error_exit "lsmash.h might not be installed or some libs missing."
 fi

@@ -77,6 +77,15 @@ static inline uint32_t get_decoder_delay
     return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
 }
 
+lsmash_root_t *libavsmash_open_file
+(
+    AVFormatContext          **p_format_ctx,
+    const char                *file_name,
+    lsmash_file_parameters_t  *file_param,
+    lsmash_movie_parameters_t *movie_param,
+    lw_log_handler_t          *lhp
+);
+
 int get_summaries
 (
     lsmash_root_t         *root,

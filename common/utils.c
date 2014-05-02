@@ -92,7 +92,10 @@ int lw_log_write_message
     }
     char temp[512];
     vsprintf( temp, format, args );
-    sprintf( message, "[%s]: %s", prefix, temp );
+    if( lhp->name )
+        sprintf( message, "%s [%s]: %s", lhp->name, prefix, temp );
+    else
+        sprintf( message, "[%s]: %s", prefix, temp );
     return 1;
 }
 

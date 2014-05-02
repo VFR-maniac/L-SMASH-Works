@@ -28,6 +28,7 @@ extern "C"
 #endif  /* __cplusplus */
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
+#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavresample/avresample.h>
 #include <libavutil/mem.h>

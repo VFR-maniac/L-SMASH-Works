@@ -42,6 +42,7 @@ typedef struct
     VSVideoInfo                       vi;
     libavsmash_video_decode_handler_t vdh;
     libavsmash_video_output_handler_t voh;
+    lsmash_file_parameters_t          file_param;
     AVFormatContext                  *format_ctx;
     uint32_t                          media_timescale;
 } lsmas_handler_t;
@@ -242,46 +243,22 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     libavsmash_cleanup_video_output_handler( &hp->voh );
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );
+    lsmash_close_file( &hp->file_param );
     lsmash_destroy_root( hp->vdh.root );
     free( hp );
 }
 
 static uint32_t open_file
 (
-    lsmas_handler_t *hp,
-    const char      *source,
-    VSMap           *out,
-    const VSAPI     *vsapi
+    lsmas_handler_t  *hp,
+    const char       *source,
+    lw_log_handler_t *lhp
 )
 {
-    /* L-SMASH */
-    hp->vdh.root = lsmash_open_movie( source, LSMASH_FILE_MODE_READ );
-    if( !hp->vdh.root )
-    {
-        vsapi->setError( out, "lsmas: failed to lsmash_open_movie." );
-        return 0;
-    }
     lsmash_movie_parameters_t movie_param;
-    lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( hp->vdh.root, &movie_param );
-    if( movie_param.number_of_tracks == 0 )
-    {
-        vsapi->setError( out, "lsmas: the number of tracks equals 0." );
+    hp->vdh.root = libavsmash_open_file( &hp->format_ctx, source, &hp->file_param, &movie_param, lhp );
+    if( !hp->vdh.root )
         return 0;
-    }
-    /* libavformat */
-    av_register_all();
-    avcodec_register_all();
-    if( avformat_open_input( &hp->format_ctx, source, NULL, NULL ) )
-    {
-        vsapi->setError( out, "lsmas: failed to avformat_open_input." );
-        return 0;
-    }
-    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
-    {
-        vsapi->setError( out, "lsmas: failed to avformat_find_stream_info." );
-        return 0;
-    }
     return movie_param.number_of_tracks;
 }
 
@@ -415,7 +392,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     lh.priv     = &vsbh;
     lh.show_log = set_error;
     /* Open source file. */
-    uint32_t number_of_tracks = open_file( hp, file_name, out, vsapi );
+    uint32_t number_of_tracks = open_file( hp, file_name, &lh );
     if( number_of_tracks == 0 )
     {
         vs_filter_free( hp, core, vsapi );

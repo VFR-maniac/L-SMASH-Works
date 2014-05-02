@@ -31,6 +31,7 @@ extern "C"
 #endif  /* __cplusplus */
 #define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
+#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/audioconvert.h>
 #include <libavutil/mem.h>
@@ -43,6 +44,67 @@ extern "C"
 
 #define BYTE_SWAP_16( x ) ((( x ) << 8 & 0xff00)  | (( x ) >> 8 & 0x00ff))
 #define BYTE_SWAP_32( x ) (BYTE_SWAP_16( x ) << 16 | BYTE_SWAP_16(( x ) >> 16))
+
+lsmash_root_t *libavsmash_open_file
+(
+    AVFormatContext          **p_format_ctx,
+    const char                *file_name,
+    lsmash_file_parameters_t  *file_param,
+    lsmash_movie_parameters_t *movie_param,
+    lw_log_handler_t          *lhp
+)
+{
+    /* L-SMASH */
+    lsmash_root_t *root = lsmash_create_root();
+    if( !root )
+        return NULL;
+    char error_string[96] = { 0 };
+    if( lsmash_open_file( file_name, 1, file_param ) < 0 )
+    {
+        strcpy( error_string, "Failed to open an input file.\n" );
+        goto open_fail;
+    }
+    lsmash_file_t *fh = lsmash_set_file( root, file_param );
+    if( !fh )
+    {
+        strcpy( error_string, "Failed to add an input file into a ROOT.\n" );
+        goto open_fail;
+    }
+    if( lsmash_read_file( fh, file_param ) < 0 )
+    {
+        strcpy( error_string, "Failed to read an input file\n" );
+        goto open_fail;
+    }
+    lsmash_initialize_movie_parameters( movie_param );
+    lsmash_get_movie_parameters( root, movie_param );
+    if( movie_param->number_of_tracks == 0 )
+    {
+        strcpy( error_string, "The number of tracks equals 0.\n" );
+        goto open_fail;
+    }
+    /* libavformat */
+    av_register_all();
+    avcodec_register_all();
+    if( avformat_open_input( p_format_ctx, file_name, NULL, NULL ) )
+    {
+        strcpy( error_string, "Failed to avformat_open_input.\n" );
+        goto open_fail;
+    }
+    if( avformat_find_stream_info( *p_format_ctx, NULL ) < 0 )
+    {
+        strcpy( error_string, "Failed to avformat_find_stream_info.\n" );
+        goto open_fail;
+    }
+    return root;
+open_fail:
+    if( *p_format_ctx )
+        avformat_close_input( p_format_ctx );
+    lsmash_close_file( file_param );
+    lsmash_destroy_root( root );
+    if( lhp->show_log )
+        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    return NULL;
+}
 
 int get_summaries
 (

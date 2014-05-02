@@ -41,12 +41,14 @@ typedef enum
     LW_LOG_WARNING,
     LW_LOG_ERROR,
     LW_LOG_FATAL,
+    LW_LOG_QUIET,
 } lw_log_level;
 
 typedef struct lw_log_handler_tag lw_log_handler_t;
 
 struct lw_log_handler_tag
 {
+    const char  *name;
     lw_log_level level;
     void        *priv;
     void (*show_log)( lw_log_handler_t *, lw_log_level, const char *format, ... );

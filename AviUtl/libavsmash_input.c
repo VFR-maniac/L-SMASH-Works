@@ -61,6 +61,7 @@ typedef struct libavsmash_handler_tag
     /* Global stuff */
     UINT                              uType;
     lsmash_root_t                    *root;
+    lsmash_file_parameters_t          file_param;
     lsmash_movie_parameters_t         movie_param;
     uint32_t                          number_of_tracks;
     AVFormatContext                  *format_ctx;
@@ -82,52 +83,26 @@ static void *open_file( char *file_name, reader_option_t *opt )
     libavsmash_handler_t *hp = lw_malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return NULL;
+    /* Set up the log handlers. */
     hp->uType = MB_ICONERROR | MB_OK;
-    hp->vdh.config.lh.priv     = &hp->uType;
-    hp->adh.config.lh.priv     = &hp->uType;
-    hp->vdh.config.lh.level    = LW_LOG_WARNING;
-    hp->adh.config.lh.level    = LW_LOG_WARNING;
-    hp->vdh.config.lh.show_log = au_message_box_desktop;
-    hp->adh.config.lh.show_log = au_message_box_desktop;
-    /* L-SMASH */
-    hp->root = lsmash_open_movie( file_name, LSMASH_FILE_MODE_READ );
+    lw_log_handler_t lh = { 0 };
+    lh.priv     = &hp->uType;
+    lh.level    = LW_LOG_QUIET;
+    lh.show_log = au_message_box_desktop;
+    /* Open file. */
+    hp->root = libavsmash_open_file( &hp->format_ctx, file_name, &hp->file_param, &hp->movie_param, &lh );
     if( !hp->root )
     {
         free( hp );
         return NULL;
     }
-    lsmash_movie_parameters_t movie_param;
-    lsmash_initialize_movie_parameters( &movie_param );
-    lsmash_get_movie_parameters( hp->root, &movie_param );
-    if( movie_param.number_of_tracks == 0 )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "The number of tracks equals 0." );
-        goto open_fail;
-    }
-    hp->movie_param = movie_param;
-    hp->number_of_tracks = movie_param.number_of_tracks;
-    /* libavformat */
-    av_register_all();
-    avcodec_register_all();
-    if( avformat_open_input( &hp->format_ctx, file_name, NULL, NULL ) )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_open_input." );
-        goto open_fail;
-    }
-    if( avformat_find_stream_info( hp->format_ctx, NULL ) < 0 )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avformat_find_stream_info." );
-        goto open_fail;
-    }
-    hp->threads = opt->threads;
-    hp->av_sync = opt->av_sync;
+    hp->number_of_tracks = hp->movie_param.number_of_tracks;
+    hp->threads          = opt->threads;
+    hp->av_sync          = opt->av_sync;
+    lh.level = LW_LOG_WARNING;
+    hp->vdh.config.lh = lh;
+    hp->adh.config.lh = lh;
     return hp;
-open_fail:
-    if( hp->format_ctx )
-        avformat_close_input( &hp->format_ctx );
-    lsmash_destroy_root( hp->root );
-    free( hp );
-    return NULL;
 }
 
 static uint64_t get_empty_duration( lsmash_root_t *root, uint32_t track_ID, uint32_t movie_timescale, uint32_t media_timescale )
@@ -495,6 +470,7 @@ static void close_file( void *private_stuff )
         return;
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );
+    lsmash_close_file( &hp->file_param );
     lsmash_destroy_root( hp->root );
     free( hp );
 }

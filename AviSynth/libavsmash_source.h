@@ -29,9 +29,10 @@ class LSMASHVideoSource : public IClip
 {
 private:
     VideoInfo                         vi;
+    lsmash_file_parameters_t          file_param;
+    AVFormatContext                  *format_ctx;
     libavsmash_video_decode_handler_t vdh;
     libavsmash_video_output_handler_t voh;
-    AVFormatContext                  *format_ctx;
     uint32_t open_file
     (
         const char         *source,
@@ -76,9 +77,10 @@ class LSMASHAudioSource : public IClip
 {
 private:
     VideoInfo                         vi;
+    lsmash_file_parameters_t          file_param;
+    AVFormatContext                  *format_ctx;
     libavsmash_audio_decode_handler_t adh;
     libavsmash_audio_output_handler_t aoh;
-    AVFormatContext                  *format_ctx;
     uint32_t open_file
     (
         const char         *source,
