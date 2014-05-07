@@ -1,7 +1,7 @@
 /*****************************************************************************
  * lwcolor_simd.h
  *****************************************************************************
- * Copyright (C) 2013 L-SMASH Works project
+ * Copyright (C) 2013-2014 L-SMASH Works project
  *
  * Authors: rigaya <rigaya34589@live.jp>
  *

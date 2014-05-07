@@ -1,7 +1,7 @@
 /*****************************************************************************
  * colorspace_simd.h
  *****************************************************************************
- * Copyright (C) 2012-2013 L-SMASH Works project
+ * Copyright (C) 2012-2014 L-SMASH Works project
  *
  * Authors: rigaya <rigaya34589@live.jp>
  *
