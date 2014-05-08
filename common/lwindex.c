@@ -1557,6 +1557,7 @@ static void create_index
     AVPacket pkt = { 0 };
     av_init_packet( &pkt );
     int       video_resolution      = 0;
+    int       is_attached_pic       = 0;
     uint32_t  video_sample_count    = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t  audio_sample_count    = 0;
@@ -1605,9 +1606,11 @@ static void create_index
                 adhp->dv_in_avi    = 1;
                 vdhp->stream_index = pkt.stream_index;
             }
-            int higher_resoluton = (pkt_ctx->width * pkt_ctx->height > video_resolution);   /* Replace lower resolution stream with higher. */
+            /* Replace lower resolution stream with higher. Override attached picture. */
+            int higher_priority = ((pkt_ctx->width * pkt_ctx->height > video_resolution)
+                                || (is_attached_pic && !(stream->disposition & AV_DISPOSITION_ATTACHED_PIC)));
             if( dv_in_avi_init
-             || (!opt->force_video && (vdhp->stream_index == -1 || (pkt.stream_index != vdhp->stream_index && higher_resoluton)))
+             || (!opt->force_video && (vdhp->stream_index == -1 || (pkt.stream_index != vdhp->stream_index && higher_priority)))
              || (opt->force_video && vdhp->stream_index == -1 && pkt.stream_index == opt->force_video_index) )
             {
                 /* Update active video stream. */
@@ -1623,6 +1626,7 @@ static void create_index
                 vdhp->codec_id           = pkt_ctx->codec_id;
                 vdhp->stream_index       = pkt.stream_index;
                 video_resolution         = pkt_ctx->width * pkt_ctx->height;
+                is_attached_pic          = !!(stream->disposition & AV_DISPOSITION_ATTACHED_PIC);
                 video_sample_count       = 0;
                 last_keyframe_pts        = AV_NOPTS_VALUE;
                 vdhp->max_width          = pkt_ctx->width;
