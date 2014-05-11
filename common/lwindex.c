@@ -2574,7 +2574,8 @@ int lwlibav_construct_index
     }
     memcpy( index_file_path, opt->file_path, file_path_length );
     const char *ext = file_path_length >= 5 ? &opt->file_path[file_path_length - 4] : NULL;
-    if( ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) ) )
+    int has_lwi_ext = ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) );
+    if( has_lwi_ext )
         index_file_path[file_path_length] = '\0';
     else
     {
@@ -2607,11 +2608,13 @@ int lwlibav_construct_index
         if( !lwhp->file_path )
             goto fail;
         memcpy( lwhp->file_path, opt->file_path, file_path_length );
+        if( has_lwi_ext )
+            lwhp->file_path[file_path_length - 4] = '\0';
     }
     av_register_all();
     avcodec_register_all();
     AVFormatContext *format_ctx = NULL;
-    if( lavf_open_file( &format_ctx, opt->file_path, lhp ) )
+    if( lavf_open_file( &format_ctx, lwhp->file_path, lhp ) )
     {
         if( format_ctx )
             lavf_close_file( &format_ctx );
