@@ -457,6 +457,8 @@ void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp 
         free( exhp->entries );
     }
     av_free_packet( &adhp->packet );
+    if( adhp->frame_list )
+        lw_freep( &adhp->frame_list );
     if( adhp->index_entries )
         av_freep( &adhp->index_entries );
     if( adhp->frame_buffer )
