@@ -879,6 +879,21 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
         return -1;
     if( lsmash_open_file( file_name, 0, &output->file_param ) < 0 )
         return -1;
+    sequence_t *sequence = &hp->sequence[VIDEO_TRACK][0];
+    input_movie_t *input = sequence->input;
+    output->file_param.major_brand   = input->file_param.major_brand;
+    output->file_param.minor_version = input->file_param.minor_version;
+    output->file_param.brand_count   = input->file_param.brand_count;
+    output->file_param.brands        = input->file_param.brands;
+    if( fp->ex_data_ptr && ((option_t *)fp->ex_data_ptr)->import_chapter )
+        for( uint32_t i = 0; i < output->file_param.brand_count; i++ )
+            if( output->file_param.brands[i] == ISOM_BRAND_TYPE_QT  || output->file_param.brands[i] == ISOM_BRAND_TYPE_M4A
+             || output->file_param.brands[i] == ISOM_BRAND_TYPE_M4B || output->file_param.brands[i] == ISOM_BRAND_TYPE_M4P
+             || output->file_param.brands[i] == ISOM_BRAND_TYPE_M4V )
+            {
+                hp->ref_chap_available = 1;
+                break;
+            }
     if( !lsmash_set_file( output->root, &output->file_param ) )
         return -1;
 #ifdef DEBUG
@@ -895,21 +910,6 @@ static int open_output_file( lsmash_handler_t *hp, FILTER *fp, char *file_name )
     }
     lsmash_movie_parameters_t movie_param;
     lsmash_initialize_movie_parameters( &movie_param );
-    sequence_t *sequence = &hp->sequence[VIDEO_TRACK][0];
-    input_movie_t *input = sequence->input;
-    movie_param.major_brand      = input->movie_param.major_brand;
-    movie_param.minor_version    = input->movie_param.minor_version;
-    movie_param.number_of_brands = input->movie_param.number_of_brands;
-    movie_param.brands           = input->movie_param.brands;
-    if( fp->ex_data_ptr && ((option_t *)fp->ex_data_ptr)->import_chapter )
-        for( uint32_t i = 0; i < movie_param.number_of_brands; i++ )
-            if( movie_param.brands[i] == ISOM_BRAND_TYPE_QT  || movie_param.brands[i] == ISOM_BRAND_TYPE_M4A
-             || movie_param.brands[i] == ISOM_BRAND_TYPE_M4B || movie_param.brands[i] == ISOM_BRAND_TYPE_M4P
-             || movie_param.brands[i] == ISOM_BRAND_TYPE_M4V )
-            {
-                hp->ref_chap_available = 1;
-                break;
-            }
     lsmash_set_movie_parameters( output->root, &movie_param );
     output->number_of_tracks = hp->with_video + hp->with_audio;
     for( uint32_t i = 0; i < 2; i++ )
