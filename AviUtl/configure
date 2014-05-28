@@ -222,8 +222,8 @@ LIBS="-lcomctl32 -lwinmm -lgdi32 $LIBS $XLIBS"
 
 # -- output config.h --------------------------------------------------------------------------
 pushd $SRCDIR
-REV="$(git rev-list HEAD 2> /dev/null | wc -l)"
-HASH="$(git describe --always 2> /dev/null)"
+REV="$(git rev-list --count HEAD 2> /dev/null)"
+HASH="$(git rev-parse --short HEAD 2> /dev/null)"
 popd
 cat >> config.h << EOF
 #define LSMASHWORKS_REV "$REV"
