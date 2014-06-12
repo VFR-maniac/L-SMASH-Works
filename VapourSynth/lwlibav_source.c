@@ -39,7 +39,6 @@ int update_resampler_configuration( AVAudioResampleContext *avr,
                                     uint64_t  in_channel_layout, int  in_sample_rate, enum AVSampleFormat  in_sample_fmt,
                                     int *input_planes, int *input_block_align ){ return 0; }
 int resample_audio( AVAudioResampleContext *avr, audio_samples_t *out, audio_samples_t *in ){ return 0; }
-void avresample_free( AVAudioResampleContext **avr ){ }
 #include "../common/audio_output.h"
 uint64_t output_pcm_samples_from_buffer
 (
