@@ -292,7 +292,9 @@ enum AVPixelFormat get_av_output_pixel_format
             { "YUV422P16", AV_PIX_FMT_YUV422P16LE },
             { "YUV444P16", AV_PIX_FMT_YUV444P16LE },
             { "YUY2",      AV_PIX_FMT_YUYV422     },
+            { "Y8",        AV_PIX_FMT_GRAY8       },
             { "RGB24",     AV_PIX_FMT_BGR24       },
+            { "RGB32",     AV_PIX_FMT_BGRA        },
 #if FFMPEG_HIGH_DEPTH_SUPPORT
             { "YUV420P12", AV_PIX_FMT_YUV420P12LE },
             { "YUV420P14", AV_PIX_FMT_YUV420P14LE },
