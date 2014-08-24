@@ -171,7 +171,7 @@ case "$TARGET_OS" in
         SOSUFFIX="dylib"
         SONAME="$BASENAME.$REV.$SOSUFFIX"
         SONAME_LN="$BASENAME.$SOSUFFIX"
-        SOFLAGS="-dynamiclib -Wl,-single_module -Wl,-read_only_relocs,suppress -install_name $(DESTDIR)$(libdir)/$(SONAME)"
+        SOFLAGS="-dynamiclib -Wl,-single_module -Wl,-read_only_relocs,suppress -install_name ${DESTDIR}${libdir}/${SONAME}"
         ;;
     *)
         SOSUFFIX="so"
