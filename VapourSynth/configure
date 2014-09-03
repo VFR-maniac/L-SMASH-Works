@@ -169,14 +169,14 @@ case "$TARGET_OS" in
     *darwin*)
         SYS="MACOSX"
         SOSUFFIX="dylib"
-        SONAME="$BASENAME.$REV.$SOSUFFIX"
-        SONAME_LN="$BASENAME.$SOSUFFIX"
+        SONAME="lib$BASENAME.$REV.$SOSUFFIX"
+        SONAME_LN="lib$BASENAME.$SOSUFFIX"
         SOFLAGS="-dynamiclib -Wl,-single_module -Wl,-read_only_relocs,suppress -install_name ${DESTDIR}${libdir}/${SONAME}"
         ;;
     *)
         SOSUFFIX="so"
-        SONAME="$BASENAME.$SOSUFFIX.$REV"
-        SONAME_LN="$BASENAME.$SOSUFFIX"
+        SONAME="lib$BASENAME.$SOSUFFIX.$REV"
+        SONAME_LN="lib$BASENAME.$SOSUFFIX"
         SOFLAGS="-Wl,-soname,$SONAME"
         ;;
 esac
