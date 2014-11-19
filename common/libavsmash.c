@@ -320,16 +320,29 @@ static enum AVCodecID get_codec_id_from_description
                 return AV_CODEC_ID_NONE;
             lsmash_audio_summary_t *audio = (lsmash_audio_summary_t *)summary;
             lsmash_qt_audio_format_specific_flags_t *data = (lsmash_qt_audio_format_specific_flags_t *)cs->data.structured;
-            int is_int    = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_FL32_AUDIO )
+            int is_int;
+            int is_signed;
+            int is_be;
+            if( lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_LPCM_AUDIO ) )
+            {
+                /* 'lpcm' format is explicitly declared in the format specific flags. */
+                is_int    = !(data->format_flags & QT_LPCM_FORMAT_FLAG_FLOAT);
+                is_signed = (data->format_flags & QT_AUDIO_FORMAT_FLAG_SIGNED_INTEGER);
+                is_be     = (data->format_flags & QT_LPCM_FORMAT_FLAG_BIG_ENDIAN);
+            }
+            else
+            {
+                is_int    = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_FL32_AUDIO )
                          && !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_FL64_AUDIO );
-            int is_signed = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_RAW_AUDIO )
+                is_signed = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_RAW_AUDIO )
                          && !(lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_NONE_AUDIO ) && audio->sample_size == 8)
                          && !(lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_NOT_SPECIFIED ) && audio->sample_size == 8);
-            int is_be     = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_23NI_AUDIO )
+                is_be     = !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_23NI_AUDIO )
                          && !lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_SOWT_AUDIO );
-            is_int    |= !(data->format_flags & QT_LPCM_FORMAT_FLAG_FLOAT);
-            is_signed |= (data->format_flags & QT_AUDIO_FORMAT_FLAG_SIGNED_INTEGER);
-            is_be     |= (data->format_flags & QT_LPCM_FORMAT_FLAG_BIG_ENDIAN);
+                is_int    |= !(data->format_flags & QT_LPCM_FORMAT_FLAG_FLOAT);
+                is_signed |= (data->format_flags & QT_AUDIO_FORMAT_FLAG_SIGNED_INTEGER);
+                is_be     |= (data->format_flags & QT_LPCM_FORMAT_FLAG_BIG_ENDIAN);
+            }
             switch( audio->sample_size )
             {
                 case  8 :
