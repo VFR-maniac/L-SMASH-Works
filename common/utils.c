@@ -153,31 +153,40 @@ int lw_try_rational_framerate
 #define DOUBLE_EPSILON 5e-5
     if( framerate == 0 )
         return 0;
-    uint64_t fps_den;
-    uint64_t fps_num;
+    uint64_t fps_den[3] = { 0 };
+    uint64_t fps_num[3] = { 0 };
+    double   error[3] = { DOUBLE_EPSILON, DOUBLE_EPSILON, DOUBLE_EPSILON };
     double   exponent;
     double   fps_sig = sigexp10( framerate, &exponent );
-    int      i = 1;
     uint64_t base[3] = { timebase, 1001, 1 };
-    for( int j = 0; j < 3; j++ )
+    for( int i = 0; i < 3; i++ )
     {
-        if( j && base[j] == base[0] )
+        if( i && base[i] == base[0] )
             continue;
-        while( 1 )
+        if( i == 2 && (error[0] < DOUBLE_EPSILON || error[1] < DOUBLE_EPSILON) )
+            break;
+        for( int j = 1; ; j++ )
         {
-            fps_den = i * base[j];
-            fps_num = (uint64_t)(lw_round( fps_den * fps_sig ) * exponent);
-            if( fps_num > INT32_MAX )
-                break;
-            if( fabs( ((double)fps_num / fps_den) / exponent - fps_sig ) < DOUBLE_EPSILON )
+            fps_den[i] = j * base[i];
+            fps_num[i] = (uint64_t)(lw_round( fps_den[i] * fps_sig ) * exponent);
+            if( fps_num[i] > INT32_MAX )
             {
-                *framerate_num = (int64_t)fps_num;
-                *framerate_den = (int64_t)fps_den;
-                return 1;
+                error[i] = DOUBLE_EPSILON;
+                break;
             }
-            ++i;
+            error[i] = fabs( ((double)fps_num[i] / fps_den[i]) / exponent - fps_sig );
+            if( error[i] < DOUBLE_EPSILON )
+                break;
         }
     }
-    return 0;
+    double min_error = DOUBLE_EPSILON;
+    for( int i = 0; i < 3; i++ )
+        if( min_error > error[i] )
+        {
+            min_error = error[i];
+            *framerate_num = (int64_t)fps_num[i];
+            *framerate_den = (int64_t)fps_den[i];
+        }
+    return (min_error < DOUBLE_EPSILON);
 #undef DOUBLE_EPSILON
 }
