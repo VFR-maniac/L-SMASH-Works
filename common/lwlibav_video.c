@@ -132,17 +132,24 @@ void lwlibav_setup_timestamp_info
     {
         uint32_t prev = 0;
         uint32_t curr = 0;
-        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+        uint32_t i    = 0;
+        for( ++i; i <= vdhp->frame_count; i++ )
         {
             prev = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
             if( !(info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
                 break;
         }
-        for( uint32_t i = prev + 1; i <= vdhp->frame_count; i++ )
+        for( ++i; i <= vdhp->frame_count; i++ )
         {
             curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
             if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
                 break;
+        }
+        if( i > vdhp->frame_count )
+        {
+            *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
+            *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
+            return;
         }
         first_ts          = info[prev].dts;
         largest_ts        = first_ts;
@@ -150,21 +157,18 @@ void lwlibav_setup_timestamp_info
         first_duration    = info[curr].dts - info[prev].dts;
         stream_timebase   = first_duration;
         strict_cfr        = (first_duration != 0);
-        for( uint32_t i = 2; i <= vdhp->frame_count; i++ )
+        curr = prev;
+        while( 1 )
         {
-            if( vdhp->order_converter )
+            prev = curr;
+            for( ; i <= vdhp->frame_count; i++ )
             {
-                prev = vdhp->order_converter[i - 1].decoding_to_presentation;
-                curr = vdhp->order_converter[i    ].decoding_to_presentation;
+                curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+                if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                    break;
             }
-            else
-            {
-                prev = i - 1;
-                curr = i;
-            }
-            if( (info[curr].flags & LW_VFRAME_FLAG_INVISIBLE)
-             || (info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
-                continue;
+            if( i > vdhp->frame_count )
+                break;
             uint64_t duration = info[curr].dts - info[prev].dts;
             if( duration == 0 )
             {
@@ -179,6 +183,7 @@ void lwlibav_setup_timestamp_info
             stream_timebase   = get_gcd( stream_timebase, duration );
             second_largest_ts = largest_ts;
             largest_ts        = info[curr].dts;
+            ++i;
         }
     }
     stream_timebase *= video_stream->time_base.num;
