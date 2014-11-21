@@ -130,17 +130,19 @@ void lwlibav_setup_timestamp_info
     }
     else
     {
-        uint32_t prev;
-        uint32_t curr;
-        if( vdhp->order_converter )
+        uint32_t prev = 0;
+        uint32_t curr = 0;
+        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
         {
-            prev = vdhp->order_converter[1].decoding_to_presentation;
-            curr = vdhp->order_converter[2].decoding_to_presentation;
+            prev = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+            if( !(info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                break;
         }
-        else
+        for( uint32_t i = prev + 1; i <= vdhp->frame_count; i++ )
         {
-            prev = 1;
-            curr = 2;
+            curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+            if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                break;
         }
         first_ts          = info[prev].dts;
         largest_ts        = first_ts;
@@ -160,6 +162,9 @@ void lwlibav_setup_timestamp_info
                 prev = i - 1;
                 curr = i;
             }
+            if( (info[curr].flags & LW_VFRAME_FLAG_INVISIBLE)
+             || (info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                continue;
             uint64_t duration = info[curr].dts - info[prev].dts;
             if( duration == 0 )
             {

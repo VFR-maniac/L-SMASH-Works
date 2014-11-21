@@ -484,7 +484,8 @@ static int decide_video_seek_method
         vdhp->lw_seek_flags &= ~SEEK_DTS_BASED;
     else
         for( uint32_t i = 2; i <= sample_count; i++ )
-            if( info[i].dts == AV_NOPTS_VALUE || info[i].dts <= info[i - 1].dts )
+            if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE)
+             && (info[i].dts == AV_NOPTS_VALUE || info[i].dts <= info[i - 1].dts) )
             {
                 vdhp->lw_seek_flags &= ~SEEK_DTS_BASED;
                 break;
@@ -920,6 +921,54 @@ static void create_video_frame_order_list
 disable_repeat:
     if( vdhp->lh.show_log && opt->apply_repeat_flag )
         vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
+    vohp->repeat_control       = 0;
+    vohp->repeat_correction_ts = 0;
+    vohp->frame_order_count    = 0;
+    vohp->frame_order_list     = NULL;
+    vohp->frame_count          = vdhp->frame_count;
+    return;
+}
+
+static void create_video_visible_frame_list
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        invisible_count
+)
+{
+    if( vohp->repeat_control || invisible_count == 0 )
+        return;
+    uint32_t visible_count = vdhp->frame_count - invisible_count;
+    lw_video_frame_order_t *order_list = (lw_video_frame_order_t *)lw_malloc_zero( (visible_count + 1) * sizeof(lw_video_frame_order_t) );
+    if( !order_list )
+    {
+        if( vdhp->lh.show_log )
+            vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+        goto disable_repeat;
+    }
+    video_frame_info_t *info = vdhp->frame_list;
+    uint32_t order_count = 0;
+    for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+    {
+        if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE) )
+            ++order_count;
+        order_list[order_count].top    = i;
+        order_list[order_count].bottom = i;
+    }
+    if( visible_count != order_count )
+    {
+        free( order_list );
+        goto disable_repeat;
+    }
+    vohp->repeat_control       = 1;
+    vohp->repeat_correction_ts = 0;
+    vohp->frame_order_count    = visible_count;
+    vohp->frame_order_list     = order_list;
+    vohp->frame_count          = vohp->frame_order_count;
+    return;
+disable_repeat:
+    if( vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Failed to create invisible frame control." );
     vohp->repeat_control       = 0;
     vohp->repeat_correction_ts = 0;
     vohp->frame_order_count    = 0;
@@ -1559,6 +1608,7 @@ static void create_index
     int       video_resolution      = 0;
     int       is_attached_pic       = 0;
     uint32_t  video_sample_count    = 0;
+    uint32_t  invisible_count       = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t  audio_sample_count    = 0;
     int       audio_sample_rate     = 0;
@@ -1678,27 +1728,35 @@ static void create_index
             if( pkt.stream_index == vdhp->stream_index )
             {
                 ++video_sample_count;
-                video_info[video_sample_count].pts             = pkt.pts;
-                video_info[video_sample_count].dts             = pkt.dts;
-                video_info[video_sample_count].file_offset     = pkt.pos;
-                video_info[video_sample_count].sample_number   = video_sample_count;
-                video_info[video_sample_count].extradata_index = extradata_index;
-                video_info[video_sample_count].pict_type       = pict_type;
-                video_info[video_sample_count].poc             = poc;
-                video_info[video_sample_count].repeat_pict     = repeat_pict;
-                video_info[video_sample_count].field_info      = field_info;
+                video_frame_info_t *info = &video_info[video_sample_count];
+                info->pts             = pkt.pts;
+                info->dts             = pkt.dts;
+                info->file_offset     = pkt.pos;
+                info->sample_number   = video_sample_count;
+                info->extradata_index = extradata_index;
+                info->pict_type       = pict_type;
+                info->poc             = poc;
+                info->repeat_pict     = repeat_pict;
+                info->field_info      = field_info;
                 if( pkt.pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pkt.pts < last_keyframe_pts )
-                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
+                    info->flags |= LW_VFRAME_FLAG_LEADING;
                 if( pkt.flags & AV_PKT_FLAG_KEY )
                 {
                     /* For the present, treat this frame as a keyframe. */
-                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
+                    info->flags |= LW_VFRAME_FLAG_KEY;
                     last_keyframe_pts = pkt.pts;
                 }
                 if( repeat_pict == 0 && field_info == LW_FIELD_INFO_UNKNOWN && pkt_ctx->pix_fmt == AV_PIX_FMT_NONE
                  && (pkt_ctx->codec_id == AV_CODEC_ID_H264 || pkt_ctx->codec_id == AV_CODEC_ID_HEVC)
                  && (pkt_ctx->width == 0 || pkt_ctx->height == 0) )
-                    video_info[video_sample_count].flags |= LW_VFRAME_FLAG_CORRUPT;
+                    info->flags |= LW_VFRAME_FLAG_CORRUPT;
+                if( (pkt_ctx->codec_id == AV_CODEC_ID_VP8 || pkt_ctx->codec_id == AV_CODEC_ID_VP9)
+                 && pkt.pts == AV_NOPTS_VALUE && pkt.dts == AV_NOPTS_VALUE && pkt.pos == -1 )
+                {
+                    /* VPx invisible altref frame. */
+                    info->flags |= LW_VFRAME_FLAG_INVISIBLE;
+                    ++invisible_count;
+                }
                 /* Set maximum resolution. */
                 if( vdhp->max_width  < pkt_ctx->width )
                     vdhp->max_width  = pkt_ctx->width;
@@ -1775,12 +1833,13 @@ static void create_index
                 {
                     /* Set up audio frame info. */
                     ++audio_sample_count;
-                    audio_info[audio_sample_count].pts             = pkt.pts;
-                    audio_info[audio_sample_count].dts             = pkt.dts;
-                    audio_info[audio_sample_count].file_offset     = pkt.pos;
-                    audio_info[audio_sample_count].sample_number   = audio_sample_count;
-                    audio_info[audio_sample_count].extradata_index = extradata_index;
-                    audio_info[audio_sample_count].sample_rate     = pkt_ctx->sample_rate;
+                    audio_frame_info_t *info = &audio_info[audio_sample_count];
+                    info->pts             = pkt.pts;
+                    info->dts             = pkt.dts;
+                    info->file_offset     = pkt.pos;
+                    info->sample_number   = audio_sample_count;
+                    info->extradata_index = extradata_index;
+                    info->sample_rate     = pkt_ctx->sample_rate;
                     if( frame_length != -1 && audio_sample_count > helper->delay_count )
                     {
                         uint32_t audio_frame_number = audio_sample_count - helper->delay_count;
@@ -2034,6 +2093,8 @@ static void create_index
             goto fail_index;
         /* Create the repeat control info. */
         create_video_frame_order_list( vdhp, vohp, opt );
+        /* Exclude invisible frames from the output handler. */
+        create_video_visible_frame_list( vdhp, vohp, invisible_count );
     }
     if( adhp->stream_index >= 0 )
     {
@@ -2130,6 +2191,7 @@ static int parse_index
     vdhp->initial_colorspace   = AVCOL_SPC_NB;
     aohp->output_sample_format = AV_SAMPLE_FMT_NONE;
     uint32_t video_sample_count    = 0;
+    uint32_t invisible_count       = 0;
     int64_t  last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t audio_sample_count    = 0;
     int      audio_sample_rate     = 0;
@@ -2208,27 +2270,35 @@ static int parse_index
                         video_time_base.den = time_base.den;
                     }
                     ++video_sample_count;
-                    video_info[video_sample_count].pts             = pts;
-                    video_info[video_sample_count].dts             = dts;
-                    video_info[video_sample_count].file_offset     = pos;
-                    video_info[video_sample_count].sample_number   = video_sample_count;
-                    video_info[video_sample_count].extradata_index = extradata_index;
-                    video_info[video_sample_count].pict_type       = pict_type;
-                    video_info[video_sample_count].poc             = poc;
-                    video_info[video_sample_count].repeat_pict     = repeat_pict;
-                    video_info[video_sample_count].field_info      = (lw_field_info_t)field_info;
+                    video_frame_info_t *info = &video_info[video_sample_count];
+                    info->pts             = pts;
+                    info->dts             = dts;
+                    info->file_offset     = pos;
+                    info->sample_number   = video_sample_count;
+                    info->extradata_index = extradata_index;
+                    info->pict_type       = pict_type;
+                    info->poc             = poc;
+                    info->repeat_pict     = repeat_pict;
+                    info->field_info      = (lw_field_info_t)field_info;
                     if( pts != AV_NOPTS_VALUE && last_keyframe_pts != AV_NOPTS_VALUE && pts < last_keyframe_pts )
-                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_LEADING;
+                        info->flags |= LW_VFRAME_FLAG_LEADING;
                     if( key )
                     {
-                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_KEY;
+                        info->flags |= LW_VFRAME_FLAG_KEY;
                         last_keyframe_pts = pts;
                     }
                     if( repeat_pict == 0 && field_info == LW_FIELD_INFO_UNKNOWN
                      && av_get_pix_fmt( (const char *)pix_fmt ) == AV_PIX_FMT_NONE
                      && ((enum AVCodecID)codec_id == AV_CODEC_ID_H264 || (enum AVCodecID)codec_id == AV_CODEC_ID_HEVC)
                      && (width == 0 || height == 0) )
-                        video_info[video_sample_count].flags |= LW_VFRAME_FLAG_CORRUPT;
+                        info->flags |= LW_VFRAME_FLAG_CORRUPT;
+                    if( ((enum AVCodecID)codec_id == AV_CODEC_ID_VP8 || (enum AVCodecID)codec_id == AV_CODEC_ID_VP9)
+                     && pts == AV_NOPTS_VALUE && dts == AV_NOPTS_VALUE && pos == -1 )
+                    {
+                        /* VPx invisible altref frame. */
+                        info->flags |= LW_VFRAME_FLAG_INVISIBLE;
+                        ++invisible_count;
+                    }
                 }
                 if( video_sample_count + 1 == video_info_count )
                 {
@@ -2276,12 +2346,13 @@ static int parse_index
                     aohp->output_sample_rate     = MAX( aohp->output_sample_rate, audio_sample_rate );
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
                     ++audio_sample_count;
-                    audio_info[audio_sample_count].pts             = pts;
-                    audio_info[audio_sample_count].dts             = dts;
-                    audio_info[audio_sample_count].file_offset     = pos;
-                    audio_info[audio_sample_count].sample_number   = audio_sample_count;
-                    audio_info[audio_sample_count].extradata_index = extradata_index;
-                    audio_info[audio_sample_count].sample_rate     = sample_rate;
+                    audio_frame_info_t *info = &audio_info[audio_sample_count];
+                    info->pts             = pts;
+                    info->dts             = dts;
+                    info->file_offset     = pos;
+                    info->sample_number   = audio_sample_count;
+                    info->extradata_index = extradata_index;
+                    info->sample_rate     = sample_rate;
                 }
                 else
                     for( uint32_t i = 1; i <= adhp->exh.delay_count; i++ )
@@ -2487,6 +2558,8 @@ static int parse_index
                 goto fail_parsing;
             /* Create the repeat control info. */
             create_video_frame_order_list( vdhp, vohp, opt );
+            /* Exclude invisible frames from the output handler. */
+            create_video_visible_frame_list( vdhp, vohp, invisible_count );
         }
         if( adhp->stream_index >= 0 )
         {
