@@ -799,7 +799,7 @@ static void create_video_frame_order_list
             field_info = next_field_info;
             info[i].field_info = field_info;
         }
-        else if( field_info != next_field_info && (!repeat_field || !complete_frame) )
+        else if( field_info != next_field_info )
         {
             if( !complete_frame )
             {
@@ -807,11 +807,11 @@ static void create_video_frame_order_list
                  *    coded order: {I[0],P[1]},{P[4],P[5]},{B[2],}
                  *   output order: {I[0],P[1]},{B[2],},{P[4],P[5]}
                  * We exclude this picture from the output buffer. */
-                info[i - 1].flags |= LW_VFRAME_FLAG_CORRUPT;
+                info[i - 1].flags |= LW_VFRAME_FLAG_COUNTERPART_MISSING;
                 complete_frame ^= 1;
                 order_count    -= 1;
             }
-            else
+            else if( !repeat_field )
                 goto disable_repeat;
         }
         if( opt->apply_repeat_flag )
@@ -832,7 +832,7 @@ static void create_video_frame_order_list
                 default :
                     break;
             }
-        if( repeat_pict == 0 && !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
+        if( repeat_pict == 0 && !(info[i].flags & (LW_VFRAME_FLAG_CORRUPT | LW_VFRAME_FLAG_COUNTERPART_MISSING)) )
         {
             /* PAFF field coded picture */
             complete_frame ^= 1;
@@ -905,20 +905,20 @@ static void create_video_frame_order_list
         if( repeat_pict == 0 )
         {
             /* PAFF field coded picture */
-            if( !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
+            if( info[i].flags & LW_VFRAME_FLAG_COUNTERPART_MISSING )
+            {
+                /* Exclude this picture from the output buffer. */
+                --t_count;
+                --b_count;
+                complete_frame = 1;
+            }
+            else if( !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
             {
                 if( field_info == LW_FIELD_INFO_BOTTOM )
                     --t_count;
                 else
                     --b_count;
                 complete_frame ^= 1;
-            }
-            else
-            {
-                /* Exclude this picture from the output buffer. */
-                --t_count;
-                --b_count;
-                complete_frame = 1;
             }
         }
     }

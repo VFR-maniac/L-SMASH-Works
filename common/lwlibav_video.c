@@ -409,11 +409,8 @@ static uint32_t seek_video
         if( ret == -2 )
             return 0;
         else if( ret >= 1 )
-        {
             /* No decoding occurs. */
-            got_picture = 0;
             break;
-        }
         /* Handle decoder delay derived from PAFF field coded pictures. */
         if( current <= vdhp->frame_count && current >= rap_number + decoder_delay
          && !got_picture && vdhp->frame_list[current].repeat_pict == 0 )
@@ -573,7 +570,7 @@ static int get_picture
                 break;
             vdhp->last_half_frame  = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
             vdhp->last_half_offset = 0;
-            ++current;
+            current += (vdhp->frame_list[frame_number].flags & LW_VFRAME_FLAG_COUNTERPART_MISSING) ? 2 : 1;
         }
     return got_picture ? 0 : -1;
 }
