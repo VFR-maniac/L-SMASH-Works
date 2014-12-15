@@ -26,7 +26,6 @@
 #include <windows.h>
 
 /* L-SMASH */
-#define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 
 #include "filter.h"

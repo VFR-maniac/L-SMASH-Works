@@ -29,7 +29,6 @@
 extern "C"
 {
 #endif  /* __cplusplus */
-#define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -281,7 +280,6 @@ static enum AVCodecID get_codec_id_from_description
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_AMR_WB,      ISOM_CODEC_TYPE_SAWB_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_ALAC,        ISOM_CODEC_TYPE_ALAC_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_ALAC,          QT_CODEC_TYPE_ALAC_AUDIO );
-#if ((LSMASH_VERSION_MAJOR << 16) | (LSMASH_VERSION_MINOR << 8) | LSMASH_VERSION_MICRO) >= ((1 << 16) | (5 << 8) | 4)
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_MACE3,         QT_CODEC_TYPE_MAC3_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_MACE6,         QT_CODEC_TYPE_MAC6_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_QCELP,         QT_CODEC_TYPE_QCLP_AUDIO );
@@ -293,7 +291,6 @@ static enum AVCodecID get_codec_id_from_description
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_ADPCM_MS,      QT_CODEC_TYPE_ADPCM2_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_ADPCM_IMA_WAV, QT_CODEC_TYPE_ADPCM17_AUDIO );
         ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE( AV_CODEC_ID_GSM_MS,        QT_CODEC_TYPE_GSM49_AUDIO );
-#endif
         else if( lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_LPCM_AUDIO )
               || lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_FL32_AUDIO )
               || lsmash_check_codec_type_identical( sample_type, QT_CODEC_TYPE_FL64_AUDIO )

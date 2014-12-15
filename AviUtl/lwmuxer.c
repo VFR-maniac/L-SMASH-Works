@@ -28,7 +28,6 @@
 #include <ctype.h>
 
 /* L-SMASH */
-#define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>
 
 #include <libavutil/mathematics.h>

@@ -22,7 +22,6 @@
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
 /* L-SMASH (ISC) */
-#define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>                 /* Demuxer */
 
 /* Libav (LGPL or GPL) */

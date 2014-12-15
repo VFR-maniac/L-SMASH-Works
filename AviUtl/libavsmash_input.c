@@ -23,7 +23,6 @@
  * Don't distribute it if its license is GPL. */
 
 /* L-SMASH */
-#define LSMASH_DEMUXER_ENABLED
 #include <lsmash.h>                 /* Demuxer */
 
 /* Libav
