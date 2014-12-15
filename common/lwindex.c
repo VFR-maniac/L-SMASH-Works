@@ -800,7 +800,20 @@ static void create_video_frame_order_list
             info[i].field_info = field_info;
         }
         else if( field_info != next_field_info && (!repeat_field || !complete_frame) )
-            goto disable_repeat;
+        {
+            if( !complete_frame )
+            {
+                /* The previous picture in output order fails to make a pair to construct a frame.
+                 *    coded order: {I[0],P[1]},{P[4],P[5]},{B[2],}
+                 *   output order: {I[0],P[1]},{B[2],},{P[4],P[5]}
+                 * We exclude this picture from the output buffer. */
+                info[i - 1].flags |= LW_VFRAME_FLAG_CORRUPT;
+                complete_frame ^= 1;
+                order_count    -= 1;
+            }
+            else
+                goto disable_repeat;
+        }
         if( opt->apply_repeat_flag )
             switch( repeat_pict )
             {
@@ -889,14 +902,24 @@ static void create_video_frame_order_list
                 default :
                     break;
             }
-        if( repeat_pict == 0 && !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
+        if( repeat_pict == 0 )
         {
             /* PAFF field coded picture */
-            if( field_info == LW_FIELD_INFO_BOTTOM )
-                --t_count;
+            if( !(info[i].flags & LW_VFRAME_FLAG_CORRUPT) )
+            {
+                if( field_info == LW_FIELD_INFO_BOTTOM )
+                    --t_count;
+                else
+                    --b_count;
+                complete_frame ^= 1;
+            }
             else
+            {
+                /* Exclude this picture from the output buffer. */
+                --t_count;
                 --b_count;
-            complete_frame ^= 1;
+                complete_frame = 1;
+            }
         }
     }
     --t_count;
