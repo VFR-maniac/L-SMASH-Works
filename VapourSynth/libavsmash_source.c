@@ -219,7 +219,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->frame_ctx = frame_ctx;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
-    if( libavsmash_get_video_frame( vdhp, sample_number, vi->numFrames ) < 0 )
+    if( libavsmash_get_video_frame( vdhp, vohp, sample_number ) < 0 )
         return NULL;
     /* Output video frame. */
     AVFrame    *av_frame = vdhp->frame_buffer;
@@ -322,11 +322,12 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     }
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
         return -1;
+    vdhp->sample_count = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
     hp->media_timescale = media_param.timescale;
-    hp->vi.numFrames    = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
+    hp->vi.numFrames    = vdhp->sample_count;
     hp->vi.fpsNum       = 25;
     hp->vi.fpsDen       = 1;
-    libavsmash_setup_timestamp_info( vdhp, &hp->vi.fpsNum, &hp->vi.fpsDen, hp->vi.numFrames );
+    libavsmash_setup_timestamp_info( vdhp, &hp->vi.fpsNum, &hp->vi.fpsDen );
     /* libavformat */
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == hp->format_ctx->nb_streams )

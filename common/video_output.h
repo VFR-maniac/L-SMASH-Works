@@ -50,6 +50,10 @@ typedef struct
     int                       output_height;
     int                       output_linesize;
     uint32_t                  output_frame_size;
+    /* VFR->CFR conversion */
+    int                       vfr2cfr;
+    uint32_t                  cfr_num;
+    uint32_t                  cfr_den;
     /* Repeat control */
     int                       repeat_control;
     int64_t                   repeat_correction_ts;

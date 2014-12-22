@@ -79,6 +79,12 @@ typedef struct
     int scaler;
     int apply_repeat_flag;
     int field_dominance;
+    struct
+    {
+        int active;
+        int framerate_num;
+        int framerate_den;
+    } vfr2cfr;
     output_colorspace_index colorspace;
     struct
     {

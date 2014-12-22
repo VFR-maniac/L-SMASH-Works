@@ -139,12 +139,13 @@ void LSMASHVideoSource::get_video_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
     if( get_summaries( vdh.root, vdh.track_ID, &vdh.config ) )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
-    vi.num_frames = lsmash_get_sample_count_in_media_timeline( vdh.root, vdh.track_ID );
+    vdh.sample_count = lsmash_get_sample_count_in_media_timeline( vdh.root, vdh.track_ID );
+    vi.num_frames = vdh.sample_count;
     /* Calculate average framerate. */
     {
         int64_t fps_num = 25;
         int64_t fps_den = 1;
-        libavsmash_setup_timestamp_info( &vdh, &fps_num, &fps_den, vi.num_frames );
+        libavsmash_setup_timestamp_info( &vdh, &fps_num, &fps_den );
         vi.fps_numerator   = (unsigned int)fps_num;
         vi.fps_denominator = (unsigned int)fps_den;
     }
@@ -198,7 +199,7 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     config->lh.priv = env;
     if( config->error )
         return env->NewVideoFrame( vi );
-    if( libavsmash_get_video_frame( &vdh, sample_number, vi.num_frames ) < 0 )
+    if( libavsmash_get_video_frame( &vdh, &voh, sample_number ) < 0 )
         return env->NewVideoFrame( vi );
     PVideoFrame as_frame;
     if( make_frame( &voh, config->ctx, vdh.frame_buffer, as_frame, env ) < 0 )

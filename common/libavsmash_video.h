@@ -41,18 +41,22 @@ typedef struct
     codec_configuration_t config;
     AVFrame              *frame_buffer;
     order_converter_t    *order_converter;
+    uint8_t              *keyframe_list;
+    uint32_t              sample_count;
     uint32_t              last_sample_number;
     uint32_t              last_rap_number;
     uint32_t              first_valid_frame_number;
     AVFrame              *first_valid_frame;
+    uint32_t              media_timescale;
+    uint64_t              media_duration;
+    double                min_cts;
 } libavsmash_video_decode_handler_t;
 
 int libavsmash_setup_timestamp_info
 (
     libavsmash_video_decode_handler_t *vdhp,
     int64_t                           *framerate_num,
-    int64_t                           *framerate_den,
-    uint32_t                           sample_count
+    int64_t                           *framerate_den
 );
 
 static inline uint32_t get_decoding_sample_number
@@ -69,14 +73,26 @@ static inline uint32_t get_decoding_sample_number
 int libavsmash_get_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
-    uint32_t                           sample_number,
-    uint32_t                           sample_count
+    libavsmash_video_output_handler_t *vohp,
+    uint32_t                           sample_number
 );
 
 int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
     uint32_t                           sample_count
+);
+
+int libavsmash_create_keyframe_list
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_is_keyframe
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
+    uint32_t                           sample_number
 );
 
 void libavsmash_cleanup_video_decode_handler

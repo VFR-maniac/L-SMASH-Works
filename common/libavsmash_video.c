@@ -23,6 +23,7 @@
 #include "cpp_compat.h"
 
 #include <inttypes.h>
+#include <float.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -44,12 +45,11 @@ int libavsmash_setup_timestamp_info
 (
     libavsmash_video_decode_handler_t *vdhp,
     int64_t                           *framerate_num,
-    int64_t                           *framerate_den,
-    uint32_t                           sample_count
+    int64_t                           *framerate_den
 )
 {
     uint64_t media_timescale = lsmash_get_media_timescale( vdhp->root, vdhp->track_ID );
-    if( sample_count == 1 )
+    if( vdhp->sample_count == 1 )
     {
         /* Calculate average framerate. */
         uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_ID );
@@ -62,20 +62,20 @@ int libavsmash_setup_timestamp_info
     }
     lw_log_handler_t *lhp = &vdhp->config.lh;
     lsmash_media_ts_list_t ts_list;
-    if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_ID, &ts_list ) )
+    if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_ID, &ts_list ) < 0 )
     {
         if( lhp->show_log )
             lhp->show_log( lhp, LW_LOG_ERROR, "Failed to get timestamps." );
         return -1;
     }
-    if( ts_list.sample_count != sample_count )
+    if( ts_list.sample_count != vdhp->sample_count )
     {
         if( lhp->show_log )
             lhp->show_log( lhp, LW_LOG_ERROR, "Failed to count number of video samples." );
         return -1;
     }
     uint32_t composition_sample_delay;
-    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) )
+    if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) < 0 )
     {
         lsmash_delete_media_timestamps( &ts_list );
         if( lhp->show_log )
@@ -125,7 +125,7 @@ int libavsmash_setup_timestamp_info
     uint64_t reduce = reduce_fraction( &media_timescale, &composition_timebase );
     uint64_t composition_duration = ((largest_cts - ts_list.timestamp[0].cts) + (largest_cts - second_largest_cts)) / reduce;
     lsmash_delete_media_timestamps( &ts_list );
-    double avg_frame_rate = (sample_count * ((double)media_timescale / composition_duration));
+    double avg_frame_rate = (vdhp->sample_count * ((double)media_timescale / composition_duration));
     if( strict_cfr || !lw_try_rational_framerate( avg_frame_rate, framerate_num, framerate_den, composition_timebase ) )
     {
         uint64_t num = (uint64_t)(avg_frame_rate * composition_timebase + 0.5);
@@ -189,8 +189,9 @@ static int find_random_accessible_point
     lsmash_random_access_flag ra_flags;
     uint32_t distance;  /* distance from the closest random accessible point to the previous. */
     uint32_t number_of_leadings;
-    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number,
-                                                                               rap_number, &ra_flags, &number_of_leadings, &distance ) )
+    if( lsmash_get_closest_random_accessible_point_detail_from_media_timeline( vdhp->root, vdhp->track_ID,
+                                                                               decoding_sample_number, rap_number,
+                                                                               &ra_flags, &number_of_leadings, &distance ) < 0 )
         *rap_number = 1;
     int roll_recovery = !!(ra_flags & ISOM_SAMPLE_RANDOM_ACCESS_FLAG_GDR);
     int is_leading    = number_of_leadings && (decoding_sample_number - *rap_number <= number_of_leadings);
@@ -202,8 +203,8 @@ static int find_random_accessible_point
     {
         lsmash_sample_t sample;
         lsmash_sample_t rap_sample;
-        if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample )
-         || lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, *rap_number, &rap_sample ) )
+        if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample ) < 0
+         || lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, *rap_number, &rap_sample ) < 0 )
         {
             /* Fatal error. */
             *rap_number = vdhp->last_rap_number;
@@ -214,7 +215,7 @@ static int find_random_accessible_point
         uint32_t sample_index = sample.index;
         for( uint32_t i = decoding_sample_number - 1; i; i-- )
         {
-            if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, i, &sample ) )
+            if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, i, &sample ) < 0 )
             {
                 /* Fatal error. */
                 *rap_number = vdhp->last_rap_number;
@@ -289,8 +290,7 @@ static int get_picture
     libavsmash_video_decode_handler_t *vdhp,
     AVFrame                           *picture,
     uint32_t                           current,
-    uint32_t                           goal,
-    uint32_t                           sample_count
+    uint32_t                           goal
 )
 {
     codec_configuration_t *config = &vdhp->config;
@@ -311,7 +311,7 @@ static int get_picture
             ++ config->delay_count;
     }
     /* Flush the last frames. */
-    if( current > sample_count && get_decoder_delay( config->ctx ) )
+    if( current > vdhp->sample_count && get_decoder_delay( config->ctx ) )
         while( current <= goal )
         {
             AVPacket pkt = { 0 };
@@ -330,18 +330,17 @@ static int get_picture
     return got_picture ? 0 : -1;
 }
 
-int libavsmash_get_video_frame
+static int get_requested_picture
 (
     libavsmash_video_decode_handler_t *vdhp,
-    uint32_t                           sample_number,
-    uint32_t                           sample_count
+    AVFrame                           *picture,
+    uint32_t                           sample_number
 )
 {
 #define MAX_ERROR_COUNT 3       /* arbitrary */
-    codec_configuration_t *config  = &vdhp->config;
-    AVFrame               *picture = vdhp->frame_buffer;
-    uint32_t               config_index;
-    if( sample_number < vdhp->first_valid_frame_number || sample_count == 1 )
+    codec_configuration_t *config = &vdhp->config;
+    uint32_t config_index;
+    if( sample_number < vdhp->first_valid_frame_number || vdhp->sample_count == 1 )
     {
         /* Get the index of the decoder configuration. */
         lsmash_sample_t sample;
@@ -354,7 +353,7 @@ int libavsmash_get_video_frame
         if( av_frame_ref( picture, vdhp->first_valid_frame ) < 0 )
             goto video_fail;
         /* Force seeking at the next access for valid video frame. */
-        vdhp->last_sample_number = sample_count + 1;
+        vdhp->last_sample_number = vdhp->sample_count + 1;
         goto return_frame;
     }
     uint32_t start_number;  /* number of sample, for normal decoding, where decoding starts excluding decoding delay */
@@ -386,7 +385,7 @@ int libavsmash_get_video_frame
     int error_count = 0;
     while( start_number == 0    /* Failed to seek. */
      || config->update_pending  /* Need to update the decoder configuration to decode pictures. */
-     || get_picture( vdhp, picture, start_number, sample_number + config->delay_count, sample_count ) )
+     || get_picture( vdhp, picture, start_number, sample_number + config->delay_count ) < 0 )
     {
         if( config->update_pending )
         {
@@ -434,6 +433,90 @@ video_fail:
 #undef MAX_ERROR_COUNT
 }
 
+static uint32_t libavsmash_vfr2cfr
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
+    uint32_t                           sample_number
+)
+{
+    /* Convert VFR to CFR. */
+    double target_pts  = (double)((uint64_t)(sample_number - 1) * vohp->cfr_den) / vohp->cfr_num;
+    double current_pts = DBL_MAX;
+    lsmash_sample_t sample;
+    if( vdhp->last_sample_number <= vdhp->sample_count )
+    {
+        uint32_t last_decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, vdhp->last_sample_number );
+        if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, last_decoding_sample_number, &sample ) < 0 )
+            return 0;
+        current_pts = (double)(sample.cts - vdhp->min_cts) / vdhp->media_timescale;
+        if( target_pts == current_pts )
+            return vdhp->last_sample_number;
+    }
+    if( target_pts < current_pts )
+    {
+        uint32_t composition_sample_number;
+        for( composition_sample_number = vdhp->last_sample_number - 1;
+             composition_sample_number;
+             composition_sample_number-- )
+        {
+            uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number );
+            if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample ) < 0 )
+                return 0;
+            current_pts = (double)(sample.cts - vdhp->min_cts) / vdhp->media_timescale;
+            if( current_pts <= target_pts )
+            {
+                sample_number = composition_sample_number;
+                break;
+            }
+        }
+        if( composition_sample_number == 0 )
+            return 0;
+    }
+    else
+    {
+        uint32_t composition_sample_number;
+        for( composition_sample_number = vdhp->last_sample_number + 1;
+             composition_sample_number <= vdhp->sample_count;
+             composition_sample_number++ )
+        {
+            uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number );
+            if( lsmash_get_sample_info_from_media_timeline( vdhp->root, vdhp->track_ID, decoding_sample_number, &sample ) < 0 )
+                return 0;
+            current_pts = (double)(sample.cts - vdhp->min_cts) / vdhp->media_timescale;
+            if( current_pts > target_pts )
+            {
+                sample_number = composition_sample_number - 1;
+                break;
+            }
+        }
+        if( composition_sample_number > vdhp->sample_count )
+            sample_number = vdhp->sample_count;
+    }
+    return sample_number;
+}
+
+/* Return 0 if successful.
+ * Return 1 if the same frame was requested at the last call.
+ * Return a negative value otherwise. */
+int libavsmash_get_video_frame
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
+    uint32_t                           sample_number
+)
+{
+    if( vohp->vfr2cfr )
+    {
+        sample_number = libavsmash_vfr2cfr( vdhp, vohp, sample_number );
+        if( sample_number == 0 )
+            return -1;
+    }
+    if( sample_number == vdhp->last_sample_number )
+        return 1;
+    return get_requested_picture( vdhp, vdhp->frame_buffer, sample_number );
+}
+
 int libavsmash_find_first_valid_video_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
@@ -466,11 +549,47 @@ int libavsmash_find_first_valid_video_frame
     return 0;
 }
 
+int libavsmash_create_keyframe_list
+(
+    libavsmash_video_decode_handler_t *vdhp
+)
+{
+    vdhp->keyframe_list = (uint8_t *)lw_malloc_zero( (vdhp->sample_count + 1) * sizeof(uint8_t) );
+    if( !vdhp->keyframe_list )
+        return -1;
+    for( uint32_t composition_sample_number = 1; composition_sample_number <= vdhp->sample_count; composition_sample_number++ )
+    {
+        uint32_t decoding_sample_number = get_decoding_sample_number( vdhp->order_converter, composition_sample_number );
+        uint32_t rap_number;
+        if( lsmash_get_closest_random_accessible_point_from_media_timeline( vdhp->root,
+                                                                            vdhp->track_ID,
+                                                                            decoding_sample_number, &rap_number ) < 0 )
+            continue;
+        if( decoding_sample_number == rap_number )
+            vdhp->keyframe_list[composition_sample_number] = 1;
+    }
+    return 0;
+}
+
+int libavsmash_is_keyframe
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
+    uint32_t                           sample_number
+)
+{
+    if( vohp->vfr2cfr )
+        sample_number = libavsmash_vfr2cfr( vdhp, vohp, sample_number );
+    return vdhp->keyframe_list[sample_number];
+}
+
 void libavsmash_cleanup_video_decode_handler
 (
     libavsmash_video_decode_handler_t *vdhp
 )
 {
+    if( vdhp->keyframe_list )
+        lw_freep( &vdhp->keyframe_list );
     if( vdhp->order_converter )
         lw_freep( &vdhp->order_converter );
     if( vdhp->frame_buffer )

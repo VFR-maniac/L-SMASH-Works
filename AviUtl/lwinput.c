@@ -205,6 +205,22 @@ static void get_settings( void )
             video_opt->field_dominance = 0;
         else
             video_opt->field_dominance = CLIP_VALUE( video_opt->field_dominance, 0, 2 );
+        /* VFR->CFR */
+        if( !fgets( buf, sizeof(buf), ini )
+         || sscanf( buf, "vfr2cfr=%d:%d:%d",
+                    &video_opt->vfr2cfr.active,
+                    &video_opt->vfr2cfr.framerate_num,
+                    &video_opt->vfr2cfr.framerate_den ) != 3 )
+        {
+            video_opt->vfr2cfr.active        = 0;
+            video_opt->vfr2cfr.framerate_num = 60000;
+            video_opt->vfr2cfr.framerate_den = 1001;
+        }
+        else
+        {
+            video_opt->vfr2cfr.framerate_num = MAX( video_opt->vfr2cfr.framerate_num, 1 );
+            video_opt->vfr2cfr.framerate_den = MAX( video_opt->vfr2cfr.framerate_den, 1 );
+        }
         /* LW48 output */
         if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "colorspace=%d", (int *)&video_opt->colorspace ) != 1 )
             video_opt->colorspace = 0;
@@ -303,6 +319,9 @@ static void get_settings( void )
         video_opt->scaler                 = 0;
         video_opt->apply_repeat_flag      = 0;
         video_opt->field_dominance        = 0;
+        video_opt->vfr2cfr.active         = 0;
+        video_opt->vfr2cfr.framerate_num  = 60000;
+        video_opt->vfr2cfr.framerate_den  = 1001;
         video_opt->colorspace             = 0;
         video_opt->dummy.width            = 720;
         video_opt->dummy.height           = 480;
@@ -550,7 +569,13 @@ static void get_mix_level
     SetWindowText( GetDlgItem( hwnd, text_idc ), (LPCTSTR)edit_buf );
 }
 
-static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam )
+static BOOL CALLBACK dialog_proc
+(
+    HWND   hwnd,
+    UINT   message,
+    WPARAM wparam,
+    LPARAM lparam
+)
 {
     static char edit_buf[256] = { 0 };
     switch( message )
@@ -594,6 +619,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)field_dominance_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
+            /* VFR->CFR */
+            SendMessage( GetDlgItem( hwnd, IDC_CHECK_VFR_TO_CFR ), BM_SETCHECK, (WPARAM) video_opt->vfr2cfr.active ? BST_CHECKED : BST_UNCHECKED, 0 );
+            sprintf( edit_buf, "%d", video_opt->vfr2cfr.framerate_num );
+            SetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, (LPCTSTR)edit_buf );
+            sprintf( edit_buf, "%d", video_opt->vfr2cfr.framerate_den );
+            SetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, (LPCTSTR)edit_buf );
             /* LW48 output */
             SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_SETCHECK, (WPARAM) video_opt->colorspace == 0 ? BST_UNCHECKED : BST_CHECKED, 0 );
             /* AVS bit-depth */
@@ -770,6 +801,13 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                     /* field_dominance */
                     video_opt->field_dominance = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "field_dominance=%d\n", video_opt->field_dominance );
+                    /* VFR->CFR */
+                    video_opt->vfr2cfr.active = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_VFR_TO_CFR ), BM_GETCHECK, 0, 0 ));
+                    GetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    video_opt->vfr2cfr.framerate_num = MAX( atoi( edit_buf ), 1 );
+                    GetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    video_opt->vfr2cfr.framerate_den = MAX( atoi( edit_buf ), 1 );
+                    fprintf( ini, "vfr2cfr=%d:%d:%d\n", video_opt->vfr2cfr.active, video_opt->vfr2cfr.framerate_num, video_opt->vfr2cfr.framerate_den );
                     /* LW48 output */
                     video_opt->colorspace = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_GETCHECK, 0, 0 )) ? OUTPUT_LW48 : 0;
                     fprintf( ini, "colorspace=%d\n", video_opt->colorspace );
