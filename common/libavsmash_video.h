@@ -49,7 +49,7 @@ typedef struct
     AVFrame              *first_valid_frame;
     uint32_t              media_timescale;
     uint64_t              media_duration;
-    double                min_cts;
+    uint64_t              min_cts;
 } libavsmash_video_decode_handler_t;
 
 int libavsmash_setup_timestamp_info
