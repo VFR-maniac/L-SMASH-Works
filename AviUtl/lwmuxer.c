@@ -250,19 +250,36 @@ static FILE *open_settings( void )
     return NULL;
 }
 
-static void get_settings( lsmash_handler_t *hp )
+static int get_settings( lsmash_handler_t *hp )
 {
     FILE *ini = open_settings();
     if( !ini )
     {
         hp->av_sync = 1;
-        return;
+        return 0;
     }
     char buf[128];
     while( fgets( buf, sizeof(buf), ini ) )
+    {
         if( sscanf( buf, "av_sync=%d", &hp->av_sync ) == 1 )
             break;
+    }
+    int ret = 0;
+    while( fgets( buf, sizeof(buf), ini ) )
+    {
+        int active;
+        if( sscanf( buf, "vfr2cfr=%d", &active ) == 1 )
+        {
+            if( active )
+            {
+                MessageBox( HWND_DESKTOP, "Unavailable when VFR->CFR conversion is enabled.", "lwmuxer", MB_ICONERROR | MB_OK );
+                ret = -1;
+            }
+            break;
+        }
+    }
     fclose( ini );
+    return ret;
 }
 
 static uint64_t get_empty_duration( lsmash_root_t *root, uint32_t track_ID, uint32_t movie_timescale, uint32_t media_timescale )
@@ -1497,6 +1514,12 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
             {
                 case IDOK :
                 {
+                    lsmash_handler_t h = { 0 };
+                    if( get_settings( &h ) < 0 )
+                    {
+                        EndDialog( hwnd, IDCANCEL );
+                        return FALSE;
+                    }
                     option_t *opt = (option_t *)fp->ex_data_ptr;
                     opt->optimize_pd = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_OPTIMIZE_PD ), BM_GETCHECK, 0, 0 ));
                     char file_name[MAX_PATH];
@@ -1513,10 +1536,8 @@ static BOOL CALLBACK dialog_proc( HWND hwnd, UINT message, WPARAM wparam, LPARAM
                         MessageBox( HWND_DESKTOP, "Failed to get the selection range.", "lwmuxer", MB_ICONERROR | MB_OK );
                         return FALSE;
                     }
-                    lsmash_handler_t h       = { 0 };
                     output_movie_t out_movie = { 0 };
                     h.output = &out_movie;
-                    get_settings( &h );
                     if( get_input_movies( &h, editp, fp, frame_s, frame_e ) )
                     {
                         MessageBox( HWND_DESKTOP, "Failed to open the input files.", "lwmuxer", MB_ICONERROR | MB_OK );
