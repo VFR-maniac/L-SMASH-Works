@@ -765,6 +765,112 @@ static int64_t calculate_av_gap
     return 0;
 }
 
+static void compute_stream_duration
+(
+    lwlibav_file_handler_t         *lwhp,
+    lwlibav_video_decode_handler_t *vdhp,
+    int64_t                         stream_duration
+)
+{
+    video_frame_info_t *info = vdhp->frame_list;
+    int64_t  first_ts;
+    int64_t  largest_ts;
+    int64_t  second_largest_ts;
+    uint64_t first_duration;
+    uint64_t stream_timebase;
+    if( !(lwhp->format_flags & AVFMT_TS_DISCONT)
+     && (vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
+    {
+        first_ts          = info[1].pts;
+        largest_ts        = first_ts;
+        second_largest_ts = first_ts;
+        first_duration    = info[2].pts - info[1].pts;
+        stream_timebase   = first_duration;
+        vdhp->strict_cfr = (first_duration != 0);
+        for( uint32_t i = 2; i <= vdhp->frame_count; i++ )
+        {
+            uint64_t duration = info[i].pts - info[i - 1].pts;
+            if( duration == 0 )
+            {
+                if( vdhp->lh.show_log )
+                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
+                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32,
+                                       info[i].pts, i );
+                goto fail;
+            }
+            if( vdhp->strict_cfr && duration != first_duration )
+                vdhp->strict_cfr = 0;
+            stream_timebase   = get_gcd( stream_timebase, duration );
+            second_largest_ts = largest_ts;
+            largest_ts        = info[i].pts;
+        }
+    }
+    else
+    {
+        uint32_t prev = 0;
+        uint32_t curr = 0;
+        uint32_t i    = 0;
+        for( ++i; i <= vdhp->frame_count; i++ )
+        {
+            prev = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+            if( !(info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                break;
+        }
+        for( ++i; i <= vdhp->frame_count; i++ )
+        {
+            curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+            if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                break;
+        }
+        if( i > vdhp->frame_count )
+            goto fail;
+        first_ts          = info[prev].dts;
+        largest_ts        = first_ts;
+        second_largest_ts = first_ts;
+        first_duration    = info[curr].dts - info[prev].dts;
+        stream_timebase   = first_duration;
+        vdhp->strict_cfr = (first_duration != 0);
+        curr = prev;
+        while( 1 )
+        {
+            prev = curr;
+            for( ; i <= vdhp->frame_count; i++ )
+            {
+                curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
+                if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                    break;
+            }
+            if( i > vdhp->frame_count )
+                break;
+            uint64_t duration = info[curr].dts - info[prev].dts;
+            if( duration == 0 )
+            {
+                if( vdhp->lh.show_log )
+                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
+                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32,
+                                       info[curr].dts, curr );
+                goto fail;
+            }
+            if( vdhp->strict_cfr && duration != first_duration )
+                vdhp->strict_cfr = 0;
+            stream_timebase   = get_gcd( stream_timebase, duration );
+            second_largest_ts = largest_ts;
+            largest_ts        = info[curr].dts;
+            ++i;
+        }
+    }
+    vdhp->actual_time_base.num = vdhp->time_base.num * stream_timebase;
+    vdhp->actual_time_base.den = vdhp->time_base.den;
+    if( stream_duration > 0 )
+        vdhp->stream_duration = stream_duration;
+    else
+        vdhp->stream_duration = (largest_ts - first_ts) + (largest_ts - second_largest_ts);
+    return;
+fail:
+    vdhp->stream_duration = 0;
+    return;
+}
+
 static void vfr2cfr_settings
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -2061,8 +2167,6 @@ static void create_index
         AVStream *stream = format_ctx->streams[stream_index];
         print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
                      stream_index, stream->codec->codec_type, stream->duration );
-        if( vdhp->stream_index == stream_index )
-            vdhp->stream_duration = stream->duration;
     }
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
@@ -2157,6 +2261,8 @@ static void create_index
         vdhp->initial_pix_fmt = vdhp->ctx->pix_fmt;
         if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
             goto fail_index;
+        /* Compute the stream duration. */
+        compute_stream_duration( lwhp, vdhp, format_ctx->streams[ vdhp->stream_index ]->duration );
         /* Create the repeat control info. */
         create_video_frame_order_list( vdhp, vohp, opt );
         /* Exclude invisible frames from the output handler. */
@@ -2630,6 +2736,8 @@ static int parse_index
             vdhp->frame_count = video_sample_count;
             if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
                 goto fail_parsing;
+            /* Compute the stream duration. */
+            compute_stream_duration( lwhp, vdhp, vdhp->stream_duration );
             /* Create the repeat control info. */
             create_video_frame_order_list( vdhp, vohp, opt );
             /* Exclude invisible frames from the output handler. */

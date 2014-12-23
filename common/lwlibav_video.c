@@ -86,7 +86,7 @@ void lwlibav_setup_timestamp_info
     int64_t                        *framerate_den
 )
 {
-    AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
+    AVStream *stream = vdhp->format->streams[ vdhp->stream_index ];
     if( vohp->vfr2cfr )
     {
         *framerate_num = (int64_t)vohp->cfr_num;
@@ -95,134 +95,40 @@ void lwlibav_setup_timestamp_info
     }
     if( vdhp->frame_count == 1
      || lwhp->raw_demuxer
+     || vdhp->actual_time_base.num == 0
+     || vdhp->actual_time_base.den == 0
      || ((lwhp->format_flags & AVFMT_TS_DISCONT) && !(vdhp->lw_seek_flags & SEEK_DTS_BASED))
      || !(vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
-    {
-        *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
-        *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
-        return;
-    }
-    video_frame_info_t *info = vdhp->frame_list;
-    int64_t  first_ts;
-    int64_t  largest_ts;
-    int64_t  second_largest_ts;
-    uint64_t first_duration;
-    uint64_t stream_timebase;
-    int      strict_cfr;
-    if( !(lwhp->format_flags & AVFMT_TS_DISCONT)
-     && (vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
-    {
-        first_ts          = info[1].pts;
-        largest_ts        = first_ts;
-        second_largest_ts = first_ts;
-        first_duration    = info[2].pts - info[1].pts;
-        stream_timebase   = first_duration;
-        strict_cfr        = (first_duration != 0);
-        for( uint32_t i = 2; i <= vdhp->frame_count; i++ )
-        {
-            uint64_t duration = info[i].pts - info[i - 1].pts;
-            if( duration == 0 )
-            {
-                if( vdhp->lh.show_log )
-                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32,
-                                       info[i].pts, i );
-                goto fail;
-            }
-            if( strict_cfr && duration != first_duration )
-                strict_cfr = 0;
-            stream_timebase   = get_gcd( stream_timebase, duration );
-            second_largest_ts = largest_ts;
-            largest_ts        = info[i].pts;
-        }
-    }
-    else
-    {
-        uint32_t prev = 0;
-        uint32_t curr = 0;
-        uint32_t i    = 0;
-        for( ++i; i <= vdhp->frame_count; i++ )
-        {
-            prev = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
-            if( !(info[prev].flags & LW_VFRAME_FLAG_INVISIBLE) )
-                break;
-        }
-        for( ++i; i <= vdhp->frame_count; i++ )
-        {
-            curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
-            if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
-                break;
-        }
-        if( i > vdhp->frame_count )
-        {
-            *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
-            *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
-            return;
-        }
-        first_ts          = info[prev].dts;
-        largest_ts        = first_ts;
-        second_largest_ts = first_ts;
-        first_duration    = info[curr].dts - info[prev].dts;
-        stream_timebase   = first_duration;
-        strict_cfr        = (first_duration != 0);
-        curr = prev;
-        while( 1 )
-        {
-            prev = curr;
-            for( ; i <= vdhp->frame_count; i++ )
-            {
-                curr = vdhp->order_converter ? vdhp->order_converter[i].decoding_to_presentation : i;
-                if( !(info[curr].flags & LW_VFRAME_FLAG_INVISIBLE) )
-                    break;
-            }
-            if( i > vdhp->frame_count )
-                break;
-            uint64_t duration = info[curr].dts - info[prev].dts;
-            if( duration == 0 )
-            {
-                if( vdhp->lh.show_log )
-                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32,
-                                       info[curr].dts, curr );
-                goto fail;
-            }
-            if( strict_cfr && duration != first_duration )
-                strict_cfr = 0;
-            stream_timebase   = get_gcd( stream_timebase, duration );
-            second_largest_ts = largest_ts;
-            largest_ts        = info[curr].dts;
-            ++i;
-        }
-    }
-    stream_timebase *= vdhp->time_base.num;
-    uint64_t stream_timescale = vdhp->time_base.den;
+        goto use_avg_frame_rate;
+    uint64_t stream_timebase  = vdhp->actual_time_base.num;
+    uint64_t stream_timescale = vdhp->actual_time_base.den;
     uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
-    uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * vdhp->time_base.num) / reduce;
+    uint64_t stream_duration = (vdhp->stream_duration * vdhp->time_base.num) / reduce;
     double stream_framerate = (vohp->frame_count - (vohp->repeat_correction_ts ? 1 : 0))
                             * ((double)stream_timescale / stream_duration);
-    if( strict_cfr || !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den, stream_timebase ) )
+    if( vdhp->strict_cfr || !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den, stream_timebase ) )
     {
         if( stream_timebase > INT_MAX || (uint64_t)(stream_framerate * stream_timebase + 0.5) > INT_MAX )
-            goto fail;
+            goto use_avg_frame_rate;
         uint64_t num = (uint64_t)(stream_framerate * stream_timebase + 0.5);
         uint64_t den = stream_timebase;
         if( num && den )
             reduce_fraction( &num, &den );
-        else if( video_stream->avg_frame_rate.num == 0
-              || video_stream->avg_frame_rate.den == 0 )
+        else if( stream->avg_frame_rate.num == 0
+              || stream->avg_frame_rate.den == 0 )
         {
             num = 1;
             den = 1;
         }
         else
-            goto fail;
+            goto use_avg_frame_rate;
         *framerate_num = (int64_t)num;
         *framerate_den = (int64_t)den;
     }
     return;
-fail:
-    *framerate_num = (int64_t)video_stream->avg_frame_rate.num;
-    *framerate_den = (int64_t)video_stream->avg_frame_rate.den;
+use_avg_frame_rate:
+    *framerate_num = (int64_t)stream->avg_frame_rate.num;
+    *framerate_den = (int64_t)stream->avg_frame_rate.den;
     return;
 }
 

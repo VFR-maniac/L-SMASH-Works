@@ -96,6 +96,8 @@ typedef struct
     AVFrame            *movable_frame_buffer;
     int64_t             stream_duration;
     int64_t             min_ts;
+    AVRational          actual_time_base;
+    int                 strict_cfr;
 } lwlibav_video_decode_handler_t;
 
 int lwlibav_get_desired_video_track
