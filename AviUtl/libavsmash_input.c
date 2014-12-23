@@ -319,10 +319,13 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libavsmash_video_output_handler_t *vohp = &hp->voh;
     if( !au_setup_video_rendering( vohp, config->ctx, opt, &h->video_format, config->prefer.width, config->prefer.height ) )
         return -1;
+    vohp->vfr2cfr = opt->vfr2cfr.active;
     if( vohp->vfr2cfr )
     {
-        h->framerate_num = (int)vohp->cfr_num;
-        h->framerate_den = (int)vohp->cfr_den;
+        h->framerate_num = opt->vfr2cfr.framerate_num;
+        h->framerate_den = opt->vfr2cfr.framerate_den;
+        vohp->cfr_num     = opt->vfr2cfr.framerate_num;
+        vohp->cfr_den     = opt->vfr2cfr.framerate_den;
         vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
                           * ((double)vdhp->media_duration / vdhp->media_timescale)
                           + 0.5;

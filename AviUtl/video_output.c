@@ -225,12 +225,6 @@ func_get_buffer_t *au_setup_video_rendering
             pic += vohp->output_linesize;
         }
     }
-    vohp->vfr2cfr = opt->vfr2cfr.active;
-    if( vohp->vfr2cfr )
-    {
-        vohp->cfr_num = opt->vfr2cfr.framerate_num;
-        vohp->cfr_den = opt->vfr2cfr.framerate_den;
-    }
     return avcodec_default_get_buffer2;
 }
 

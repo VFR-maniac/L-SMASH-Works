@@ -98,6 +98,9 @@ static void *open_file( char *file_path, reader_option_t *opt )
     lwlibav_opt.force_audio_index = opt->force_audio_index;
     lwlibav_opt.apply_repeat_flag = opt->video_opt.apply_repeat_flag;
     lwlibav_opt.field_dominance   = opt->video_opt.field_dominance;
+    lwlibav_opt.vfr2cfr.active    = opt->video_opt.vfr2cfr.active;
+    lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
+    lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = open_indicator;
@@ -148,7 +151,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     vdhp->seek_mode              = opt->seek_mode;
     vdhp->forward_seek_threshold = opt->forward_seek_threshold;
     lwlibav_video_output_handler_t *vohp = &hp->voh;
-    h->video_sample_count = vohp->frame_count;
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
         return -1;
@@ -157,8 +159,9 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     int64_t fps_num = 25;
     int64_t fps_den = 1;
     lwlibav_setup_timestamp_info( &hp->lwh, vdhp, vohp, &fps_num, &fps_den );
-    h->framerate_num = (int)fps_num;
-    h->framerate_den = (int)fps_den;
+    h->framerate_num      = (int)fps_num;
+    h->framerate_den      = (int)fps_den;
+    h->video_sample_count = vohp->frame_count;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set up the initial input format. */
     vdhp->ctx->width      = vdhp->initial_width;
@@ -223,7 +226,8 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) < 0 )
+    if( lwlibav_get_video_frame( vdhp, vohp, frame_number ) != 0 )
+        /* Skip writing frame data into AviUtl's buffer. */
         return 0;
     return convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, buf );
 }

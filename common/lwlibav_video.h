@@ -70,6 +70,7 @@ typedef struct
     int                 av_seek_flags;
     int                 dv_in_avi;          /* unused */
     enum AVCodecID      codec_id;
+    AVRational          time_base;
     uint32_t            frame_count;
     AVFrame            *frame_buffer;
     video_frame_info_t *frame_list;         /* stored in presentation order */
@@ -93,6 +94,8 @@ typedef struct
     AVFrame            *first_valid_frame;
     AVFrame            *last_frame_buffer;
     AVFrame            *movable_frame_buffer;
+    int64_t             stream_duration;
+    int64_t             min_ts;
 } lwlibav_video_decode_handler_t;
 
 int lwlibav_get_desired_video_track

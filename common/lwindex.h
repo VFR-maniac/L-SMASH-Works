@@ -20,7 +20,7 @@
 
 /* This file is available under an ISC license. */
 
-#define INDEX_FILE_VERSION 12
+#define INDEX_FILE_VERSION 13
 
 typedef struct
 {
@@ -34,6 +34,12 @@ typedef struct
     int         force_audio_index;
     int         apply_repeat_flag;
     int         field_dominance;
+    struct
+    {
+        int      active;
+        uint32_t fps_num;
+        uint32_t fps_den;
+    } vfr2cfr;
 } lwlibav_option_t;
 
 int lwlibav_construct_index

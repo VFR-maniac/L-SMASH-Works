@@ -22,6 +22,8 @@
 
 #include "cpp_compat.h"
 
+#include <float.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -85,6 +87,12 @@ void lwlibav_setup_timestamp_info
 )
 {
     AVStream *video_stream = vdhp->format->streams[ vdhp->stream_index ];
+    if( vohp->vfr2cfr )
+    {
+        *framerate_num = (int64_t)vohp->cfr_num;
+        *framerate_den = (int64_t)vohp->cfr_den;
+        return;
+    }
     if( vdhp->frame_count == 1
      || lwhp->raw_demuxer
      || ((lwhp->format_flags & AVFMT_TS_DISCONT) && !(vdhp->lw_seek_flags & SEEK_DTS_BASED))
@@ -186,10 +194,10 @@ void lwlibav_setup_timestamp_info
             ++i;
         }
     }
-    stream_timebase *= video_stream->time_base.num;
-    uint64_t stream_timescale = video_stream->time_base.den;
+    stream_timebase *= vdhp->time_base.num;
+    uint64_t stream_timescale = vdhp->time_base.den;
     uint64_t reduce = reduce_fraction( &stream_timescale, &stream_timebase );
-    uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * video_stream->time_base.num) / reduce;
+    uint64_t stream_duration = (((largest_ts - first_ts) + (largest_ts - second_largest_ts)) * vdhp->time_base.num) / reduce;
     double stream_framerate = (vohp->frame_count - (vohp->repeat_correction_ts ? 1 : 0))
                             * ((double)stream_timescale / stream_duration);
     if( strict_cfr || !lw_try_rational_framerate( stream_framerate, framerate_num, framerate_den, stream_timebase ) )
@@ -762,15 +770,13 @@ static inline int copy_field
     return 0;
 }
 
-int lwlibav_get_video_frame
+static int lwlibav_repeat_control
 (
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_number
 )
 {
-    if( !vohp->repeat_control )
-        return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
     /* Get picture to applied the repeat control. */
     uint32_t t = vohp->frame_order_list[frame_number].top;
     uint32_t b = vohp->frame_order_list[frame_number].bottom;
@@ -860,6 +866,107 @@ int lwlibav_get_video_frame
     }
 }
 
+static int64_t lwlibav_get_ts
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        frame_number
+)
+{
+    return (vdhp->lw_seek_flags & (SEEK_PTS_GENERATED | SEEK_PTS_BASED)) ? vdhp->frame_list[frame_number].pts
+         : (vdhp->lw_seek_flags & SEEK_DTS_BASED)                        ? vdhp->frame_list[frame_number].dts
+         :                                                                 AV_NOPTS_VALUE;
+}
+
+static uint32_t lwlibav_vfr2cfr
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
+)
+{
+    /* Convert VFR to CFR. */
+    double target_ts  = (double)((uint64_t)(frame_number - 1) * vohp->cfr_den) / vohp->cfr_num;
+    double current_ts = DBL_MAX;
+    AVRational time_base = vdhp->format->streams[ vdhp->stream_index ]->time_base;
+    if( vdhp->last_frame_number <= vdhp->frame_count )
+    {
+        int64_t ts = lwlibav_get_ts( vdhp, vdhp->last_frame_number );
+        if( ts != AV_NOPTS_VALUE )
+        {
+            current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
+            if( target_ts == current_ts )
+                return vdhp->last_frame_number;
+        }
+    }
+    if( target_ts < current_ts )
+    {
+        uint32_t composition_frame_number;
+        for( composition_frame_number = vdhp->last_frame_number - 1;
+             composition_frame_number;
+             composition_frame_number-- )
+        {
+            int64_t ts = lwlibav_get_ts( vdhp, composition_frame_number );
+            if( ts != AV_NOPTS_VALUE )
+            {
+                current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
+                if( current_ts <= target_ts )
+                {
+                    frame_number = composition_frame_number;
+                    break;
+                }
+            }
+        }
+        if( composition_frame_number == 0 )
+            return 0;
+    }
+    else
+    {
+        uint32_t composition_frame_number;
+        for( composition_frame_number = vdhp->last_frame_number + 1;
+             composition_frame_number <= vdhp->frame_count;
+             composition_frame_number++ )
+        {
+            int64_t ts = lwlibav_get_ts( vdhp, composition_frame_number );
+            if( ts != AV_NOPTS_VALUE )
+            {
+                current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
+                if( current_ts > target_ts )
+                {
+                    while( lwlibav_get_ts( vdhp, --composition_frame_number ) == AV_NOPTS_VALUE );
+                    frame_number = composition_frame_number ? composition_frame_number : 1;
+                    break;
+                }
+            }
+        }
+        if( composition_frame_number > vdhp->frame_count )
+            frame_number = vdhp->frame_count;
+    }
+    return frame_number;
+}
+
+/* Return 0 if successful.
+ * Return 1 if the same frame was requested at the last call.
+ * Return a negative value otherwise. */
+int lwlibav_get_video_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
+)
+{
+    if( vohp->repeat_control )
+        return lwlibav_repeat_control( vdhp, vohp, frame_number );
+    if( vohp->vfr2cfr )
+    {
+        frame_number = lwlibav_vfr2cfr( vdhp, vohp, frame_number );
+        if( frame_number == 0 )
+            return -1;
+    }
+    if( frame_number == vdhp->last_frame_number )
+        return 1;
+    return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
+}
+
 int lwlibav_is_keyframe
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -875,6 +982,8 @@ int lwlibav_is_keyframe
         return ((vdhp->frame_list[ curr->top    ].flags & LW_VFRAME_FLAG_KEY) && curr->top    != prev->top && curr->top    != prev->bottom)
             || ((vdhp->frame_list[ curr->bottom ].flags & LW_VFRAME_FLAG_KEY) && curr->bottom != prev->top && curr->bottom != prev->bottom);
     }
+    if( vohp->vfr2cfr )
+        frame_number = lwlibav_vfr2cfr( vdhp, vohp, frame_number );
     return !!(vdhp->frame_list[frame_number].flags & LW_VFRAME_FLAG_KEY);
 }
 

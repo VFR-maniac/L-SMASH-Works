@@ -329,7 +329,6 @@ static void interpolate_dts
 static int poc_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp,
-    AVRational                      time_base,
     int                             max_num_reorder_pics
 )
 {
@@ -439,7 +438,7 @@ static int poc_genarate_pts
             timestamp[i].temp.dts = i;
         }
         sort_presentation_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
-        interpolate_pts( info, timestamp, vdhp->frame_count, time_base, max_composition_delay );
+        interpolate_pts( info, timestamp, vdhp->frame_count, vdhp->time_base, max_composition_delay );
         sort_decoding_order( &timestamp[0].temp, vdhp->frame_count, sizeof(video_timestamp_temp_t) );
         /* Check leading pictures. */
         int64_t last_keyframe_pts = AV_NOPTS_VALUE;
@@ -452,7 +451,7 @@ static int poc_genarate_pts
         }
     }
     else
-        interpolate_pts( info, timestamp, vdhp->frame_count, time_base, 0 );
+        interpolate_pts( info, timestamp, vdhp->frame_count, vdhp->time_base, 0 );
     /* Set generated timestamps. */
     for( uint32_t i = 0; i < vdhp->frame_count; i++ )
     {
@@ -467,8 +466,7 @@ static int decide_video_seek_method
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
-    uint32_t                        sample_count,
-    AVRational                      time_base
+    uint32_t                        sample_count
 )
 {
     vdhp->lw_seek_flags = lineup_seek_base_candidates( lwhp );
@@ -521,7 +519,7 @@ static int decide_video_seek_method
     {
         /* Generate or interpolate DTS if any invalid DTS for each frame. */
         if( !(vdhp->lw_seek_flags & SEEK_DTS_BASED) )
-            interpolate_dts( &info[1], vdhp->frame_count, time_base );
+            interpolate_dts( &info[1], vdhp->frame_count, vdhp->time_base );
         /* Generate PTS from DTS. */
         mpeg12_video_vc1_genarate_pts( vdhp );
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
@@ -531,7 +529,7 @@ static int decide_video_seek_method
           && (vdhp->codec_id == AV_CODEC_ID_H264 || vdhp->codec_id == AV_CODEC_ID_HEVC) )
     {
         /* Generate PTS. */
-        if( poc_genarate_pts( vdhp, time_base, vdhp->codec_id == AV_CODEC_ID_H264 ? 32 : 15 ) < 0 )
+        if( poc_genarate_pts( vdhp, vdhp->codec_id == AV_CODEC_ID_H264 ? 32 : 15 ) < 0 )
         {
             if( vdhp->lh.show_log )
                 vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory for PTS generation." );
@@ -573,6 +571,10 @@ static int decide_video_seek_method
     else if( vdhp->lw_seek_flags & SEEK_DTS_BASED )
         for( uint32_t i = 1; i <= sample_count; i++ )
             info[i].pts = info[i].dts;
+    /* Set the minimum timestamp. */
+    vdhp->min_ts = (vdhp->lw_seek_flags & (SEEK_PTS_GENERATED | SEEK_PTS_BASED)) ? info[1].pts
+                 : (vdhp->lw_seek_flags & SEEK_DTS_BASED)                        ? info[1].dts
+                 : AV_NOPTS_VALUE;
     /* Treat video frames with unique value as keyframe. */
     if( vdhp->lw_seek_flags & SEEK_POS_BASED )
     {
@@ -712,8 +714,6 @@ static int64_t calculate_av_gap
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     lwlibav_audio_decode_handler_t *adhp,
-    AVRational                      video_time_base,
-    AVRational                      audio_time_base,
     int                             sample_rate
 )
 {
@@ -750,19 +750,39 @@ static int64_t calculate_av_gap
     AVRational audio_sample_base = { 1, sample_rate };
     for( uint32_t i = 1, delay_count = 0; i < MIN( audio_ts_number + delay_count, adhp->frame_count ); i++ )
         if( adhp->frame_list[i].length != -1 )
-            audio_ts -= av_rescale_q( adhp->frame_list[i].length, audio_sample_base, audio_time_base );
+            audio_ts -= av_rescale_q( adhp->frame_list[i].length, audio_sample_base, adhp->time_base );
         else
             ++delay_count;
     /* Calculate A/V gap in audio samplerate. */
     if( video_ts || audio_ts )
     {
-        int64_t av_gap = av_rescale_q( audio_ts, audio_time_base, audio_sample_base )
-                       - av_rescale_q( video_ts, video_time_base, audio_sample_base );
+        int64_t av_gap = av_rescale_q( audio_ts, adhp->time_base, audio_sample_base )
+                       - av_rescale_q( video_ts, vdhp->time_base, audio_sample_base );
         if( vohp->repeat_control && vohp->repeat_correction_ts )
-            av_gap += av_rescale_q( vohp->repeat_correction_ts, video_time_base, audio_sample_base );
+            av_gap += av_rescale_q( vohp->repeat_correction_ts, vdhp->time_base, audio_sample_base );
         return av_gap;
     }
     return 0;
+}
+
+static void vfr2cfr_settings
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    lwlibav_option_t               *opt
+)
+{
+    if( vdhp->stream_duration > 0 && (vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
+    {
+        vohp->vfr2cfr     = opt->vfr2cfr.active;
+        vohp->cfr_num     = opt->vfr2cfr.fps_num;
+        vohp->cfr_den     = opt->vfr2cfr.fps_den;
+        vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
+                          * ((double)vdhp->stream_duration * vdhp->time_base.num / vdhp->time_base.den)
+                          + 0.5;
+    }
+    else
+        vohp->vfr2cfr = 0;
 }
 
 static void create_video_frame_order_list
@@ -774,6 +794,8 @@ static void create_video_frame_order_list
 {
     if( !(vdhp->lw_seek_flags & (SEEK_PTS_BASED | SEEK_PTS_GENERATED)) )
         goto disable_repeat;
+    if( opt->vfr2cfr.active )
+        opt->apply_repeat_flag = 0;
     video_frame_info_t *info                      = vdhp->frame_list;
     uint32_t            frame_count               = vdhp->frame_count;
     uint32_t            order_count               = 0;
@@ -949,6 +971,8 @@ disable_repeat:
     vohp->frame_order_count    = 0;
     vohp->frame_order_list     = NULL;
     vohp->frame_count          = vdhp->frame_count;
+    if( opt->vfr2cfr.active )
+        vfr2cfr_settings( vdhp, vohp, opt );
     return;
 }
 
@@ -1581,7 +1605,7 @@ static void create_index
     }
     /*
         # Structure of Libav reader index file
-        <LibavReaderIndexFile=12>
+        <LibavReaderIndexFile=13>
         <InputFilePath>foobar.omo</InputFilePath>
         <LibavReaderIndex=0x00000208,0,marumoska>
         <ActiveVideoStreamIndex>+0000000000</ActiveVideoStreamIndex>
@@ -1589,6 +1613,7 @@ static void create_index
         Index=0,Type=0,Codec=2,TimeBase=1001/24000,POS=0,PTS=2002,DTS=0,EDI=0
         Key=1,Pic=1,POC=0,Repeat=1,Field=0,Width=1920,Height=1080,Format=yuv420p,ColorSpace=5
         </LibavReaderIndex>
+        <StreamDuration=0,0>5000</StreamDuration>
         <StreamIndexEntries=0,0,1>
         POS=0,TS=2002,Flags=1,Size=1024,Distance=0
         </StreamIndexEntries>
@@ -1780,6 +1805,11 @@ static void create_index
                     info->flags |= LW_VFRAME_FLAG_INVISIBLE;
                     ++invisible_count;
                 }
+                if( vdhp->time_base.num == 0 || vdhp->time_base.den == 0 )
+                {
+                    vdhp->time_base.num = stream->time_base.num;
+                    vdhp->time_base.den = stream->time_base.den;
+                }
                 /* Set maximum resolution. */
                 if( vdhp->max_width  < pkt_ctx->width )
                     vdhp->max_width  = pkt_ctx->width;
@@ -1891,6 +1921,11 @@ static void create_index
                     aohp->output_sample_format   = select_better_sample_format( aohp->output_sample_format, pkt_ctx->sample_fmt );
                     aohp->output_sample_rate     = MAX( aohp->output_sample_rate, audio_sample_rate );
                     aohp->output_bits_per_sample = MAX( aohp->output_bits_per_sample, bits_per_sample );
+                }
+                if( adhp->time_base.num == 0 || adhp->time_base.den == 0 )
+                {
+                    adhp->time_base.num = stream->time_base.num;
+                    adhp->time_base.den = stream->time_base.den;
                 }
             }
             /* Set channel_layout, sample_rate, sample_format and bits_per_sample for the current extradata. */
@@ -2024,6 +2059,14 @@ static void create_index
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         AVStream *stream = format_ctx->streams[stream_index];
+        print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
+                     stream_index, stream->codec->codec_type, stream->duration );
+        if( vdhp->stream_index == stream_index )
+            vdhp->stream_duration = stream->duration;
+    }
+    for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+    {
+        AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
         {
             print_index( index, "<StreamIndexEntries=%d,%d,%d>\n", stream_index, AVMEDIA_TYPE_VIDEO, stream->nb_index_entries );
@@ -2112,7 +2155,7 @@ static void create_index
         vdhp->frame_list      = video_info;
         vdhp->frame_count     = video_sample_count;
         vdhp->initial_pix_fmt = vdhp->ctx->pix_fmt;
-        if( decide_video_seek_method( lwhp, vdhp, video_sample_count, format_ctx->streams[ vdhp->stream_index ]->time_base ) )
+        if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
             goto fail_index;
         /* Create the repeat control info. */
         create_video_frame_order_list( vdhp, vohp, opt );
@@ -2126,10 +2169,7 @@ static void create_index
         adhp->frame_length = constant_frame_length ? adhp->frame_list[1].length : 0;
         decide_audio_seek_method( lwhp, adhp, audio_sample_count );
         if( opt->av_sync && vdhp->stream_index >= 0 )
-            lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp,
-                                             format_ctx->streams[ vdhp->stream_index ]->time_base,
-                                             format_ctx->streams[ adhp->stream_index ]->time_base,
-                                             audio_sample_rate );
+            lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp, audio_sample_rate );
     }
     cleanup_index_helpers( format_ctx );
     if( index )
@@ -2220,8 +2260,6 @@ static int parse_index
     int      audio_sample_rate     = 0;
     int      constant_frame_length = 1;
     uint64_t audio_duration        = 0;
-    AVRational video_time_base     = { 0, 0 };
-    AVRational audio_time_base     = { 0, 0 };
     char buf[1024];
     while( fgets( buf, sizeof(buf), index ) )
     {
@@ -2287,10 +2325,10 @@ static int parse_index
                         vdhp->initial_pix_fmt = av_get_pix_fmt( (const char *)pix_fmt );
                     if( vdhp->initial_colorspace == AVCOL_SPC_NB )
                         vdhp->initial_colorspace = (enum AVColorSpace)colorspace;
-                    if( video_time_base.num == 0 || video_time_base.den == 0 )
+                    if( vdhp->time_base.num == 0 || vdhp->time_base.den == 0 )
                     {
-                        video_time_base.num = time_base.num;
-                        video_time_base.den = time_base.den;
+                        vdhp->time_base.num = time_base.num;
+                        vdhp->time_base.den = time_base.den;
                     }
                     ++video_sample_count;
                     video_frame_info_t *info = &video_info[video_sample_count];
@@ -2354,10 +2392,10 @@ static int parse_index
                 {
                     if( audio_sample_rate == 0 )
                         audio_sample_rate = sample_rate;
-                    if( audio_time_base.num == 0 || audio_time_base.den == 0 )
+                    if( adhp->time_base.num == 0 || adhp->time_base.den == 0 )
                     {
-                        audio_time_base.num = time_base.num;
-                        audio_time_base.den = time_base.den;
+                        adhp->time_base.num = time_base.num;
+                        adhp->time_base.den = time_base.den;
                     }
                     if( layout == 0 )
                         layout = av_get_default_channel_layout( channels );
@@ -2416,9 +2454,22 @@ static int parse_index
         goto fail_parsing;  /* Need to re-create the index file. */
     if( strncmp( buf, "</LibavReaderIndex>", strlen( "</LibavReaderIndex>" ) ) )
         goto fail_parsing;
-    /* Parse AVIndexEntry. */
+    /* Parse stream durations. */
     if( !fgets( buf, sizeof(buf), index ) )
         goto fail_parsing;
+    while( !strncmp( buf, "<StreamDuration=", strlen( "<StreamDuration=" ) ) )
+    {
+        int     stream_index;
+        int     codec_type;
+        int64_t stream_duration;
+        if( sscanf( buf, "<StreamDuration=%d,%d>%"SCNd64"</StreamDuration>", &stream_index, &codec_type, &stream_duration ) != 3 )
+            goto fail_parsing;
+        if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index )
+            vdhp->stream_duration = stream_duration;
+        if( !fgets( buf, sizeof(buf), index ) )
+            goto fail_parsing;
+    }
+    /* Parse AVIndexEntry. */
     while( !strncmp( buf, "<StreamIndexEntries=", strlen( "<StreamIndexEntries=" ) ) )
     {
         int stream_index;
@@ -2577,7 +2628,7 @@ static int parse_index
                 goto fail_parsing;
             vdhp->frame_list  = video_info;
             vdhp->frame_count = video_sample_count;
-            if( decide_video_seek_method( lwhp, vdhp, video_sample_count, video_time_base ) )
+            if( decide_video_seek_method( lwhp, vdhp, video_sample_count ) )
                 goto fail_parsing;
             /* Create the repeat control info. */
             create_video_frame_order_list( vdhp, vohp, opt );
@@ -2615,7 +2666,7 @@ static int parse_index
             adhp->frame_length = constant_frame_length ? audio_info[1].length : 0;
             decide_audio_seek_method( lwhp, adhp, audio_sample_count );
             if( opt->av_sync && vdhp->stream_index >= 0 )
-                lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp, video_time_base, audio_time_base, audio_sample_rate );
+                lwhp->av_gap = calculate_av_gap( vdhp, vohp, adhp, audio_sample_rate );
         }
         if( vdhp->stream_index != active_video_index || adhp->stream_index != active_audio_index )
         {
