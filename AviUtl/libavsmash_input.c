@@ -191,19 +191,17 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         h->framerate_num = (int)fps_num;
         h->framerate_den = (int)fps_den;
         h->video_sample_count = hp->vdh.sample_count;
+        uint32_t min_cts_sample_number = hp->vdh.order_converter ? hp->vdh.order_converter[1].composition_to_decoding : 1;
+        if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, min_cts_sample_number, &hp->vdh.min_cts ) )
+        {
+            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
+            return -1;
+        }
         if( hp->av_sync )
         {
-            uint32_t min_cts_sample_number = hp->vdh.order_converter ? hp->vdh.order_converter[1].composition_to_decoding : 1;
-            uint64_t min_cts;
-            if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, min_cts_sample_number, &min_cts ) )
-            {
-                DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
-                return -1;
-            }
-            hp->vih.start_pts = min_cts + ctd_shift
+            hp->vih.start_pts = hp->vdh.min_cts + ctd_shift
                               + get_empty_duration( hp->root, track_ID, hp->movie_param.timescale, hp->vih.media_timescale );
             hp->vih.skip_duration = ctd_shift + get_start_time( hp->root, track_ID );
-            hp->vdh.min_cts = min_cts;
         }
     }
     else
