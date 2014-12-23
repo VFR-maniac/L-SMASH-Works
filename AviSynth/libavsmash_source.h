@@ -43,6 +43,8 @@ private:
         const char         *source,
         uint32_t            track_number,
         int                 threads,
+        int                 fps_num,
+        int                 fps_den,
         IScriptEnvironment *env
     );
     void prepare_video_decoding
@@ -61,6 +63,8 @@ public:
         int                 seek_mode,
         uint32_t            forward_seek_threshold,
         int                 direct_rendering,
+        int                 fps_num,
+        int                 fps_den,
         int                 stacked_format,
         enum AVPixelFormat  pixel_format,
         IScriptEnvironment *env

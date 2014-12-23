@@ -5,7 +5,7 @@
     [Functions]
         [LSMASHVideoSource]
             LSMASHVideoSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
-                              bool dr = false, bool stacked = false, string format = "")
+                              bool dr = false, int fpsnum = 0, int fpsden = 1, bool stacked = false, string format = "")
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
                 * RAP is an abbreviation of random accessible point.
             [Arguments]
@@ -44,6 +44,13 @@
                     Try direct rendering from the video decoder if set to true.
                     The output resolution will be aligned to be mod16-width and mod32-height by assuming two vertical 16x16 macroblock.
                     For H.264 streams, in addition, 2 lines could be added because of the optimized chroma MC.
+                + fpsnum (default : 0)
+                    Forced frame rate numerator.
+                    If frame rate is set to a positive value, output frame rate is forced to the specified value by padding and/or dropping frames.
+                    Otherwise, output frame rate is set to a computed average frame rate and the output process is performed by actual frame-by-frame.
+                + fpsden (default : 1)
+                    Forced frame rate denominator.
+                    See 'fpsnum' in details.
                 + stacked (default : false)
                     Use the stacked format for a hack of AviSynth high bit-depth support if set to true.
                     The stacked format splits MSB and LSB into vertically, and MSB comes on top of output image.
@@ -165,6 +172,7 @@
         [LWLibavVideoSource]
             LWLibavVideoSource(string source, int stream_index = -1, int threads = 0, bool cache = true,
                                int seek_mode = 0, int seek_threshold = 10, bool dr = false,
+                               int fpsnum = 0, int fpsden = 1,
                                bool repeat = false, int dominance = 0, bool stacked = false, string format = "")
                 * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
@@ -185,6 +193,10 @@
                     Same as 'seek_threshold' of LSMASHVideoSource().
                 + dr (default : false)
                     Same as 'dr' of LSMASHVideoSource().
+                + fpsnum (default : 0)
+                    Same as 'fpsnum' of LSMASHVideoSource().
+                + fpsden (default : 1)
+                    Same as 'fpsden' of LSMASHVideoSource().
                 + repeat (default : false)
                     Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if set to true and usable.
                 + dominance : (default : 0)

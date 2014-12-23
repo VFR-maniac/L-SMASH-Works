@@ -234,7 +234,7 @@ static void interpolate_pts
     video_timestamp_temp_t *timestamp,  /* 0-origin */
     uint32_t                frame_count,
     AVRational              time_base,
-    uint32_t                max_composition_delay
+    uint64_t                max_composition_delay
 )
 {
     /* Find the first valid PTS. */
@@ -272,7 +272,7 @@ static void interpolate_pts
             for( uint32_t i = 0; i < frame_count; i++ )
                 if( i < timestamp[i].core.dts )
                 {
-                    uint32_t composition_delay = timestamp[i].core.dts - i;
+                    uint64_t composition_delay = timestamp[i].core.dts - i;
                     max_composition_delay = MAX( max_composition_delay, composition_delay );
                 }
         /* Generate PTSs. */
@@ -859,7 +859,7 @@ static void compute_stream_duration
             ++i;
         }
     }
-    vdhp->actual_time_base.num = vdhp->time_base.num * stream_timebase;
+    vdhp->actual_time_base.num = (int)(vdhp->time_base.num * stream_timebase);
     vdhp->actual_time_base.den = vdhp->time_base.den;
     if( stream_duration > 0 )
         vdhp->stream_duration = stream_duration;
@@ -898,9 +898,9 @@ static void vfr2cfr_settings
         vohp->vfr2cfr     = opt->vfr2cfr.active;
         vohp->cfr_num     = opt->vfr2cfr.fps_num;
         vohp->cfr_den     = opt->vfr2cfr.fps_den;
-        vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
-                          * ((double)vdhp->stream_duration * vdhp->time_base.num / vdhp->time_base.den)
-                          + 0.5;
+        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
+                                     * ((double)vdhp->stream_duration * vdhp->time_base.num / vdhp->time_base.den)
+                                     + 0.5);
     }
     else
         vohp->vfr2cfr = 0;

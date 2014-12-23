@@ -88,13 +88,13 @@ LWLibavVideoSource::LWLibavVideoSource
     if( lwlibav_get_desired_video_track( lwh.file_path, &vdh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to get the video track." );
     vdh.lh = lh;
-    vi.num_frames = voh.frame_count;
     /* Set average framerate. */
     int64_t fps_num = 25;
     int64_t fps_den = 1;
     lwlibav_setup_timestamp_info( &lwh, &vdh, &voh, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
+    vi.num_frames      = voh.frame_count;
     /* */
     prepare_video_decoding( direct_rendering, stacked_format, pixel_format, env );
 }
@@ -131,7 +131,7 @@ void LWLibavVideoSource::prepare_video_decoding
     if( lwlibav_find_first_valid_video_frame( &vdh ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
     /* Force seeking at the first reading. */
-    vdh.last_frame_number = vi.num_frames + 1;
+    vdh.last_frame_number = vdh.frame_count + 1;
 }
 
 PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *env )
@@ -261,10 +261,12 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         seek_mode              = args[4].AsInt( 0 );
     uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
     int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
-    int         apply_repeat_flag      = args[7].AsBool( false ) ? 1 : 0;
-    int         field_dominance        = args[8].AsInt( 0 );
-    int         stacked_format         = args[9].AsBool( false ) ? 1 : 0;
-    enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[10].AsString( NULL ) );
+    int         fps_num                = args[7].AsInt( 0 );
+    int         fps_den                = args[8].AsInt( 1 );
+    int         apply_repeat_flag      = args[9].AsBool( false ) ? 1 : 0;
+    int         field_dominance        = args[10].AsInt( 0 );
+    int         stacked_format         = args[11].AsBool( false ) ? 1 : 0;
+    enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[12].AsString( NULL ) );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -277,9 +279,9 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
-    opt.vfr2cfr.active    = 0;
-    opt.vfr2cfr.fps_num   = 0;
-    opt.vfr2cfr.fps_den   = 0;
+    opt.vfr2cfr.active    = fps_num > 0 && fps_den > 0 ? 1 : 0;
+    opt.vfr2cfr.fps_num   = fps_num;
+    opt.vfr2cfr.fps_den   = fps_den;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
