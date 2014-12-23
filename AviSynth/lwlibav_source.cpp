@@ -277,6 +277,9 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
+    opt.vfr2cfr.active    = 0;
+    opt.vfr2cfr.fps_num   = 0;
+    opt.vfr2cfr.fps_den   = 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
@@ -306,6 +309,9 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.force_audio_index = stream_index >= 0 ? stream_index : -1;
     opt.apply_repeat_flag = 0;
     opt.field_dominance   = 0;
+    opt.vfr2cfr.active    = 0;
+    opt.vfr2cfr.fps_num   = 0;
+    opt.vfr2cfr.fps_den   = 0;
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
     return new LWLibavAudioSource( &opt, channel_layout, sample_rate, env );
 }

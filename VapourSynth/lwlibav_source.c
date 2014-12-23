@@ -299,6 +299,9 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
+    opt.vfr2cfr.active    = 0;
+    opt.vfr2cfr.fps_num   = 0;
+    opt.vfr2cfr.fps_den   = 0;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );
