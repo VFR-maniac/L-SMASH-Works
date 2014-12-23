@@ -871,6 +871,21 @@ fail:
     return;
 }
 
+static int allocate_frame_cache_buffers
+(
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
+    {
+        vohp->frame_cache_buffers[i] = av_frame_alloc();
+        if( !vohp->frame_cache_buffers[i] )
+            return -1;
+        vohp->frame_cache_numbers[i] = 0;
+    }
+    return 0;
+}
+
 static void vfr2cfr_settings
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -970,16 +985,8 @@ static void create_video_frame_order_list
         if( field_shift )
             next_field_info = field_info == LW_FIELD_INFO_TOP ? LW_FIELD_INFO_BOTTOM : LW_FIELD_INFO_TOP;
     }
-    if( !enable_repeat )
+    if( !enable_repeat || allocate_frame_cache_buffers( vohp ) < 0 )
         goto disable_repeat;
-    /* Allocate frame cache buffers. */
-    for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
-    {
-        vohp->frame_cache_buffers[i] = av_frame_alloc();
-        if( !vohp->frame_cache_buffers[i] )
-            goto disable_repeat;
-        vohp->frame_cache_numbers[i] = 0;
-    }
     /* Create order list. */
     lw_video_frame_order_t *order_list = (lw_video_frame_order_t *)lw_malloc_zero( (order_count + 2) * sizeof(lw_video_frame_order_t) );
     if( !order_list )
@@ -1059,19 +1066,17 @@ static void create_video_frame_order_list
     }
     memset( &order_list[order_count + 1], 0, sizeof(lw_video_frame_order_t) );
     /* Set up repeat control info. */
-    if( vdhp->lh.show_log )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO,
-                           "Enable repeat control. frame_count = %u, order_count = %u, t_count = %u, b_count = %u",
-                           frame_count, order_count, t_count, b_count );
     vohp->repeat_control       = 1;
     vohp->repeat_correction_ts = correction_ts;
     vohp->frame_order_count    = order_count;
     vohp->frame_order_list     = order_list;
     vohp->frame_count          = vohp->frame_order_count;
+    if( vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO,
+                           "Enable repeat control. frame_count = %u, order_count = %u, t_count = %u, b_count = %u",
+                           frame_count, order_count, t_count, b_count );
     return;
 disable_repeat:
-    if( vdhp->lh.show_log && opt->apply_repeat_flag )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
     vohp->repeat_control       = 0;
     vohp->repeat_correction_ts = 0;
     vohp->frame_order_count    = 0;
@@ -1079,6 +1084,8 @@ disable_repeat:
     vohp->frame_count          = vdhp->frame_count;
     if( opt->vfr2cfr.active )
         vfr2cfr_settings( vdhp, vohp, opt );
+    if( vdhp->lh.show_log && opt->apply_repeat_flag )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
     return;
 }
 
@@ -1091,42 +1098,71 @@ static void create_video_visible_frame_list
 {
     if( vohp->repeat_control || invisible_count == 0 )
         return;
-    uint32_t visible_count = vdhp->frame_count - invisible_count;
-    lw_video_frame_order_t *order_list = (lw_video_frame_order_t *)lw_malloc_zero( (visible_count + 1) * sizeof(lw_video_frame_order_t) );
-    if( !order_list )
+    lw_video_frame_order_t *order_list = NULL;
+    video_frame_info_t     *info       = vdhp->frame_list;
+    if( vohp->vfr2cfr )
     {
-        if( vdhp->lh.show_log )
-            vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
-        goto disable_repeat;
+        /* Duplicated frame numbers could be occured, so frame cache buffers are needed. */
+        if( allocate_frame_cache_buffers( vohp ) < 0 )
+            goto disable_repeat;
+        order_list = (lw_video_frame_order_t *)lw_malloc_zero( (vdhp->frame_count + 1) * sizeof(lw_video_frame_order_t) );
+        if( !order_list )
+        {
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+            goto disable_repeat;
+        }
+        uint32_t visible_number = 0;
+        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+        {
+            ++visible_number;
+            if( info[i].flags & LW_VFRAME_FLAG_INVISIBLE )
+            {
+                order_list[i - 1].top    = visible_number;
+                order_list[i - 1].bottom = visible_number;
+            }
+            order_list[i].top    = visible_number;
+            order_list[i].bottom = visible_number;
+        }
+        vohp->frame_order_count = vdhp->frame_count;
     }
-    video_frame_info_t *info = vdhp->frame_list;
-    uint32_t order_count = 0;
-    for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+    else
     {
-        if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE) )
-            ++order_count;
-        order_list[order_count].top    = i;
-        order_list[order_count].bottom = i;
-    }
-    if( visible_count != order_count )
-    {
-        free( order_list );
-        goto disable_repeat;
+        uint32_t visible_count = vdhp->frame_count - invisible_count;
+        order_list = (lw_video_frame_order_t *)lw_malloc_zero( (visible_count + 1) * sizeof(lw_video_frame_order_t) );
+        if( !order_list )
+        {
+            if( vdhp->lh.show_log )
+                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+            goto disable_repeat;
+        }
+        uint32_t order_count = 0;
+        for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
+        {
+            if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                ++order_count;
+            order_list[order_count].top    = i;
+            order_list[order_count].bottom = i;
+        }
+        if( visible_count != order_count )
+            goto disable_repeat;
+        vohp->frame_order_count = visible_count;
+        vohp->frame_count       = vohp->frame_order_count;
     }
     vohp->repeat_control       = 1;
     vohp->repeat_correction_ts = 0;
-    vohp->frame_order_count    = visible_count;
     vohp->frame_order_list     = order_list;
-    vohp->frame_count          = vohp->frame_order_count;
     return;
 disable_repeat:
-    if( vdhp->lh.show_log )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Failed to create invisible frame control." );
+    free( order_list );
     vohp->repeat_control       = 0;
     vohp->repeat_correction_ts = 0;
     vohp->frame_order_count    = 0;
     vohp->frame_order_list     = NULL;
-    vohp->frame_count          = vdhp->frame_count;
+    if( !vohp->vfr2cfr )
+        vohp->frame_count = vdhp->frame_count;
+    if( vdhp->lh.show_log )
+        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Failed to create invisible frame control." );
     return;
 }
 

@@ -794,24 +794,21 @@ static uint32_t lwlibav_vfr2cfr
     double target_ts  = (double)((uint64_t)(frame_number - 1) * vohp->cfr_den) / vohp->cfr_num;
     double current_ts = DBL_MAX;
     AVRational time_base = vdhp->format->streams[ vdhp->stream_index ]->time_base;
-    if( vdhp->last_frame_number <= vdhp->frame_count )
+    int64_t ts = lwlibav_get_ts( vdhp, vdhp->last_ts_frame_number );
+    if( ts != AV_NOPTS_VALUE )
     {
-        int64_t ts = lwlibav_get_ts( vdhp, vdhp->last_frame_number );
-        if( ts != AV_NOPTS_VALUE )
-        {
-            current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
-            if( target_ts == current_ts )
-                return vdhp->last_frame_number;
-        }
+        current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
+        if( target_ts == current_ts )
+            return vdhp->last_ts_frame_number;
     }
     if( target_ts < current_ts )
     {
         uint32_t composition_frame_number;
-        for( composition_frame_number = vdhp->last_frame_number - 1;
+        for( composition_frame_number = vdhp->last_ts_frame_number - 1;
              composition_frame_number;
              composition_frame_number-- )
         {
-            int64_t ts = lwlibav_get_ts( vdhp, composition_frame_number );
+            ts = lwlibav_get_ts( vdhp, composition_frame_number );
             if( ts != AV_NOPTS_VALUE )
             {
                 current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
@@ -828,11 +825,11 @@ static uint32_t lwlibav_vfr2cfr
     else
     {
         uint32_t composition_frame_number;
-        for( composition_frame_number = vdhp->last_frame_number + 1;
+        for( composition_frame_number = vdhp->last_ts_frame_number + 1;
              composition_frame_number <= vdhp->frame_count;
              composition_frame_number++ )
         {
-            int64_t ts = lwlibav_get_ts( vdhp, composition_frame_number );
+            ts = lwlibav_get_ts( vdhp, composition_frame_number );
             if( ts != AV_NOPTS_VALUE )
             {
                 current_ts = ((double)(ts - vdhp->min_ts) * time_base.num) / time_base.den;
@@ -847,6 +844,7 @@ static uint32_t lwlibav_vfr2cfr
         if( composition_frame_number > vdhp->frame_count )
             frame_number = vdhp->frame_count;
     }
+    vdhp->last_ts_frame_number = frame_number;
     return frame_number;
 }
 
@@ -860,14 +858,14 @@ int lwlibav_get_video_frame
     uint32_t                        frame_number
 )
 {
-    if( vohp->repeat_control )
-        return lwlibav_repeat_control( vdhp, vohp, frame_number );
     if( vohp->vfr2cfr )
     {
         frame_number = lwlibav_vfr2cfr( vdhp, vohp, frame_number );
         if( frame_number == 0 )
             return -1;
     }
+    if( vohp->repeat_control )
+        return lwlibav_repeat_control( vdhp, vohp, frame_number );
     if( frame_number == vdhp->last_frame_number )
         return 1;
     return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
@@ -881,6 +879,8 @@ int lwlibav_is_keyframe
 )
 {
     assert( frame_number );
+    if( vohp->vfr2cfr )
+        frame_number = lwlibav_vfr2cfr( vdhp, vohp, frame_number );
     if( vohp->repeat_control )
     {
         lw_video_frame_order_t *curr = &vohp->frame_order_list[frame_number    ];
@@ -888,8 +888,6 @@ int lwlibav_is_keyframe
         return ((vdhp->frame_list[ curr->top    ].flags & LW_VFRAME_FLAG_KEY) && curr->top    != prev->top && curr->top    != prev->bottom)
             || ((vdhp->frame_list[ curr->bottom ].flags & LW_VFRAME_FLAG_KEY) && curr->bottom != prev->top && curr->bottom != prev->bottom);
     }
-    if( vohp->vfr2cfr )
-        frame_number = lwlibav_vfr2cfr( vdhp, vohp, frame_number );
     return !!(vdhp->frame_list[frame_number].flags & LW_VFRAME_FLAG_KEY);
 }
 
@@ -938,6 +936,7 @@ int lwlibav_find_first_valid_video_frame
     vdhp->movable_frame_buffer = av_frame_alloc();
     if( !vdhp->movable_frame_buffer )
         return -1;
+    vdhp->last_ts_frame_number = vdhp->frame_count;
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
                         : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
                         : 0;
