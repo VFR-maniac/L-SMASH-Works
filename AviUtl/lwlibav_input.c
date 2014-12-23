@@ -179,7 +179,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     if( lwlibav_find_first_valid_video_frame( vdhp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
-    vdhp->last_frame_number = h->video_sample_count + 1;
+    vdhp->last_frame_number = vdhp->frame_count + 1;
     return 0;
 }
 
