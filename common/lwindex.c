@@ -805,7 +805,7 @@ static void compute_stream_duration
             largest_ts        = info[i].pts;
         }
     }
-    else
+    else if( vdhp->lw_seek_flags & (SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_PTS_GENERATED) )
     {
         uint32_t prev = 0;
         uint32_t curr = 0;
@@ -859,6 +859,8 @@ static void compute_stream_duration
             ++i;
         }
     }
+    else
+        goto fail;
     vdhp->actual_time_base.num = (int)(vdhp->time_base.num * stream_timebase);
     vdhp->actual_time_base.den = vdhp->time_base.den;
     vdhp->stream_duration      = (largest_ts - first_ts) + (largest_ts - second_largest_ts);
