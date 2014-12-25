@@ -45,11 +45,11 @@
                     The output resolution will be aligned to be mod16-width and mod32-height by assuming two vertical 16x16 macroblock.
                     For H.264 streams, in addition, 2 lines could be added because of the optimized chroma MC.
                 + fpsnum (default : 0)
-                    Forced frame rate numerator.
-                    If frame rate is set to a positive value, output frame rate is forced to the specified value by padding and/or dropping frames.
+                    Output frame rate numerator for VFR->CFR (Variable Frame Rate to Constant Frame Rate) conversion.
+                    If frame rate is set to a valid value, the conversion is achieved by padding and/or dropping frames at the specified frame rate.
                     Otherwise, output frame rate is set to a computed average frame rate and the output process is performed by actual frame-by-frame.
                 + fpsden (default : 1)
-                    Forced frame rate denominator.
+                    Output frame rate denominator for VFR->CFR (Variable Frame Rate to Constant Frame Rate) conversion.
                     See 'fpsnum' in details.
                 + stacked (default : false)
                     Use the stacked format for a hack of AviSynth high bit-depth support if set to true.
@@ -199,6 +199,7 @@
                     Same as 'fpsden' of LSMASHVideoSource().
                 + repeat (default : false)
                     Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if set to true and usable.
+                    Note that this option is ignored when VFR->CFR conversion is enabled.
                 + dominance : (default : 0)
                     Which field, top or bottom, is displayed first.
                         - 0 : Obey source flags
