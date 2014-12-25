@@ -861,13 +861,10 @@ static void compute_stream_duration
     }
     vdhp->actual_time_base.num = (int)(vdhp->time_base.num * stream_timebase);
     vdhp->actual_time_base.den = vdhp->time_base.den;
-    if( stream_duration > 0 )
-        vdhp->stream_duration = stream_duration;
-    else
-        vdhp->stream_duration = (largest_ts - first_ts) + (largest_ts - second_largest_ts);
+    vdhp->stream_duration      = (largest_ts - first_ts) + (largest_ts - second_largest_ts);
     return;
 fail:
-    vdhp->stream_duration = 0;
+    vdhp->stream_duration = stream_duration;
     return;
 }
 
