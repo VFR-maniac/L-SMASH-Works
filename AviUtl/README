@@ -52,6 +52,10 @@
                 The scaling algorithm for chroma upsamling.
                 This settings is applied for progressive or non-YUV4:2:0 frames.
                 For interlaced YUV4:2:0 frames, apply 5-3-7-1 interlaced YUV4:2:0 interpolation based on MPEG-2 Video chroma location.
+            + VFR->CFR : check box (default : unchecked) / edit box (default : 60000 / 1001 )
+                Output frame rate (numerator / denominator at frames per second) for VFR->CFR (Variable Frame Rate to Constant Frame Rate) conversion.
+                If checked and set to a valid value, the conversion is achieved by padding and/or dropping frames at the specified frame rate.
+                Otherwise, output frame rate is set to a computed average frame rate and the output process is performed by actual frame-by-frame.
             + LW48 output : check box (default : unchecked)
                 LW48 is a pixel format and a color space defined in L-SMASH Works.
                 The difference between LW48 and YC48 is the usual ranges of each component; Y/Cb/Cr.
@@ -169,6 +173,7 @@
                 If unchecked, try to activate the first detected audio stream.
             + Apply repeat flag : check box (default : unchecked)
                 Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if checked and usable.
+                Note that this option is ignored when VFR->CFR conversion is enabled.
             + Field dominance : combo box (default : Obey source flags)
                 Which field, top or bottom, is displayed first.
                 This settings is enabled only if one or more of the following conditions is true.
