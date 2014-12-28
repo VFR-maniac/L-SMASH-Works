@@ -1798,6 +1798,7 @@ static void create_index
     int       is_attached_pic       = 0;
     uint32_t  video_sample_count    = 0;
     uint32_t  invisible_count       = 0;
+    uint32_t  video_keyframe_count  = 0;
     int64_t   last_keyframe_pts     = AV_NOPTS_VALUE;
     uint32_t  audio_sample_count    = 0;
     int       audio_sample_rate     = 0;
@@ -1934,6 +1935,7 @@ static void create_index
                     /* For the present, treat this frame as a keyframe. */
                     info->flags |= LW_VFRAME_FLAG_KEY;
                     last_keyframe_pts = pkt.pts;
+                    ++video_keyframe_count;
                 }
                 if( repeat_pict == 0 && field_info == LW_FIELD_INFO_UNKNOWN && pkt_ctx->pix_fmt == AV_PIX_FMT_NONE
                  && (pkt_ctx->codec_id == AV_CODEC_ID_H264 || pkt_ctx->codec_id == AV_CODEC_ID_HEVC)
@@ -2207,35 +2209,40 @@ static void create_index
     {
         /* Pretty hackish workaround for the ASF demuxer
          * The Simple Index Object does not always describe all keyframes in corresponding video stream.
-         * This section expects the ASF demuxer imports the indexes from the Simple Index Object by av_seek_frame()
-         * and we replace timestamps stored in the indexes with actual PTSs since the Simple Index Object has no
-         * PTS offset derived from missing indexes of early keyframes.
-         * Here, also construct the indexes for audio stream from actual timestamps and positions if present. */
+         * Since the Simple Index Object cannot indicate PTS offset derived from missing indexes of early keyframes,
+         * the Simple Index Object is unreliable on frame-accurate seek. So, this section makes up the indexes from
+         * the actual PTSs and file offsets without the Simple Index Object.
+         * Here, also construct the indexes for audio stream from the actual PTSs and file offsets if present. */
         for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
         {
             AVStream *stream = format_ctx->streams[stream_index];
-            if( stream_index == 0 )
-            {
-                if( stream->duration > 0 )
-                    av_seek_frame( format_ctx, stream_index, stream->duration, AVSEEK_FLAG_BACKWARD );
-                else
-                    av_seek_frame( format_ctx, stream_index, avio_size( format_ctx->pb ), AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_BYTE );
-            }
+            AVIndexEntry *temp = NULL;
             if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
             {
-                uint32_t j = 1;
-                for( int i = 0; i < stream->nb_index_entries; i++ )
-                    for( ; j <= video_sample_count; j++ )
-                        if( stream->index_entries[i].pos == video_info[j].file_offset )
+                unsigned int allocated_size = video_keyframe_count * sizeof(AVIndexEntry);
+                temp = (AVIndexEntry *)av_realloc( stream->index_entries, allocated_size );
+                if( temp )
+                {
+                    uint32_t i = 0;
+                    for( uint32_t j = 1; j <= video_sample_count && i < video_keyframe_count; j++ )
+                        if( video_info[j].flags & LW_VFRAME_FLAG_KEY )
                         {
-                            stream->index_entries[i].timestamp = video_info[j++].pts;
-                            break;
+                            temp[i].pos          = video_info[j].file_offset;
+                            temp[i].timestamp    = video_info[j].pts;
+                            temp[i].flags        = AVINDEX_KEYFRAME;
+                            temp[i].size         = 0;
+                            temp[i].min_distance = 0;
+                            ++i;
                         }
+                    stream->index_entries                = temp;
+                    stream->index_entries_allocated_size = allocated_size;
+                    stream->nb_index_entries             = video_keyframe_count;
+                }
             }
             else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
             {
                 unsigned int allocated_size = audio_sample_count * sizeof(AVIndexEntry);
-                AVIndexEntry *temp = (AVIndexEntry *)av_realloc( stream->index_entries, allocated_size );
+                temp = (AVIndexEntry *)av_realloc( stream->index_entries, allocated_size );
                 if( temp )
                 {
                     for( uint32_t i = 0; i < audio_sample_count; i++ )
@@ -2250,13 +2257,13 @@ static void create_index
                     stream->index_entries_allocated_size = allocated_size;
                     stream->nb_index_entries             = audio_sample_count;
                 }
-                else
-                {
-                    /* Anyway clear the index entries. */
-                    av_freep( &stream->index_entries );
-                    stream->index_entries_allocated_size = 0;
-                    stream->nb_index_entries             = 0;
-                }
+            }
+            if( !temp )
+            {
+                /* Anyway clear the index entries. */
+                av_freep( &stream->index_entries );
+                stream->index_entries_allocated_size = 0;
+                stream->nb_index_entries             = 0;
             }
         }
     }
