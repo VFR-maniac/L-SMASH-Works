@@ -2202,8 +2202,10 @@ static void create_index
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         AVStream *stream = format_ctx->streams[stream_index];
-        print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
-                     stream_index, stream->codec->codec_type, stream->duration );
+        if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
+         || stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
+            print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
+                         stream_index, stream->codec->codec_type, stream->duration );
     }
     if( !strcmp( lwhp->format_name, "asf" ) )
     {
