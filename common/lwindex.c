@@ -2203,6 +2203,63 @@ static void create_index
         print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
                      stream_index, stream->codec->codec_type, stream->duration );
     }
+    if( !strcmp( lwhp->format_name, "asf" ) )
+    {
+        /* Pretty hackish workaround for the ASF demuxer
+         * The Simple Index Object does not always describe all keyframes in corresponding video stream.
+         * This section expects the ASF demuxer imports the indexes from the Simple Index Object by av_seek_frame()
+         * and we replace timestamps stored in the indexes with actual PTSs since the Simple Index Object has no
+         * PTS offset derived from missing indexes of early keyframes.
+         * Here, also construct the indexes for audio stream from actual timestamps and positions if present. */
+        for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
+        {
+            AVStream *stream = format_ctx->streams[stream_index];
+            if( stream_index == 0 )
+            {
+                if( stream->duration > 0 )
+                    av_seek_frame( format_ctx, stream_index, stream->duration, AVSEEK_FLAG_BACKWARD );
+                else
+                    av_seek_frame( format_ctx, stream_index, avio_size( format_ctx->pb ), AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_BYTE );
+            }
+            if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO )
+            {
+                uint32_t j = 1;
+                for( int i = 0; i < stream->nb_index_entries; i++ )
+                    for( ; j <= video_sample_count; j++ )
+                        if( stream->index_entries[i].pos == video_info[j].file_offset )
+                        {
+                            stream->index_entries[i].timestamp = video_info[j++].pts;
+                            break;
+                        }
+            }
+            else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
+            {
+                unsigned int allocated_size = audio_sample_count * sizeof(AVIndexEntry);
+                AVIndexEntry *temp = (AVIndexEntry *)av_realloc( stream->index_entries, allocated_size );
+                if( temp )
+                {
+                    for( uint32_t i = 0; i < audio_sample_count; i++ )
+                    {
+                        temp[i].pos          = audio_info[i + 1].file_offset;
+                        temp[i].timestamp    = audio_info[i + 1].pts;
+                        temp[i].flags        = AVINDEX_KEYFRAME;
+                        temp[i].size         = 0;
+                        temp[i].min_distance = 0;
+                    }
+                    stream->index_entries                = temp;
+                    stream->index_entries_allocated_size = allocated_size;
+                    stream->nb_index_entries             = audio_sample_count;
+                }
+                else
+                {
+                    /* Anyway clear the index entries. */
+                    av_freep( &stream->index_entries );
+                    stream->index_entries_allocated_size = 0;
+                    stream->nb_index_entries             = 0;
+                }
+            }
+        }
+    }
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
     {
         AVStream *stream = format_ctx->streams[stream_index];
