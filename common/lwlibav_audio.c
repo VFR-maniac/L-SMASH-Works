@@ -358,7 +358,7 @@ static void make_decodable_packet
                 return;
             av_free( data );
         }
-        av_copy_packet( alt_pkt, pkt );
+        lw_copy_av_packet( alt_pkt, pkt );
     }
     else
         *alt_pkt = *pkt;

@@ -185,3 +185,17 @@ int lwlibav_get_av_frame
     pkt->size = 0;
     return 1;
 }
+
+int lw_copy_av_packet
+(
+    AVPacket *dst,
+    AVPacket *src
+)
+{
+    AVPacket temp_pkt = *src;
+    int ret = av_dup_packet( &temp_pkt );
+    if( ret < 0 )
+        return ret;
+    *dst = temp_pkt;
+    return av_copy_packet_side_data( dst, src );
+}

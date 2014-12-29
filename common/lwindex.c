@@ -1402,11 +1402,11 @@ static int append_extradata_if_new
                          if( av_packet_copy_props( &alt_pkt, pkt ) < 0
                           || av_packet_from_data( &alt_pkt, data, size ) < 0 )
                             av_free( data );
-                        av_copy_packet( &alt_pkt, pkt );
+                        lw_copy_av_packet( &alt_pkt, pkt );
                     }
                 }
                 else
-                    av_copy_packet( &alt_pkt, pkt );
+                    lw_copy_av_packet( &alt_pkt, pkt );
                 /* Decode actually to get output channels and sampling rate of AAC frame. */
                 int decode_complete;
                 helper->decode( ctx, helper->picture, &decode_complete, &alt_pkt );
