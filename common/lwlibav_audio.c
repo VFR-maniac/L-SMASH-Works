@@ -413,6 +413,8 @@ uint64_t lwlibav_get_pcm_audio_samples
         frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
 retry_seek:
         av_free_packet( pkt );
+        if( adhp->bsf )
+            cleanup_av_bitstream_filter( adhp );
         /* Flush audio resampler buffers. */
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
