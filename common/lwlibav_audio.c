@@ -351,10 +351,13 @@ static void make_decodable_packet
             alt_pkt->buf  = NULL;
             return;
         }
-        else if( ret > 0
-              && av_packet_copy_props( alt_pkt, pkt ) == 0
+        else if( ret > 0 )
+        {
+             if( av_packet_copy_props( alt_pkt, pkt ) == 0
               && av_packet_from_data( alt_pkt, data, size ) == 0 )
-            return;
+                return;
+            av_free( data );
+        }
         av_copy_packet( alt_pkt, pkt );
     }
     else
