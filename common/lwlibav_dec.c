@@ -144,7 +144,7 @@ void lwlibav_update_configuration
     int width  = ctx->width;
     int height = ctx->height;
     lwlibav_flush_buffers( dhp );
-    ctx->get_buffer2 = exhp->get_buffer;
+    ctx->get_buffer2 = exhp->get_buffer ? exhp->get_buffer : avcodec_default_get_buffer2;
     ctx->opaque      = app_specific;
     /* avcodec_open2() may have changed resolution unexpectedly. */
     ctx->width       = width;

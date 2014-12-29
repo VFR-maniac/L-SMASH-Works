@@ -1287,6 +1287,8 @@ static lwindex_helper_t *get_index_helper
                 if( !helper->bsf )
                     return NULL;
             }
+            else if( ctx->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0 )
+                helper->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
         }
         /* For audio, prepare the decoder and the parser to get frame length.
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
@@ -1354,23 +1356,73 @@ static int append_extradata_if_new
     if( current.extradata == ctx->extradata )
     {
         AVCodecParserContext *parser_ctx = helper->parser_ctx;
-        if( parser_ctx && parser_ctx->parser && parser_ctx->parser->split )
+        if( parser_ctx && parser_ctx->parser )
         {
-            /* For H.264 stream without start codes, don't split extradata from pkt->data.
-             * Its extradata is stored as global header. so, pkt->data shall contain no extradata. */
-            int extradata_size = helper->bsf ? 0 : parser_ctx->parser->split( ctx, pkt->data, pkt->size );
-            if( extradata_size > 0 )
+            if( parser_ctx->parser->split )
             {
-                current.extradata      = pkt->data;
-                current.extradata_size = extradata_size;
+                /* For H.264 stream without start codes, don't split extradata from pkt->data.
+                 * Its extradata is stored as global header. so, pkt->data shall contain no extradata. */
+                int extradata_size = helper->bsf ? 0 : parser_ctx->parser->split( ctx, pkt->data, pkt->size );
+                if( extradata_size > 0 )
+                {
+                    current.extradata      = pkt->data;
+                    current.extradata_size = extradata_size;
+                }
+                else if( list->entry_count > 0 )
+                    /* Probably, this frame is a keyframe in CODEC level
+                     * but should not be a random accessible point in container level.
+                     * For instance, an IDR-picture which corresponding SPSs and PPSs
+                     * do not precede immediately might not be decodable correctly
+                     * when decoding from there in MPEG-2 transport stream. */
+                    return list->current_index;
             }
-            else if( list->entry_count > 0 )
-                /* Probably, this frame is a keyframe in CODEC level
-                 * but should not be a random accessible point in container level.
-                 * For instance, an IDR-picture which corresponding SPSs and PPSs
-                 * do not precede immediately might not be decodable correctly
-                 * when decoding from there in MPEG-2 transport stream. */
-                return list->current_index;
+            else if( helper->bsf && ctx->codec_id == AV_CODEC_ID_AAC )
+            {
+                /* Try to generate AudioSpecificConfig for each ADTS AAC frame by reopening the bitstream filter. */
+                av_bitstream_filter_close( helper->bsf );
+                helper->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
+                uint8_t *data = NULL;
+                int      size = 0;
+                int ret = av_bitstream_filter_filter( helper->bsf, ctx, NULL,
+                                                      &data, &size,
+                                                      pkt->data, pkt->size, 0 );
+                AVPacket alt_pkt = { NULL };
+                av_init_packet( &alt_pkt );
+                if( ret >= 0 )
+                {
+                    if( ret == 0 )
+                    {
+                        av_packet_copy_props( &alt_pkt, pkt );
+                        alt_pkt.data = data;
+                        alt_pkt.size = size;
+                        alt_pkt.buf  = NULL;
+                    }
+                    else if( ret > 0 )
+                    {
+                         if( av_packet_copy_props( &alt_pkt, pkt ) < 0
+                          || av_packet_from_data( &alt_pkt, data, size ) < 0 )
+                            av_free( data );
+                        av_copy_packet( &alt_pkt, pkt );
+                    }
+                }
+                else
+                    av_copy_packet( &alt_pkt, pkt );
+                /* Decode actually to get output channels and sampling rate of AAC frame. */
+                int decode_complete;
+                helper->decode( ctx, helper->picture, &decode_complete, &alt_pkt );
+                if( !decode_complete )
+                {
+                    AVPacket null_pkt = { 0 };
+                    av_init_packet( &null_pkt );
+                    null_pkt.data = NULL;
+                    null_pkt.size = 0;
+                    helper->decode( ctx, helper->picture, &decode_complete, &alt_pkt );
+                }
+                current.extradata      = ctx->extradata;
+                current.extradata_size = ctx->extradata_size;
+                if( ret > 0 )
+                    av_free( data );
+            }
         }
     }
     if( list->entry_count == 0 )
