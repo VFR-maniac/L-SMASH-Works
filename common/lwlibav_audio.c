@@ -338,14 +338,27 @@ static void make_decodable_packet
     if( adhp->bsf )
     {
         av_free_packet( alt_pkt );
-        av_packet_copy_props( alt_pkt, pkt );
-        make_null_packet( alt_pkt );
-        if( av_bitstream_filter_filter( adhp->bsf, adhp->ctx, NULL,
-                                        &alt_pkt->data, &alt_pkt->size,
-                                        pkt->data, pkt->size, 0 ) >= 0 )
+        uint8_t *data = NULL;
+        int      size = 0;
+        int ret = av_bitstream_filter_filter( adhp->bsf, adhp->ctx, NULL,
+                                              &data, &size,
+                                              pkt->data, pkt->size, 0 );
+        if( ret == 0 )
+        {
+            av_packet_copy_props( alt_pkt, pkt );
+            alt_pkt->data = data;
+            alt_pkt->size = size;
+            alt_pkt->buf  = NULL;
             return;
+        }
+        else if( ret > 0
+              && av_packet_copy_props( alt_pkt, pkt ) == 0
+              && av_packet_from_data( alt_pkt, data, size ) == 0 )
+            return;
+        av_copy_packet( alt_pkt, pkt );
     }
-    *alt_pkt = *pkt;
+    else
+        *alt_pkt = *pkt;
 }
 
 uint64_t lwlibav_get_pcm_audio_samples
