@@ -5,7 +5,7 @@
     [Functions]
         [LibavSMASHSource]
             LibavSMASHSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
-                             int variable = 0, string format = "", int dr = 0)
+                             int dr = 0, int fpsnum = 0, int fpsden = 1, int variable = 0, string format = "")
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
                 * RAP is an abbreviation of random accessible point.
             [Arguments]
@@ -40,6 +40,17 @@
                         check the closest RAP at the first.
                         After the check, if the closest RAP is identical with the last RAP, do the same as the case M > N and M - N <= T.
                         Otherwise, the decoder tries to get f(M) by decoding frames from the frame which is the closest RAP sequentially.
+                + dr (default : 0)
+                    Try direct rendering from the video decoder if 'dr' is set to 1 and 'format' is unspecfied.
+                    The output resolution will be aligned to be mod16-width and mod32-height by assuming two vertical 16x16 macroblock.
+                    For H.264 streams, in addition, 2 lines could be added because of the optimized chroma MC.
+                + fpsnum (default : 0)
+                    Output frame rate numerator for VFR->CFR (Variable Frame Rate to Constant Frame Rate) conversion.
+                    If frame rate is set to a valid value, the conversion is achieved by padding and/or dropping frames at the specified frame rate.
+                    Otherwise, output frame rate is set to a computed average frame rate and the output process is performed by actual frame-by-frame.
+                + fpsden (default : 1)
+                    Output frame rate denominator for VFR->CFR (Variable Frame Rate to Constant Frame Rate) conversion.
+                    See 'fpsnum' in details.
                 + variable (default : 0)
                     Treat format, width and height of the video stream as variable if set to 1.
                 + format (default : "")
@@ -64,13 +75,9 @@
                         "RGB27"
                         "RGB30"
                         "RGB48"
-                + dr (default : 0)
-                    Try direct rendering from the video decoder if 'dr' is set to 1 and 'format' is unspecfied.
-                    The output resolution will be aligned to be mod16-width and mod32-height by assuming two vertical 16x16 macroblock.
-                    For H.264 streams, in addition, 2 lines could be added because of the optimized chroma MC.
         [LWLibavSource]
             LWLibavSource(string source, int stream_index = -1, int threads = 0, int cache = 1,
-                          int seek_mode = 0, int seek_threshold = 10, int dr = 0,
+                          int seek_mode = 0, int seek_threshold = 10, int dr = 0, int fpsnum = 0, int fpsden = 1, 
                           int repeat = 0, int dominance = 1)
                 * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
@@ -89,12 +96,16 @@
                     Same as 'seek_mode' of LibavSMASHSource().
                 + seek_threshold (default : 10)
                     Same as 'seek_threshold' of LibavSMASHSource().
+                + dr (default : 0)
+                    Same as 'dr' of LibavSMASHSource().
+                + fpsnum (default : 0)
+                    Same as 'fpsnum' of LibavSMASHSource().
+                + fpsden (default : 1)
+                    Same as 'fpsden' of LibavSMASHSource().
                 + variable (default : 0)
                     Same as 'variable' of LibavSMASHSource().
                 + format (default : "")
                     Same as 'format' of LibavSMASHSource().
-                + dr (default : 0)
-                    Same as 'dr' of LibavSMASHSource().
                 + repeat (default : 0)
                     Reconstruct frames by the flags specified in video stream and then treat all frames as interlaced if set to 1 and usable.
                 + dominance : (default : 0)

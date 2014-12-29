@@ -174,7 +174,7 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
         return -1;
     }
     /* Force seeking at the first reading. */
-    vdhp->last_frame_number = vi->numFrames + 1;
+    vdhp->last_frame_number = vdhp->frame_count + 1;
     return 0;
 }
 
@@ -274,6 +274,8 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     int64_t seek_threshold;
     int64_t variable_info;
     int64_t direct_rendering;
+    int64_t fps_num;
+    int64_t fps_den;
     int64_t apply_repeat_flag;
     int64_t field_dominance;
     const char *format;
@@ -284,6 +286,8 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     set_option_int64 ( &seek_threshold,    10,   "seek_threshold", in, vsapi );
     set_option_int64 ( &variable_info,     0,    "variable",       in, vsapi );
     set_option_int64 ( &direct_rendering,  0,    "dr",             in, vsapi );
+    set_option_int64 ( &fps_num,           0,    "fpsnum",         in, vsapi );
+    set_option_int64 ( &fps_den,           1,    "fpsden",         in, vsapi );
     set_option_int64 ( &apply_repeat_flag, 0,    "repeat",         in, vsapi );
     set_option_int64 ( &field_dominance,   0,    "dominance",      in, vsapi );
     set_option_string( &format,            NULL, "format",         in, vsapi );
@@ -299,9 +303,9 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.force_audio_index = -1;
     opt.apply_repeat_flag = apply_repeat_flag;
     opt.field_dominance   = CLIP_VALUE( field_dominance, 0, 2 );    /* 0: Obey source flags, 1: TFF, 2: BFF */
-    opt.vfr2cfr.active    = 0;
-    opt.vfr2cfr.fps_num   = 0;
-    opt.vfr2cfr.fps_den   = 0;
+    opt.vfr2cfr.active    = fps_num > 0 && fps_den > 0 ? 1 : 0;
+    opt.vfr2cfr.fps_num   = fps_num;
+    opt.vfr2cfr.fps_den   = fps_den;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );
@@ -331,7 +335,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         vs_filter_free( hp, core, vsapi );
         return;
     }
-    /* Set up timestamp info. */
+    /* Set average framerate. */
     hp->vi.numFrames = vohp->frame_count;
     hp->vi.fpsNum    = 25;
     hp->vi.fpsDen    = 1;

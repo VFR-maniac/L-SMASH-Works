@@ -43,7 +43,6 @@ typedef struct
     libavsmash_video_output_handler_t voh;
     lsmash_file_parameters_t          file_param;
     AVFormatContext                  *format_ctx;
-    uint32_t                          media_timescale;
 } lsmas_handler_t;
 
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
@@ -95,9 +94,8 @@ static void set_sample_duration
     }
     else
     {
-        uint32_t media_timescale = lsmash_get_media_timescale( vdhp->root, vdhp->track_ID );
-        vsapi->propSetInt( props, "_DurationNum", sample_duration, paReplace );
-        vsapi->propSetInt( props, "_DurationDen", media_timescale, paReplace );
+        vsapi->propSetInt( props, "_DurationNum", sample_duration,       paReplace );
+        vsapi->propSetInt( props, "_DurationDen", vdhp->media_timescale, paReplace );
     }
 }
 
@@ -185,13 +183,13 @@ static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAP
         return -1;
     }
     /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( vdhp, vi->numFrames ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( vdhp ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
         return -1;
     }
     /* Force seeking at the first reading. */
-    vdhp->last_sample_number = vi->numFrames + 1;
+    vdhp->last_sample_number = vdhp->sample_count + 1;
     return 0;
 }
 
@@ -261,9 +259,18 @@ static uint32_t open_file
     return movie_param.number_of_tracks;
 }
 
-static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int threads, uint32_t number_of_tracks )
+static int get_video_track
+(
+    lsmas_handler_t *hp,
+    uint32_t         track_number,
+    int              threads,
+    uint32_t         number_of_tracks,
+    int64_t          fps_num,
+    int64_t          fps_den
+)
 {
     libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
+    libavsmash_video_output_handler_t *vohp = &hp->voh;
     lw_log_handler_t                  *lhp  = &vdhp->config.lh;
     /* L-SMASH */
     uint32_t i;
@@ -322,12 +329,37 @@ static int get_video_track( lsmas_handler_t *hp, uint32_t track_number, int thre
     }
     if( get_summaries( vdhp->root, vdhp->track_ID, &vdhp->config ) )
         return -1;
-    vdhp->sample_count = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
-    hp->media_timescale = media_param.timescale;
-    hp->vi.numFrames    = vdhp->sample_count;
-    hp->vi.fpsNum       = 25;
-    hp->vi.fpsDen       = 1;
-    libavsmash_setup_timestamp_info( vdhp, &hp->vi.fpsNum, &hp->vi.fpsDen );
+    vdhp->sample_count    = lsmash_get_sample_count_in_media_timeline( vdhp->root, vdhp->track_ID );
+    vdhp->media_duration  = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_ID );
+    vdhp->media_timescale = media_param.timescale;
+    /* Calculate average framerate. */
+    int64_t src_fps_num = 25;
+    int64_t src_fps_den = 1;
+    libavsmash_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
+    if( fps_num > 0 && fps_den > 0 )
+    {
+        hp->vi.fpsNum = fps_num;
+        hp->vi.fpsDen = fps_den;
+        vohp->vfr2cfr     = 1;
+        vohp->cfr_num     = (uint32_t)fps_num;
+        vohp->cfr_den     = (uint32_t)fps_den;
+        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
+                                     * ((double)vdhp->media_duration / vdhp->media_timescale)
+                                     + 0.5);
+        uint32_t min_cts_sample_number = vdhp->order_converter ? vdhp->order_converter[1].composition_to_decoding : 1;
+        if( lsmash_get_cts_from_media_timeline( vdhp->root, vdhp->track_ID, min_cts_sample_number, &vdhp->min_cts ) < 0 )
+        {
+            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get the minimum CTS of video stream." );
+            return -1;
+        }
+    }
+    else
+    {
+        hp->vi.fpsNum = src_fps_num;
+        hp->vi.fpsDen = src_fps_den;
+        vohp->frame_count = vdhp->sample_count;
+    }
+    hp->vi.numFrames = vohp->frame_count;
     /* libavformat */
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == hp->format_ctx->nb_streams )
@@ -405,6 +437,8 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     int64_t seek_threshold;
     int64_t variable_info;
     int64_t direct_rendering;
+    int64_t fps_num;
+    int64_t fps_den;
     const char *format;
     set_option_int64 ( &track_number,     0,    "track",          in, vsapi );
     set_option_int64 ( &threads,          0,    "threads",        in, vsapi );
@@ -412,6 +446,8 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     set_option_int64 ( &seek_threshold,   10,   "seek_threshold", in, vsapi );
     set_option_int64 ( &variable_info,    0,    "variable",       in, vsapi );
     set_option_int64 ( &direct_rendering, 0,    "dr",             in, vsapi );
+    set_option_int64 ( &fps_num,          0,    "fpsnum",         in, vsapi );
+    set_option_int64 ( &fps_den,          1,    "fpsden",         in, vsapi );
     set_option_string( &format,           NULL, "format",         in, vsapi );
     threads                         = threads >= 0 ? threads : 0;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
@@ -426,7 +462,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         return;
     }
     /* Get video track. */
-    if( get_video_track( hp, track_number, threads, number_of_tracks ) < 0 )
+    if( get_video_track( hp, track_number, threads, number_of_tracks, fps_num, fps_den ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

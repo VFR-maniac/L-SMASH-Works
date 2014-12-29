@@ -214,7 +214,7 @@ void LSMASHVideoSource::prepare_video_decoding
                                                    direct_rendering, stacked_format, pixel_format,
                                                    config->prefer.width, config->prefer.height );
     /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( &vdh, vi.num_frames ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( &vdh ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
     /* Force seeking at the first reading. */
     vdh.last_sample_number = vdh.sample_count + 1;

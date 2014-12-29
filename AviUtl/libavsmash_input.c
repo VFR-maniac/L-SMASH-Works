@@ -335,7 +335,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     config->lh.level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( libavsmash_find_first_valid_video_frame( vdhp, h->video_sample_count ) < 0 )
+    if( libavsmash_find_first_valid_video_frame( vdhp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
     vdhp->last_sample_number = vdhp->sample_count + 1;

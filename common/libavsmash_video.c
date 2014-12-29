@@ -519,13 +519,12 @@ int libavsmash_get_video_frame
 
 int libavsmash_find_first_valid_video_frame
 (
-    libavsmash_video_decode_handler_t *vdhp,
-    uint32_t                           sample_count
+    libavsmash_video_decode_handler_t *vdhp
 )
 {
     codec_configuration_t *config = &vdhp->config;
     config->ctx->refcounted_frames = 1;
-    for( uint32_t i = 1; i <= sample_count + get_decoder_delay( config->ctx ); i++ )
+    for( uint32_t i = 1; i <= vdhp->sample_count + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };
         get_sample( vdhp->root, vdhp->track_ID, i, config, &pkt );
@@ -534,7 +533,7 @@ int libavsmash_find_first_valid_video_frame
         if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
             vdhp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
-            if( vdhp->first_valid_frame_number > 1 || sample_count == 1 )
+            if( vdhp->first_valid_frame_number > 1 || vdhp->sample_count == 1 )
             {
                 vdhp->first_valid_frame = av_frame_clone( vdhp->frame_buffer );
                 if( !vdhp->first_valid_frame )

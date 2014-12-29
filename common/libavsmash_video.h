@@ -79,8 +79,7 @@ int libavsmash_get_video_frame
 
 int libavsmash_find_first_valid_video_frame
 (
-    libavsmash_video_decode_handler_t *vdhp,
-    uint32_t                           sample_count
+    libavsmash_video_decode_handler_t *vdhp
 );
 
 int libavsmash_create_keyframe_list
