@@ -192,10 +192,17 @@ int lw_copy_av_packet
     AVPacket *src
 )
 {
-    AVPacket temp_pkt = *src;
-    int ret = av_dup_packet( &temp_pkt );
-    if( ret < 0 )
+#if LIBAVUTIL_VERSION_MICRO >= 100
+    return av_copy_packet( dst, src );
+#else
+    int ret;
+    if( (ret = av_new_packet( dst, src->size )) != 0
+     || (ret = av_packet_copy_props( dst, src )) != 0 )
+    {
+        av_free_packet( dst );
         return ret;
-    *dst = temp_pkt;
-    return av_copy_packet_side_data( dst, src );
+    }
+    memcpy( dst->data, src->data, src->size );
+    return 0;
+#endif
 }
