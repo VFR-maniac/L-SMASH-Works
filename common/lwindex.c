@@ -1399,8 +1399,8 @@ static int append_extradata_if_new
                     }
                     else if( ret > 0 )
                     {
-                         if( av_packet_copy_props( &alt_pkt, pkt ) < 0
-                          || av_packet_from_data( &alt_pkt, data, size ) < 0 )
+                         if( av_packet_copy_props( &alt_pkt, pkt ) != 0
+                          || av_packet_from_data( &alt_pkt, data, size ) != 0 )
                             av_free( data );
                         lw_copy_av_packet( &alt_pkt, pkt );
                     }
@@ -1420,8 +1420,7 @@ static int append_extradata_if_new
                 }
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
-                if( ret > 0 )
-                    av_free( data );
+                av_free_packet( &alt_pkt );
             }
         }
     }
