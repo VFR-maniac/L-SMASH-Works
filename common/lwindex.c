@@ -1940,15 +1940,19 @@ static void create_index
             lw_field_info_t field_info;
             if( helper->parser_ctx )
             {
-                repeat_pict = pkt_ctx->ticks_per_frame == 2
-                            ? helper->parser_ctx->repeat_pict
-                            : 2 * helper->parser_ctx->repeat_pict + 1;
-                if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_TOP_FIELD )
-                    field_info = LW_FIELD_INFO_TOP;
-                else if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_BOTTOM_FIELD )
-                    field_info = LW_FIELD_INFO_BOTTOM;
+                if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_TOP_FIELD
+                 || helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_BOTTOM_FIELD )
+                {
+                    /* field coded picture */
+                    if( helper->parser_ctx->picture_structure == AV_PICTURE_STRUCTURE_TOP_FIELD )
+                        field_info = LW_FIELD_INFO_TOP;
+                    else
+                        field_info = LW_FIELD_INFO_BOTTOM;
+                    repeat_pict = helper->parser_ctx->repeat_pict;
+                }
                 else
                 {
+                    /* frame coded picture */
                     if( helper->parser_ctx->field_order == AV_FIELD_TT
                      || helper->parser_ctx->field_order == AV_FIELD_TB )
                         field_info = LW_FIELD_INFO_TOP;
@@ -1957,6 +1961,10 @@ static void create_index
                         field_info = LW_FIELD_INFO_BOTTOM;
                     else
                         field_info = helper->last_field_info;
+                    if( pkt_ctx->ticks_per_frame == 2 && helper->parser_ctx->repeat_pict != 0 )
+                        repeat_pict = helper->parser_ctx->repeat_pict;
+                    else
+                        repeat_pict = 2 * helper->parser_ctx->repeat_pict + 1;
                 }
                 helper->last_field_info = field_info;
             }
