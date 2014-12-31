@@ -2287,8 +2287,8 @@ static void create_index
                     uint32_t i = 0;
                     for( uint32_t j = 1; j <= video_sample_count && i < video_keyframe_count; j++ )
                         if( (video_info[j].flags & LW_VFRAME_FLAG_KEY)
-                         && video_info[j].pts != AV_NOPTS_VALUE
-                         && video_info[j].dts != AV_NOPTS_VALUE )
+                         && (video_info[j].pts != AV_NOPTS_VALUE
+                          || video_info[j].dts != AV_NOPTS_VALUE) )
                         {
                             temp[i].pos          = video_info[j].file_offset;
                             temp[i].timestamp    = video_info[j].pts != AV_NOPTS_VALUE ? video_info[j].pts : video_info[j].dts;
@@ -2299,7 +2299,7 @@ static void create_index
                         }
                     stream->index_entries                = temp;
                     stream->index_entries_allocated_size = allocated_size;
-                    stream->nb_index_entries             = video_keyframe_count;
+                    stream->nb_index_entries             = i;
                 }
             }
             else if( stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
@@ -2308,22 +2308,23 @@ static void create_index
                 temp = (AVIndexEntry *)av_realloc( stream->index_entries, allocated_size );
                 if( temp )
                 {
-                    for( uint32_t i = 0; i < audio_sample_count; i++ )
+                    uint32_t i = 0;
+                    for( uint32_t j = 1; j <= audio_sample_count && i < audio_sample_count; j++ )
                     {
-                        uint32_t j = i + 1;
                         if( audio_info[j].pts != AV_NOPTS_VALUE
-                         && audio_info[j].dts != AV_NOPTS_VALUE )
+                         || audio_info[j].dts != AV_NOPTS_VALUE )
                         {
                             temp[i].pos          = audio_info[j].file_offset;
                             temp[i].timestamp    = audio_info[j].pts != AV_NOPTS_VALUE ? audio_info[j].pts : audio_info[j].dts;
                             temp[i].flags        = AVINDEX_KEYFRAME;
                             temp[i].size         = 0;
                             temp[i].min_distance = 0;
+                            ++i;
                         }
                     }
                     stream->index_entries                = temp;
                     stream->index_entries_allocated_size = allocated_size;
-                    stream->nb_index_entries             = audio_sample_count;
+                    stream->nb_index_entries             = i;
                 }
             }
             if( !temp )
