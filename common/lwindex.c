@@ -2264,8 +2264,8 @@ static void create_index
          * The Simple Index Object does not always describe all keyframes in corresponding video stream.
          * Since the Simple Index Object cannot indicate PTS offset derived from missing indexes of early keyframes,
          * the Simple Index Object is unreliable on frame-accurate seek. So, this section makes up the indexes from
-         * the actual PTSs and file offsets without the Simple Index Object.
-         * Here, also construct the indexes for audio stream from the actual PTSs and file offsets if present. */
+         * the actual timestamps and file offsets without the Simple Index Object.
+         * Here, also construct the indexes for audio stream from the actual timestamps and file offsets if present. */
         for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
         {
             AVStream *stream = format_ctx->streams[stream_index];
@@ -2278,10 +2278,12 @@ static void create_index
                 {
                     uint32_t i = 0;
                     for( uint32_t j = 1; j <= video_sample_count && i < video_keyframe_count; j++ )
-                        if( video_info[j].flags & LW_VFRAME_FLAG_KEY )
+                        if( (video_info[j].flags & LW_VFRAME_FLAG_KEY)
+                         && video_info[j].pts != AV_NOPTS_VALUE
+                         && video_info[j].dts != AV_NOPTS_VALUE )
                         {
                             temp[i].pos          = video_info[j].file_offset;
-                            temp[i].timestamp    = video_info[j].pts;
+                            temp[i].timestamp    = video_info[j].pts != AV_NOPTS_VALUE ? video_info[j].pts : video_info[j].dts;
                             temp[i].flags        = AVINDEX_KEYFRAME;
                             temp[i].size         = 0;
                             temp[i].min_distance = 0;
@@ -2300,11 +2302,16 @@ static void create_index
                 {
                     for( uint32_t i = 0; i < audio_sample_count; i++ )
                     {
-                        temp[i].pos          = audio_info[i + 1].file_offset;
-                        temp[i].timestamp    = audio_info[i + 1].pts;
-                        temp[i].flags        = AVINDEX_KEYFRAME;
-                        temp[i].size         = 0;
-                        temp[i].min_distance = 0;
+                        uint32_t j = i + 1;
+                        if( audio_info[j].pts != AV_NOPTS_VALUE
+                         && audio_info[j].dts != AV_NOPTS_VALUE )
+                        {
+                            temp[i].pos          = audio_info[j].file_offset;
+                            temp[i].timestamp    = audio_info[j].pts != AV_NOPTS_VALUE ? audio_info[j].pts : audio_info[j].dts;
+                            temp[i].flags        = AVINDEX_KEYFRAME;
+                            temp[i].size         = 0;
+                            temp[i].min_distance = 0;
+                        }
                     }
                     stream->index_entries                = temp;
                     stream->index_entries_allocated_size = allocated_size;
