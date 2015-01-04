@@ -3072,17 +3072,12 @@ int lwlibav_import_av_index_entry
     if( dhp->index_entries )
     {
         AVStream *stream = dhp->format->streams[ dhp->stream_index ];
-        for( int i = 0; i < dhp->index_entries_count; i++ )
-        {
-            AVIndexEntry *ie = &dhp->index_entries[i];
-            if( av_add_index_entry( stream, ie->pos, ie->timestamp, ie->size, ie->min_distance, ie->flags ) < 0 )
-            {
-                if( dhp->lh.show_log )
-                    dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL, "Failed to import AVIndexEntrys." );
-                return -1;
-            }
-        }
-        av_freep( &dhp->index_entries );
+        av_free( stream->index_entries );
+        stream->index_entries                = dhp->index_entries;
+        stream->nb_index_entries             = dhp->index_entries_count;
+        stream->index_entries_allocated_size = dhp->index_entries_count * sizeof(AVIndexEntry);
+        dhp->index_entries       = NULL;
+        dhp->index_entries_count = 0;
     }
     return 0;
 }
