@@ -1,7 +1,7 @@
 /*****************************************************************************
  * lwmuxer.c
  *****************************************************************************
- * Copyright (C) 2011-2014 L-SMASH Works project
+ * Copyright (C) 2011-2015 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *          Hiroki Taniura <boiled.sugar@gmail.com>

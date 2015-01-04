@@ -1,7 +1,7 @@
 /*****************************************************************************
  * video_output.h
  *****************************************************************************
- * Copyright (C) 2013-2014 L-SMASH Works project
+ * Copyright (C) 2013-2015 L-SMASH Works project
  *
  * Authors: Yusuke Nakamura <muken.the.vfrmaniac@gmail.com>
  *
