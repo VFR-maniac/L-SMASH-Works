@@ -59,7 +59,6 @@ typedef struct
     uint32_t            frame_length;
     uint32_t            last_frame_number;
     uint64_t            next_pcm_sample_number;
-    AVBitStreamFilterContext *bsf;
 } lwlibav_audio_decode_handler_t;
 
 int lwlibav_get_desired_audio_track
