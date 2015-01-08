@@ -158,6 +158,72 @@ static int find_start_audio_frame
     return frame_number;
 }
 
+static inline void make_null_packet
+(
+    AVPacket *pkt
+)
+{
+    pkt->buf  = NULL;
+    pkt->data = NULL;
+    pkt->size = 0;
+}
+
+static void cleanup_av_bitstream_filter
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    av_freep( &adhp->ctx->extradata );
+    adhp->ctx->extradata_size = 0;
+    av_free_packet( &adhp->alter_packet );
+    av_bitstream_filter_close( adhp->bsf );
+    adhp->bsf = NULL;
+}
+
+static void make_decodable_packet
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    AVPacket                       *alt_pkt,
+    AVPacket                       *pkt
+)
+{
+    /* Workaround for preventing some weird ADTS AAC decoding.
+     * This should be fixed in libav/ffmpeg though. */
+    AVStream *stream = adhp->format->streams[ pkt->stream_index ];
+    int adts_aac = (stream->codec->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0);
+    if( !adhp->bsf && adts_aac )
+        adhp->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
+    else if( adhp->bsf && !adts_aac )
+        cleanup_av_bitstream_filter( adhp );
+    if( adhp->bsf )
+    {
+        av_free_packet( alt_pkt );
+        uint8_t *data = NULL;
+        int      size = 0;
+        int ret = av_bitstream_filter_filter( adhp->bsf, adhp->ctx, NULL,
+                                              &data, &size,
+                                              pkt->data, pkt->size, 0 );
+        if( ret == 0 )
+        {
+            av_packet_copy_props( alt_pkt, pkt );
+            alt_pkt->data = data;
+            alt_pkt->size = size;
+            alt_pkt->buf  = NULL;
+            return;
+        }
+        else if( ret > 0 )
+        {
+             if( av_packet_copy_props( alt_pkt, pkt ) == 0
+              && av_packet_from_data( alt_pkt, data, size ) == 0 )
+                return;
+            av_free( data );
+        }
+        lw_copy_av_packet( alt_pkt, pkt );
+    }
+    else
+        *alt_pkt = *pkt;
+}
+
 static uint32_t get_audio_rap
 (
     lwlibav_audio_decode_handler_t *adhp,
@@ -232,13 +298,35 @@ SHIFT_CURRENT_FRAME_NUMBER_TS( dts )
 
 #undef SHIFT_CURRENT_FRAME_NUMBER_TS
 
+static void no_output_audio_decoding
+(
+    AVCodecContext *ctx,
+    AVPacket       *pkt,
+    AVFrame        *picture
+)
+{
+    do
+    {
+        int dummy;
+        int consumed_bytes = avcodec_decode_audio4( ctx, picture, &dummy, pkt );
+        if( consumed_bytes < 0 )
+            return;
+        if( pkt->data )
+        {
+            pkt->size -= consumed_bytes;
+            pkt->data += consumed_bytes;
+        }
+    } while( pkt->size > 0 );
+}
+
 /* This function seeks the requested frame and get it. */
 static uint32_t seek_audio
 (
     lwlibav_audio_decode_handler_t *adhp,
     uint32_t                        frame_number,
     uint32_t                        past_rap_number,
-    AVPacket                       *pkt
+    AVPacket                       *pkt,
+    AVFrame                        *picture
 )
 {
 #define MAX_ERROR_COUNT 3   /* arbitrary */
@@ -261,6 +349,13 @@ retry_seek:;
     int match = 0;
     for( uint32_t i = rap_number; i <= frame_number; )
     {
+        if( match && picture && adhp->exh.current_index == adhp->frame_list[i - 1].extradata_index )
+        {
+            /* Actual decoding to establish stability of subsequent decoding. */
+            AVPacket *alter_pkt = &adhp->alter_packet;
+            make_decodable_packet( adhp, alter_pkt, pkt );
+            no_output_audio_decoding( adhp->ctx, alter_pkt, picture );
+        }
         if( lwlibav_get_av_frame( adhp->format, adhp->stream_index, i, pkt ) )
             break;
         if( !match && error_count <= MAX_ERROR_COUNT )
@@ -300,70 +395,6 @@ retry_seek:;
 #undef MAX_ERROR_COUNT
 }
 
-static inline void make_null_packet
-(
-    AVPacket *pkt
-)
-{
-    pkt->buf  = NULL;
-    pkt->data = NULL;
-    pkt->size = 0;
-}
-
-static void cleanup_av_bitstream_filter
-(
-    lwlibav_audio_decode_handler_t *adhp
-)
-{
-    av_free_packet( &adhp->alter_packet );
-    av_bitstream_filter_close( adhp->bsf );
-    adhp->bsf = NULL;
-}
-
-static void make_decodable_packet
-(
-    lwlibav_audio_decode_handler_t *adhp,
-    AVPacket                       *alt_pkt,
-    AVPacket                       *pkt
-)
-{
-    /* Workaround for preventing some weird ADTS AAC decoding.
-     * This should be fixed in libav/ffmpeg though. */
-    AVStream *stream = adhp->format->streams[ pkt->stream_index ];
-    int adts_aac = (stream->codec->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0);
-    if( !adhp->bsf && adts_aac )
-        adhp->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
-    else if( adhp->bsf && !adts_aac )
-        cleanup_av_bitstream_filter( adhp );
-    if( adhp->bsf )
-    {
-        av_free_packet( alt_pkt );
-        uint8_t *data = NULL;
-        int      size = 0;
-        int ret = av_bitstream_filter_filter( adhp->bsf, adhp->ctx, NULL,
-                                              &data, &size,
-                                              pkt->data, pkt->size, 0 );
-        if( ret == 0 )
-        {
-            av_packet_copy_props( alt_pkt, pkt );
-            alt_pkt->data = data;
-            alt_pkt->size = size;
-            alt_pkt->buf  = NULL;
-            return;
-        }
-        else if( ret > 0 )
-        {
-             if( av_packet_copy_props( alt_pkt, pkt ) == 0
-              && av_packet_from_data( alt_pkt, data, size ) == 0 )
-                return;
-            av_free( data );
-        }
-        lw_copy_av_packet( alt_pkt, pkt );
-    }
-    else
-        *alt_pkt = *pkt;
-}
-
 uint64_t lwlibav_get_pcm_audio_samples
 (
     lwlibav_audio_decode_handler_t *adhp,
@@ -378,8 +409,8 @@ uint64_t lwlibav_get_pcm_audio_samples
     uint32_t               frame_number;
     uint32_t               rap_number      = 0;
     uint32_t               past_rap_number = 0;
-    uint64_t               output_length = 0;
-    enum audio_output_flag output_flags;
+    uint64_t               output_length   = 0;
+    enum audio_output_flag output_flags    = AUDIO_OUTPUT_NO_FLAGS;
     AVPacket              *pkt       = &adhp->packet;
     AVPacket              *alter_pkt = &adhp->alter_packet;
     int                    already_gotten;
@@ -387,7 +418,6 @@ uint64_t lwlibav_get_pcm_audio_samples
     if( start > 0 && start == adhp->next_pcm_sample_number )
     {
         frame_number   = adhp->last_frame_number;
-        output_flags   = AUDIO_OUTPUT_NO_FLAGS;
         output_length += output_pcm_samples_from_buffer( aohp, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
         if( output_flags & AUDIO_OUTPUT_ENOUGH )
             goto audio_out;
@@ -416,8 +446,7 @@ uint64_t lwlibav_get_pcm_audio_samples
         frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
 retry_seek:
         av_free_packet( pkt );
-        if( adhp->bsf )
-            cleanup_av_bitstream_filter( adhp );
+        cleanup_av_bitstream_filter( adhp );
         /* Flush audio resampler buffers. */
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
@@ -443,7 +472,7 @@ retry_seek:
         if( adhp->error )
             return 0;
         /* Seek and get a audio packet. */
-        rap_number = seek_audio( adhp, frame_number, past_rap_number, pkt );
+        rap_number = seek_audio( adhp, frame_number, past_rap_number, pkt, output_flags != AUDIO_OUTPUT_NO_FLAGS ? adhp->frame_buffer : NULL );
         already_gotten = 1;
     }
     do
@@ -521,8 +550,7 @@ void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp 
                 av_free( exhp->entries[i].extradata );
         free( exhp->entries );
     }
-    if( adhp->bsf )
-        cleanup_av_bitstream_filter( adhp );
+    cleanup_av_bitstream_filter( adhp );
     av_free_packet( &adhp->packet );
     if( adhp->frame_list )
         lw_freep( &adhp->frame_list );
@@ -572,22 +600,24 @@ int try_decode_audio_frame
     lwlibav_audio_decode_handler_t *adhp = (lwlibav_audio_decode_handler_t *)dhp;
     AVFormatContext *format_ctx   = adhp->format;
     int              stream_index = adhp->stream_index;
+    AVPacket        *pkt          = &adhp->packet;
+    AVPacket        *alter_pkt    = &adhp->alter_packet;
     AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
     uint32_t         start_frame  = frame_number;
+    int              err          = 0;
     do
     {
         if( frame_number > adhp->frame_count )
             break;
         /* Get a frame. */
-        AVPacket pkt = { 0 };
         int extradata_index = adhp->frame_list[frame_number].extradata_index;
         if( extradata_index != adhp->exh.current_index )
             break;
         if( frame_number == start_frame )
-            seek_audio( adhp, frame_number, 0, &pkt );
+            seek_audio( adhp, frame_number, 0, pkt, NULL );
         else
         {
-            int ret = lwlibav_get_av_frame( format_ctx, stream_index, frame_number, &pkt );
+            int ret = lwlibav_get_av_frame( format_ctx, stream_index, frame_number, pkt );
             if( ret > 0 )
                 break;
             else if( ret < 0 )
@@ -598,23 +628,20 @@ int try_decode_audio_frame
                     strcpy( error_string, "Failed to set up channels.\n" );
                 else
                     strcpy( error_string, "Failed to set up sample format.\n" );
-                av_frame_free( &picture );
-                return -1;
+                err = -1;
+                goto abort;
             }
         }
+        make_decodable_packet( adhp, alter_pkt, pkt );
         /* Try decode a frame. */
-        do
-        {
-            int dummy;
-            int consumed_bytes = avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
-            if( pkt.data )
-            {
-                pkt.size -= consumed_bytes;
-                pkt.data += consumed_bytes;
-            }
-        } while( pkt.size > 0 );
+        no_output_audio_decoding( ctx, alter_pkt, picture );
         ++frame_number;
-    } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
+    } while( ctx->sample_rate == 0
+          || ctx->sample_fmt == AV_SAMPLE_FMT_NONE
+          || (ctx->channels == 0 && ctx->channel_layout == 0)
+          || (ctx->channels != av_get_channel_layout_nb_channels( ctx->channel_layout )) );
+abort:
+    cleanup_av_bitstream_filter( adhp );
     av_frame_free( &picture );
-    return 0;
+    return err;
 }
