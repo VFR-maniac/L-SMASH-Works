@@ -32,7 +32,7 @@ ifneq ($(IMPLIB),)
 	install -m 644 $(IMPLIB) $(DESTDIR)$(libdir)
 else
 	install -m 644 $(SONAME) $(DESTDIR)$(libdir)/$(SONAME)
-	$(if $(SONAME), ln -f -s $(DESTDIR)$(libdir)/$(SONAME) $(DESTDIR)$(vsplugindir)/$(SONAME_LN))
+	$(if $(SONAME), ln -f -s $(libdir)/$(SONAME) $(DESTDIR)$(vsplugindir)/$(SONAME_LN))
 endif
 
 #All objects should be deleted regardless of configure when uninstall/clean/distclean.
