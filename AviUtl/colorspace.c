@@ -494,7 +494,7 @@ int to_yuy2
                 uint8_t *another_chroma = av_realloc( au_vohp->another_chroma, 2 * another_chroma_size );
                 if( !another_chroma )
                 {
-                    MessageBox( HWND_DESKTOP, "Failed to allocate another chroma.", "lsmashinput", MB_ICONERROR | MB_OK );
+                    MessageBox( HWND_DESKTOP, "Failed to allocate another chroma.", "lwinput", MB_ICONERROR | MB_OK );
                     return -1;
                 }
                 au_vohp->another_chroma      = another_chroma;

@@ -872,6 +872,6 @@ static BOOL CALLBACK dialog_proc
 
 BOOL func_config( HWND hwnd, HINSTANCE dll_hinst )
 {
-    DialogBox( dll_hinst, "LSMASHINPUT_CONFIG", hwnd, dialog_proc );
+    DialogBox( dll_hinst, "LWINPUT_CONFIG", hwnd, dialog_proc );
     return TRUE;
 }
