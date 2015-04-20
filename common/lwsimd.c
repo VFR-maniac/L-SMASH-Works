@@ -69,12 +69,12 @@ int lw_check_sse41()
 
 int lw_check_avx2()
 {
-	int CPUInfo[4];
-	__cpuid( CPUInfo, 1 );
-	if( (CPUInfo[2] & 0x18000000) == 0x18000000 && check_xgetbv() )
+    int CPUInfo[4];
+    __cpuid( CPUInfo, 1 );
+    if( (CPUInfo[2] & 0x18000000) == 0x18000000 && check_xgetbv() )
     {
         __cpuid( CPUInfo, 7 );
         return (CPUInfo[1] & 0x00000020) != 0;
     }
-	return 0;
+    return 0;
 }
