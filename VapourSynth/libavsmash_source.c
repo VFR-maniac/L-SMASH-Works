@@ -138,8 +138,9 @@ static void set_frame_properties
     /* Picture type */
     char pict_type = av_get_picture_type_char( av_frame->pict_type );
     vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
-    /* Progressive or Interlaced */
-    vsapi->propSetInt( props, "_FieldBased", !!av_frame->interlaced_frame, paReplace );
+    /* BFF or TFF */
+    if( av_frame->interlaced_frame )
+        vsapi->propSetInt( props, "_FieldBased", av_frame->top_field_first ? 2 : 1, paReplace );
 }
 
 static int prepare_video_decoding( lsmas_handler_t *hp, VSCore *core, const VSAPI *vsapi )
