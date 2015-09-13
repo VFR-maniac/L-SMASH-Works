@@ -1088,6 +1088,19 @@ disable_repeat:
     return;
 }
 
+static inline int check_vp8_invisible_frame( const AVPacket *pkt )
+{
+    return !(pkt->data[0] & 0x10);
+}
+
+static inline int check_vp9_invisible_frame( const AVPacket *pkt )
+{
+    if( ((pkt->data[0] >> 4) & 0x03) == 0x03 )
+        return !(pkt->data[0] & 0x04) && !(pkt->data[0] & 0x01);
+    else
+        return !(pkt->data[0] & 0x08) && !(pkt->data[0] & 0x02);
+}
+
 static void create_video_visible_frame_list
 (
     lwlibav_video_decode_handler_t *vdhp,
@@ -2000,12 +2013,16 @@ static void create_index
                  && (pkt_ctx->codec_id == AV_CODEC_ID_H264 || pkt_ctx->codec_id == AV_CODEC_ID_HEVC)
                  && (pkt_ctx->width == 0 || pkt_ctx->height == 0) )
                     info->flags |= LW_VFRAME_FLAG_CORRUPT;
-                if( (pkt_ctx->codec_id == AV_CODEC_ID_VP8 || pkt_ctx->codec_id == AV_CODEC_ID_VP9)
-                 && pkt.pts == AV_NOPTS_VALUE && pkt.dts == AV_NOPTS_VALUE && pkt.pos == -1 )
+                if( (pkt_ctx->codec_id == AV_CODEC_ID_VP8 && check_vp8_invisible_frame( &pkt ))
+                 || (pkt_ctx->codec_id == AV_CODEC_ID_VP9 && check_vp9_invisible_frame( &pkt )) )
                 {
                     /* VPx invisible altref frame. */
                     info->flags |= LW_VFRAME_FLAG_INVISIBLE;
                     ++invisible_count;
+                    /* backward compatible hack for the index */
+                    pkt.pts = AV_NOPTS_VALUE;
+                    pkt.dts = AV_NOPTS_VALUE;
+                    pkt.pos = -1;
                 }
                 if( vdhp->time_base.num == 0 || vdhp->time_base.den == 0 )
                 {
