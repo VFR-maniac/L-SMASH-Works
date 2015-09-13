@@ -1127,12 +1127,8 @@ static void create_video_visible_frame_list
         uint32_t visible_number = 0;
         for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
         {
-            ++visible_number;
-            if( info[i].flags & LW_VFRAME_FLAG_INVISIBLE )
-            {
-                order_list[i - 1].top    = visible_number;
-                order_list[i - 1].bottom = visible_number;
-            }
+            if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE) )
+                ++visible_number;
             order_list[i].top    = visible_number;
             order_list[i].bottom = visible_number;
         }
@@ -1150,12 +1146,12 @@ static void create_video_visible_frame_list
         }
         uint32_t order_count = 0;
         for( uint32_t i = 1; i <= vdhp->frame_count; i++ )
-        {
             if( !(info[i].flags & LW_VFRAME_FLAG_INVISIBLE) )
+            {
                 ++order_count;
-            order_list[order_count].top    = i;
-            order_list[order_count].bottom = i;
-        }
+                order_list[order_count].top    = i;
+                order_list[order_count].bottom = i;
+            }
         if( visible_count != order_count )
             goto disable_repeat;
         vohp->frame_order_count = visible_count;
