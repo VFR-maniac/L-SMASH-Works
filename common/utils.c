@@ -186,6 +186,7 @@ int lw_try_rational_framerate
             min_error = error[i];
             *framerate_num = (int64_t)fps_num[i];
             *framerate_den = (int64_t)fps_den[i];
+            reduce_fraction( framerate_num, framerate_den );
         }
     return (min_error < DOUBLE_EPSILON);
 #undef DOUBLE_EPSILON
