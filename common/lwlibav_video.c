@@ -325,9 +325,23 @@ static uint32_t seek_video
         else if( ret >= 1 )
             /* No decoding occurs. */
             break;
+        if( got_picture )
+        {
+            exhp->delay_count = MIN( decoder_delay, current - rap_number );
+            if( decoder_delay > exhp->delay_count )
+            {
+                /* Shorten the distance to the goal if we got a frame earlier than expected. */
+                uint32_t new_decoder_delay = exhp->delay_count;
+                goal -= decoder_delay - new_decoder_delay;
+                decoder_delay = new_decoder_delay;
+            }
+            uint32_t frame_number = current - exhp->delay_count;
+            vdhp->last_half_frame = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
+        }
         /* Handle decoder delay derived from PAFF field coded pictures. */
-        if( current <= vdhp->frame_count && current >= rap_number + decoder_delay
-         && !got_picture && vdhp->frame_list[current].repeat_pict == 0 )
+        else if( current <= vdhp->frame_count
+              && current >= rap_number + decoder_delay
+              && vdhp->frame_list[current].repeat_pict == 0 )
         {
             /* No output picture since the second field coded picture of the next frame is not decoded yet. */
             if( decoder_delay - thread_delay < 2 * vdhp->ctx->has_b_frames + 1UL )
@@ -336,12 +350,6 @@ static uint32_t seek_video
                 goal += new_decoder_delay - decoder_delay;
                 decoder_delay = new_decoder_delay;
             }
-        }
-        if( got_picture )
-        {
-            exhp->delay_count = MIN( decoder_delay, current - rap_number );
-            uint32_t frame_number = current - exhp->delay_count;
-            vdhp->last_half_frame = (frame_number <= vdhp->frame_count && vdhp->frame_list[frame_number].repeat_pict == 0);
         }
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
