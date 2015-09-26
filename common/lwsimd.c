@@ -25,7 +25,7 @@
 #ifdef __GNUC__
 static void __cpuid(int CPUInfo[4], int prm)
 {
-    asm volatile ( "cpuid" :"=a"(CPUInfo[0]), "=b"(CPUInfo[1]), "=c"(CPUInfo[2]), "=d"(CPUInfo[3]) :"a"(prm) );
+    __asm volatile ( "cpuid" :"=a"(CPUInfo[0]), "=b"(CPUInfo[1]), "=c"(CPUInfo[2]), "=d"(CPUInfo[3]) :"a"(prm) );
     return;
 }
 #else
@@ -39,7 +39,7 @@ static int check_xgetbv( void )
 #elif defined(__GNUC__)
     uint32_t eax;
     uint32_t edx;
-    asm volatile ( ".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0) );
+    __asm volatile ( ".byte 0x0f, 0x01, 0xd0" : "=a"(eax), "=d"(edx) : "c"(0) );
 #else
     uint32_t eax = 0;
 #endif
