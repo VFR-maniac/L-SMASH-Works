@@ -165,6 +165,7 @@ case "$TARGET_OS" in
         SOSUFFIX="dll"
         SONAME="$BASENAME.$SOSUFFIX"
         SOFLAGS="-Wl,--enable-auto-image-base -Wl,--export-all-symbols"
+        CFLAGS="$CFLAGS -D__USE_MINGW_ANSI_STDIO=1"
         ;;
     *darwin*)
         SYS="MACOSX"
