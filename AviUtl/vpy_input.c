@@ -242,6 +242,52 @@ static inline int vs_is_rgb_format
     return color_family >= cmRGB && color_family < cmRGB + 1000000 ? 1 : 0;
 }
 
+static inline void get_color_range
+(
+    vpy_handler_t *hp,
+    const VSMap   *props
+)
+{
+    if( hp->vsapi->propNumElements( props, "_ColorRange" ) > 0 )
+        hp->ctx->color_range = hp->vsapi->propGetInt( props, "_ColorRange", 0, NULL )
+                             ? AVCOL_RANGE_MPEG
+                             : AVCOL_RANGE_JPEG;
+    else
+        hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
+}
+
+static inline void get_colorspace
+(
+    vpy_handler_t *hp,
+    const VSMap   *props
+)
+{
+    if( hp->vsapi->propNumElements( props, "_ColorSpace" ) > 0 )
+        hp->ctx->colorspace = hp->vsapi->propGetInt( props, "_ColorSpace", 0, NULL );
+    else
+        hp->ctx->colorspace = AVCOL_SPC_UNSPECIFIED;
+}
+
+static inline void get_interlaced_info
+(
+    vpy_handler_t *hp,
+    const VSMap   *props
+)
+{
+    if( hp->vsapi->propNumElements( props, "_FieldBased" ) > 0 )
+    {
+        int64_t value = hp->vsapi->propGetInt( props, "_FieldBased", 0, NULL );
+        hp->av_frame->interlaced_frame = (value == 2 || value == 1 ? 1 : 0);
+        if( hp->av_frame->interlaced_frame )
+            hp->av_frame->top_field_first = (value == 2 ? 1 : 0);
+    }
+    else
+    {
+        hp->av_frame->interlaced_frame = 0;
+        hp->av_frame->top_field_first  = 0;
+    }
+}
+
 static int read_video
 (
     lsmash_handler_t *h,
@@ -266,16 +312,9 @@ static int read_video
         hp->av_frame->linesize[j] = hp->vsapi->getStride( vs_frame, i );
     }
     const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
-    if( hp->vsapi->propNumElements( props, "_ColorRange" ) > 0 )
-        hp->ctx->color_range = hp->vsapi->propGetInt( props, "_ColorRange", 0, NULL )
-                             ? AVCOL_RANGE_MPEG
-                             : AVCOL_RANGE_JPEG;
-    else
-        hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
-    if( hp->vsapi->propNumElements( props, "_ColorSpace" ) > 0 )
-        hp->ctx->colorspace = hp->vsapi->propGetInt( props, "_ColorSpace", 0, NULL );
-    else
-        hp->ctx->colorspace = AVCOL_SPC_UNSPECIFIED;
+    get_color_range( hp, props );
+    get_colorspace( hp, props );
+    get_interlaced_info( hp, props );
     hp->av_frame->format = hp->ctx->pix_fmt;
     int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
     hp->vsapi->freeFrame( vs_frame );
