@@ -156,7 +156,7 @@ static inline void lwlibav_cleanup_video_output_handler
 )
 {
     lw_cleanup_video_output_handler( vohp );
-};
+}
 
 int lwlibav_find_first_valid_video_frame
 (

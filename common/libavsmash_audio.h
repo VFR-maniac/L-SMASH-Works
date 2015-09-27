@@ -62,4 +62,4 @@ static inline void libavsmash_cleanup_audio_output_handler
 )
 {
     lw_cleanup_audio_output_handler( aohp );
-};
+}

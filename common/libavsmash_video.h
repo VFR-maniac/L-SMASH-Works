@@ -105,4 +105,4 @@ static inline void libavsmash_cleanup_video_output_handler
 )
 {
     lw_cleanup_video_output_handler( vohp );
-};
+}
