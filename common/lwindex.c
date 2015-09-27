@@ -2507,7 +2507,8 @@ static int parse_index
     char format_name[256];
     int active_video_index;
     int active_audio_index;
-    if( fscanf( index, "<LibavReaderIndex=0x%x,%d,%[^>]>\n", &lwhp->format_flags, &lwhp->raw_demuxer, format_name ) != 3 )
+    if( fscanf( index, "<LibavReaderIndex=0x%x,%d,%[^>]>\n",
+                (unsigned int *)&lwhp->format_flags, &lwhp->raw_demuxer, format_name ) != 3 )
         return -1;
     int32_t active_index_pos = ftell( index );
     if( fscanf( index, "<ActiveVideoStreamIndex>%d</ActiveVideoStreamIndex>\n", &active_video_index ) != 1
@@ -2780,7 +2781,7 @@ static int parse_index
                     int size;
                     int flags;
                     if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
-                                &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
+                                &ie.pos, &ie.timestamp, (unsigned int *)&flags, &size, &ie.min_distance ) != 5 )
                         break;
                     ie.size  = size;
                     ie.flags = flags;
@@ -2801,7 +2802,7 @@ static int parse_index
                     int size;
                     int flags;
                     if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
-                                &ie.pos, &ie.timestamp, &flags, &size, &ie.min_distance ) != 5 )
+                                &ie.pos, &ie.timestamp, (unsigned int *)&flags, &size, &ie.min_distance ) != 5 )
                         break;
                     ie.size  = size;
                     ie.flags = flags;
