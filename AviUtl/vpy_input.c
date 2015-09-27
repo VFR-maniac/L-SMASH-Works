@@ -256,14 +256,14 @@ static inline void get_color_range
         hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
 }
 
-static inline void get_colorspace
+static inline void get_color_matrix_coefficients
 (
     vpy_handler_t *hp,
     const VSMap   *props
 )
 {
-    if( hp->vsapi->propNumElements( props, "_ColorSpace" ) > 0 )
-        hp->ctx->colorspace = hp->vsapi->propGetInt( props, "_ColorSpace", 0, NULL );
+    if( hp->vsapi->propNumElements( props, "_Matrix" ) > 0 )
+        hp->ctx->colorspace = hp->vsapi->propGetInt( props, "_Matrix", 0, NULL );
     else
         hp->ctx->colorspace = AVCOL_SPC_UNSPECIFIED;
 }
@@ -312,9 +312,9 @@ static int read_video
         hp->av_frame->linesize[j] = hp->vsapi->getStride( vs_frame, i );
     }
     const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
-    get_color_range( hp, props );
-    get_colorspace( hp, props );
-    get_interlaced_info( hp, props );
+    get_color_range              ( hp, props );
+    get_color_matrix_coefficients( hp, props );
+    get_interlaced_info          ( hp, props );
     hp->av_frame->format = hp->ctx->pix_fmt;
     int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
     hp->vsapi->freeFrame( vs_frame );
