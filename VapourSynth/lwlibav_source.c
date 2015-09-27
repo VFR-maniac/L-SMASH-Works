@@ -64,7 +64,7 @@ uint64_t output_pcm_samples_from_packet
     return 0;
 }
 
-void lw_cleanup_audio_output_handler( lw_audio_output_handler_t *aohp ){ };
+void lw_cleanup_audio_output_handler( lw_audio_output_handler_t *aohp ){ }
 
 #include "lsmashsource.h"
 #include "video_output.h"
