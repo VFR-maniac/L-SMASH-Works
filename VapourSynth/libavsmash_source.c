@@ -120,7 +120,9 @@ static void set_frame_properties
     if( ctx )
     {
         vsapi->propSetInt( props, "_ColorRange",  ctx->color_range != AVCOL_RANGE_JPEG, paReplace );
-        vsapi->propSetInt( props, "_ColorSpace",  ctx->colorspace,                      paReplace );
+        vsapi->propSetInt( props, "_Primaries",   ctx->color_primaries,                 paReplace );
+        vsapi->propSetInt( props, "_Transfer",    ctx->color_trc,                       paReplace );
+        vsapi->propSetInt( props, "_Matrix",      ctx->colorspace,                      paReplace );
         int chroma_loc;
         switch( ctx->chroma_sample_location )
         {
