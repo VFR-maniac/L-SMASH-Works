@@ -34,13 +34,19 @@
 #include "colorspace_simd.h"
 #include "video_output.h"
 
+typedef struct
+{
+    uint8_t *data    [4];
+    int      linesize[4];
+} au_picture_t;
+
 static void convert_yuv16le_to_lw48
 (
-    uint8_t   *buf,
-    int        buf_linesize,
-    AVPicture *yuv444p16,
-    int        output_rowsize,
-    int        output_height
+    uint8_t *buf,
+    int      buf_linesize,
+    AVFrame *yuv444p16,
+    int      output_rowsize,
+    int      output_height
 )
 {
     uint32_t offset = 0;
@@ -109,11 +115,11 @@ static void convert_yuv16le_to_yc48
 
 static void convert_packed_chroma_to_planar
 (
-    AVPicture *planar_chroma,
-    uint8_t   *packed_chroma,
-    int        packed_linesize,
-    int        chroma_width,
-    int        chroma_height
+    au_picture_t *planar_chroma,
+    uint8_t      *packed_chroma,
+    int           packed_linesize,
+    int           chroma_width,
+    int           chroma_height
 )
 {
     for( int y = 0; y < chroma_height; y++ )
@@ -355,7 +361,7 @@ static int to_yuv16le
 (
     struct SwsContext *sws_ctx,
     AVFrame           *picture,
-    AVPicture         *yuv444p16,
+    AVFrame           *yuv444p16,
     int                width,
     int                height
 )
@@ -403,7 +409,7 @@ int to_yuv16le_to_lw48
 {
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-    AVPicture *yuv444p16 = &au_vohp->yuv444p16;
+    AVFrame *yuv444p16 = au_vohp->yuv444p16;
     int output_rowsize = vshp->input_width * LW48_SIZE;
     int output_height  = to_yuv16le( vshp->sws_ctx, picture, yuv444p16, vshp->input_width, vshp->input_height );
     /* Convert planar YUV 4:4:4 48bpp little-endian into LW48. */
@@ -420,7 +426,7 @@ int to_yuv16le_to_yc48
 {
     lw_video_scaler_handler_t *vshp    = &vohp->scaler;
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-    AVPicture *yuv444p16 = &au_vohp->yuv444p16;
+    AVFrame *yuv444p16 = au_vohp->yuv444p16;
     int output_rowsize = vshp->input_width * YC48_SIZE;
     int output_height  = to_yuv16le( vshp->sws_ctx, picture, yuv444p16, vshp->input_width, vshp->input_height );
     /* Convert planar YUV 4:4:4 48bpp little-endian into YC48. */
@@ -478,7 +484,7 @@ int to_yuy2
      ||  (picture->format == AV_PIX_FMT_NV12)
      ||  (picture->format == AV_PIX_FMT_NV21)) )
     {
-        AVPicture av_picture =
+        au_picture_t au_picture =
             {
                 { picture->data    [0], picture->data    [1], picture->data    [2], NULL },
                 { picture->linesize[0], picture->linesize[1], picture->linesize[2],    0 }
@@ -501,12 +507,12 @@ int to_yuy2
                 au_vohp->another_chroma_size = another_chroma_size;
             }
             /* Assign data set as YV12. */
-            av_picture.data[picture->format == AV_PIX_FMT_NV12 ? 1 : 2] = au_vohp->another_chroma;
-            av_picture.data[picture->format == AV_PIX_FMT_NV12 ? 2 : 1] = au_vohp->another_chroma + another_chroma_size;
-            av_picture.linesize[1] = planar_chroma_linesize;
-            av_picture.linesize[2] = planar_chroma_linesize;
+            au_picture.data[picture->format == AV_PIX_FMT_NV12 ? 1 : 2] = au_vohp->another_chroma;
+            au_picture.data[picture->format == AV_PIX_FMT_NV12 ? 2 : 1] = au_vohp->another_chroma + another_chroma_size;
+            au_picture.linesize[1] = planar_chroma_linesize;
+            au_picture.linesize[2] = planar_chroma_linesize;
             /* Convert chroma NV12 to YV12 (split packed UV into planar U and V). */
-            convert_packed_chroma_to_planar( &av_picture, picture->data[1], picture->linesize[1], vshp->input_width / 2, vshp->input_height / 2 );
+            convert_packed_chroma_to_planar( &au_picture, picture->data[1], picture->linesize[1], vshp->input_width / 2, vshp->input_height / 2 );
         }
         /* Interlaced YV12 to YUY2 conversion */
         output_rowsize = vshp->input_width * YUY2_SIZE;
@@ -514,7 +520,7 @@ int to_yuy2
         if( ssse3_available == -1 )
             ssse3_available = lw_check_ssse3();
         static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
-        func_yv12i_to_yuy2[ssse3_available]( buf, vohp->output_linesize, av_picture.data, av_picture.linesize, output_rowsize, vshp->input_height );
+        func_yv12i_to_yuy2[ssse3_available]( buf, vohp->output_linesize, au_picture.data, au_picture.linesize, output_rowsize, vshp->input_height );
     }
     else
     {

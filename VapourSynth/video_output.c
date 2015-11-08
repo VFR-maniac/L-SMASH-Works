@@ -34,6 +34,12 @@
 
 #include "video_output.h"
 
+typedef struct
+{
+    uint8_t *data    [4];
+    int      linesize[4];
+} vs_picture_t;
+
 static void make_black_background_planar_yuv8
 (
     VSFrameRef  *vs_frame,
@@ -86,7 +92,7 @@ static void make_frame_planar_yuv
     const VSAPI               *vsapi
 )
 {
-    AVPicture vs_picture =
+    vs_picture_t vs_picture =
     {
         /* data */
         {
@@ -116,7 +122,7 @@ static void make_frame_planar_rgb
     const VSAPI               *vsapi
 )
 {
-    AVPicture vs_picture =
+    vs_picture_t vs_picture =
     {
         /* data */
         {

@@ -23,6 +23,12 @@
 
 #include "../common/video_output.h"
 
+typedef struct
+{
+    uint8_t *data    [4];
+    int      linesize[4];
+} as_picture_t;
+
 typedef void func_make_black_background
 (
     PVideoFrame &frame,
@@ -48,7 +54,7 @@ typedef struct
     int                         stacked_format;
     int                         sub_width;
     int                         sub_height;
-    AVPicture                   scaled;
+    as_picture_t                scaled;
 } as_video_output_handler_t;
 
 typedef struct

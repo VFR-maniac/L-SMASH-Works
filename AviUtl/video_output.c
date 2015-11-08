@@ -117,12 +117,9 @@ static void au_free_video_output_handler
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)private_handler;
     if( !au_vohp )
         return;
-    if( au_vohp->back_ground )
-        free( au_vohp->back_ground );
-    if( au_vohp->another_chroma )
-        av_free( au_vohp->another_chroma );
-    if( au_vohp->yuv444p16.data[0] )
-        av_free( au_vohp->yuv444p16.data[0] );
+    free( au_vohp->back_ground );
+    av_free( au_vohp->another_chroma );
+    av_frame_free( &au_vohp->yuv444p16 );
     free( au_vohp );
 }
 
@@ -193,7 +190,13 @@ func_get_buffer_t *au_setup_video_rendering
     if( format->biCompression == OUTPUT_TAG_YC48
      || format->biCompression == OUTPUT_TAG_LW48 )
     {
-        AVPicture *yuv444p16 = &au_vohp->yuv444p16;
+        AVFrame *yuv444p16 = av_frame_alloc();
+        if( !yuv444p16 )
+        {
+            DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_frame_alloc for YUV444P16 convertion." );
+            return NULL;
+        }
+        au_vohp->yuv444p16 = yuv444p16;
         if( av_image_alloc( yuv444p16->data, yuv444p16->linesize, vohp->output_width, vohp->output_height, AV_PIX_FMT_YUV444P16LE, 32 ) < 0 )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_image_alloc for YUV444P16 convertion." );

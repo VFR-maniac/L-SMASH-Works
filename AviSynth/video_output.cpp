@@ -117,28 +117,28 @@ static inline int convert_av_pixel_format
     struct SwsContext *sws_ctx,
     int                height,
     AVFrame           *av_frame,
-    AVPicture         *av_picture
+    as_picture_t      *as_picture
 )
 {
     int ret = sws_scale( sws_ctx,
                          (const uint8_t * const *)av_frame->data, av_frame->linesize,
                          0, height,
-                         av_picture->data, av_picture->linesize );
+                         as_picture->data, as_picture->linesize );
     return ret > 0 ? ret : -1;
 }
 
 static inline void as_assign_planar_yuv
 (
-    PVideoFrame &as_frame,
-    AVPicture   *av_picture
+    PVideoFrame  &as_frame,
+    as_picture_t *as_picture
 )
 {
-    av_picture->data    [0] = as_frame->GetWritePtr( PLANAR_Y );
-    av_picture->data    [1] = as_frame->GetWritePtr( PLANAR_U );
-    av_picture->data    [2] = as_frame->GetWritePtr( PLANAR_V );
-    av_picture->linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
-    av_picture->linesize[1] = as_frame->GetPitch   ( PLANAR_U );
-    av_picture->linesize[2] = as_frame->GetPitch   ( PLANAR_V );
+    as_picture->data    [0] = as_frame->GetWritePtr( PLANAR_Y );
+    as_picture->data    [1] = as_frame->GetWritePtr( PLANAR_U );
+    as_picture->data    [2] = as_frame->GetWritePtr( PLANAR_V );
+    as_picture->linesize[0] = as_frame->GetPitch   ( PLANAR_Y );
+    as_picture->linesize[1] = as_frame->GetPitch   ( PLANAR_U );
+    as_picture->linesize[2] = as_frame->GetPitch   ( PLANAR_V );
 }
 
 static int make_frame_planar_yuv
@@ -149,9 +149,9 @@ static int make_frame_planar_yuv
     PVideoFrame               &as_frame
 )
 {
-    AVPicture av_picture = { { { NULL } } };
-    as_assign_planar_yuv( as_frame, &av_picture );
-    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
+    as_picture_t as_picture = { { { NULL } } };
+    as_assign_planar_yuv( as_frame, &as_picture );
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &as_picture );
 }
 
 static int make_frame_planar_yuv_stacked
@@ -162,8 +162,8 @@ static int make_frame_planar_yuv_stacked
     PVideoFrame               &as_frame
 )
 {
-    AVPicture dst_picture = { { { NULL } } };
-    AVPicture src_picture = { { { NULL } } };
+    as_picture_t dst_picture = { { { NULL } } };
+    as_picture_t src_picture = { { { NULL } } };
     as_assign_planar_yuv( as_frame, &dst_picture );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
@@ -243,10 +243,10 @@ static int make_frame_packed_yuv
     PVideoFrame               &as_frame
 )
 {
-    AVPicture av_picture = { { { NULL } } };
-    av_picture.data    [0] = as_frame->GetWritePtr();
-    av_picture.linesize[0] = as_frame->GetPitch   ();
-    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
+    as_picture_t as_picture = { { { NULL } } };
+    as_picture.data    [0] = as_frame->GetWritePtr();
+    as_picture.linesize[0] = as_frame->GetPitch   ();
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &as_picture );
 }
 
 static int make_frame_packed_rgb
@@ -257,10 +257,10 @@ static int make_frame_packed_rgb
     PVideoFrame               &as_frame
 )
 {
-    AVPicture av_picture = { { { NULL } } };
-    av_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
-    av_picture.linesize[0] = -as_frame->GetPitch();
-    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &av_picture );
+    as_picture_t as_picture = { { { NULL } } };
+    as_picture.data    [0] = as_frame->GetWritePtr() + as_frame->GetPitch() * (as_frame->GetHeight() - 1);
+    as_picture.linesize[0] = -as_frame->GetPitch();
+    return convert_av_pixel_format( vohp->scaler.sws_ctx, height, av_frame, &as_picture );
 }
 
 enum AVPixelFormat get_av_output_pixel_format
