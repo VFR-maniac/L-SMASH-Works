@@ -1429,7 +1429,7 @@ static int append_extradata_if_new
                 }
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
-                av_free_packet( &alt_pkt );
+                av_packet_unref( &alt_pkt );
             }
         }
     }
@@ -1883,13 +1883,13 @@ static void create_index
         lwindex_helper_t *helper = get_index_helper( lwhp->format_name, pkt_ctx, stream );
         if( !helper )
         {
-            av_free_packet( &pkt );
+            av_packet_unref( &pkt );
             goto fail_index;
         }
         int extradata_index = append_extradata_if_new( helper, pkt_ctx, &pkt );
         if( extradata_index < 0 )
         {
-            av_free_packet( &pkt );
+            av_packet_unref( &pkt );
             goto fail_index;
         }
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
@@ -1939,7 +1939,7 @@ static void create_index
             int pict_type = get_picture_type( helper, pkt_ctx, &pkt );
             if( pict_type < 0 )
             {
-                av_free_packet( &pkt );
+                av_packet_unref( &pkt );
                 goto fail_index;
             }
             /* Get Picture Order Count. */
@@ -2036,7 +2036,7 @@ static void create_index
                     video_frame_info_t *temp = (video_frame_info_t *)realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
                     if( !temp )
                     {
-                        av_free_packet( &pkt );
+                        av_packet_unref( &pkt );
                         goto fail_index;
                     }
                     video_info = temp;
@@ -2123,7 +2123,7 @@ static void create_index
                         audio_frame_info_t *temp = (audio_frame_info_t *)realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
                         if( !temp )
                         {
-                            av_free_packet( &pkt );
+                            av_packet_unref( &pkt );
                             goto fail_index;
                         }
                         audio_info = temp;
@@ -2190,12 +2190,12 @@ static void create_index
                              + 0.5);
             const char *message = index ? "Creating Index file" : "Parsing input file";
             int abort = indicator->update( php, message, percent );
-            av_free_packet( &pkt );
+            av_packet_unref( &pkt );
             if( abort )
                 goto fail_index;
         }
         else
-            av_free_packet( &pkt );
+            av_packet_unref( &pkt );
     }
     /* Handle delay derived from the audio decoder. */
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )

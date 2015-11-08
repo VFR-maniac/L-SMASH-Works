@@ -912,7 +912,7 @@ void lwlibav_cleanup_video_decode_handler
                 av_free( exhp->entries[i].extradata );
         free( exhp->entries );
     }
-    av_free_packet( &vdhp->packet );
+    av_packet_unref( &vdhp->packet );
     if( vdhp->frame_list )
         lw_freep( &vdhp->frame_list );
     if( vdhp->order_converter )

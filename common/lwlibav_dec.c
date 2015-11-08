@@ -166,14 +166,14 @@ int lwlibav_get_av_frame
     AVPacket        *pkt
 )
 {
-    av_free_packet( pkt );
+    av_packet_unref( pkt );
     av_init_packet( pkt );
     /* Get a packet as the requested frame physically. */
     while( read_av_frame( format_ctx, pkt ) >= 0 )
     {
         if( pkt->stream_index != stream_index )
         {
-            av_free_packet( pkt );
+            av_packet_unref( pkt );
             continue;
         }
         /* libavformat seek results might be inaccurate.
@@ -199,7 +199,7 @@ int lw_copy_av_packet
     if( (ret = av_new_packet( dst, src->size )) != 0
      || (ret = av_packet_copy_props( dst, src )) != 0 )
     {
-        av_free_packet( dst );
+        av_packet_unref( dst );
         return ret;
     }
     memcpy( dst->data, src->data, src->size );

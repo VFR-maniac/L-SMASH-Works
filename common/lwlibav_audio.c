@@ -398,7 +398,7 @@ uint64_t lwlibav_get_pcm_audio_samples
         }
         frame_number = find_start_audio_frame( adhp, aohp->output_sample_rate, start_frame_pos, &aohp->output_sample_offset );
 retry_seek:
-        av_free_packet( pkt );
+        av_packet_unref( pkt );
         /* Flush audio resampler buffers. */
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
@@ -436,7 +436,7 @@ retry_seek:
         }
         else if( frame_number > adhp->frame_count )
         {
-            av_free_packet( pkt );
+            av_packet_unref( pkt );
             if( adhp->exh.delay_count )
             {
                 /* Null packet */
@@ -502,7 +502,7 @@ void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp 
                 av_free( exhp->entries[i].extradata );
         free( exhp->entries );
     }
-    av_free_packet( &adhp->packet );
+    av_packet_unref( &adhp->packet );
     if( adhp->frame_list )
         lw_freep( &adhp->frame_list );
     if( adhp->index_entries )
