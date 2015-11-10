@@ -50,6 +50,7 @@ LWLibavVideoSource::LWLibavVideoSource
     int                 direct_rendering,
     int                 stacked_format,
     enum AVPixelFormat  pixel_format,
+    const char         *forced_decoder_name,
     IScriptEnvironment *env
 )
 {
@@ -59,6 +60,7 @@ LWLibavVideoSource::LWLibavVideoSource
     memset( &voh, 0, sizeof(lwlibav_video_output_handler_t) );
     vdh.seek_mode              = seek_mode;
     vdh.forward_seek_threshold = forward_seek_threshold;
+    vdh.forced_decoder_name    = forced_decoder_name;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
@@ -267,6 +269,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     int         field_dominance        = args[10].AsInt( 0 );
     int         stacked_format         = args[11].AsBool( false ) ? 1 : 0;
     enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[12].AsString( NULL ) );
+    const char *forced_decoder_name    = args[13].AsString( NULL );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -285,7 +288,8 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
-    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold, direct_rendering, stacked_format, pixel_format, env );
+    return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold,
+                                   direct_rendering, stacked_format, pixel_format, forced_decoder_name, env );
 }
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )

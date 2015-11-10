@@ -58,15 +58,17 @@ LSMASHVideoSource::LSMASHVideoSource
     int                 fps_den,
     int                 stacked_format,
     enum AVPixelFormat  pixel_format,
+    const char         *forced_decoder_name,
     IScriptEnvironment *env
 )
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &vdh, 0, sizeof(libavsmash_video_decode_handler_t) );
     memset( &voh, 0, sizeof(libavsmash_video_output_handler_t) );
-    format_ctx                 = NULL;
-    vdh.seek_mode              = seek_mode;
-    vdh.forward_seek_threshold = forward_seek_threshold;
+    format_ctx                     = NULL;
+    vdh.seek_mode                  = seek_mode;
+    vdh.forward_seek_threshold     = forward_seek_threshold;
+    vdh.config.forced_decoder_name = forced_decoder_name;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
@@ -467,12 +469,13 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
     int         fps_den                = args[7].AsInt( 1 );
     int         stacked_format         = args[8].AsBool( false ) ? 1 : 0;
     enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[9].AsString( NULL ) );
+    const char *forced_decoder_name    = args[10].AsString( NULL );
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
     return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold,
-                                  direct_rendering, fps_num, fps_den, stacked_format, pixel_format, env );
+                                  direct_rendering, fps_num, fps_den, stacked_format, pixel_format, forced_decoder_name, env );
 }
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )

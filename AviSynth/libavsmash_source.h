@@ -67,6 +67,7 @@ public:
         int                 fps_den,
         int                 stacked_format,
         enum AVPixelFormat  pixel_format,
+        const char         *forced_decoder_name,
         IScriptEnvironment *env
     );
     ~LSMASHVideoSource();
