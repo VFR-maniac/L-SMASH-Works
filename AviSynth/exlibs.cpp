@@ -23,14 +23,11 @@
 
 #pragma comment( lib, "libmingwex.a" )
 #pragma comment( lib, "libgcc.a" )
-#pragma comment( lib, "libz.a" )
-#pragma comment( lib, "libbz2.a" )
 #pragma comment( lib, "liblsmash.a" )
-#pragma comment( lib, "libavutil.a" )
-#pragma comment( lib, "libavcodec.a" )
-#pragma comment( lib, "libavformat.a" )
-#pragma comment( lib, "libswscale.a" )
-#pragma comment( lib, "libavresample.a" )
-#pragma comment( lib, "libwsock32.a" )
+#pragma comment( lib, "avutil.lib" )
+#pragma comment( lib, "avcodec.lib" )
+#pragma comment( lib, "avformat.lib" )
+#pragma comment( lib, "swscale.lib" )
+#pragma comment( lib, "avresample.lib" )
 
 /* Add more external libraries user-self if needed. */
