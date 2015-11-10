@@ -79,6 +79,8 @@ typedef struct
     int                         av_seek_flags;
     int                         dv_in_avi;
     enum AVCodecID              codec_id;
+    const char                 *forced_decoder_name;
+    AVRational                  time_base;
     uint32_t                    frame_count;
     AVFrame                    *frame_buffer;
     void                       *frame_list;
@@ -114,14 +116,27 @@ static inline void lavf_close_file( AVFormatContext **format_ctx )
     avformat_close_input( format_ctx );
 }
 
+static inline AVCodec *find_decoder
+(
+    enum AVCodecID  codec_id,
+    const char     *forced_decoder_name
+)
+{
+    AVCodec *codec = forced_decoder_name ? avcodec_find_decoder_by_name( forced_decoder_name ) : NULL;
+    if( !codec || codec->id != codec_id )
+        codec = avcodec_find_decoder( codec_id );
+    return codec;
+}
+
 static inline int open_decoder
 (
     AVCodecContext *ctx,
     enum AVCodecID  codec_id,
+    const char     *forced_decoder_name,
     int             threads
 )
 {
-    AVCodec *codec = avcodec_find_decoder( codec_id );
+    AVCodec *codec = find_decoder( codec_id, forced_decoder_name );
     if( !codec )
         return -1;
     ctx->thread_count = threads;

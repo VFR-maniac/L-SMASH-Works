@@ -55,7 +55,7 @@ int lwlibav_get_desired_video_track
              || vdhp->frame_count == 0
              || lavf_open_file( &vdhp->format, file_path, &vdhp->lh );
     AVCodecContext *ctx = !error ? vdhp->format->streams[ vdhp->stream_index ]->codec : NULL;
-    if( error || open_decoder( ctx, vdhp->codec_id, threads ) )
+    if( error || open_decoder( ctx, vdhp->codec_id, vdhp->forced_decoder_name, threads ) )
     {
         if( vdhp->index_entries )
             av_freep( &vdhp->index_entries );

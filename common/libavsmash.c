@@ -43,6 +43,18 @@ extern "C"
 #define BYTE_SWAP_16( x ) ((( x ) << 8 & 0xff00)  | (( x ) >> 8 & 0x00ff))
 #define BYTE_SWAP_32( x ) (BYTE_SWAP_16( x ) << 16 | BYTE_SWAP_16(( x ) >> 16))
 
+static AVCodec *find_decoder
+(
+    enum AVCodecID  codec_id,
+    const char     *forced_decoder_name
+)
+{
+    AVCodec *codec = forced_decoder_name ? avcodec_find_decoder_by_name( forced_decoder_name ) : NULL;
+    if( !codec || codec->id != codec_id )
+        codec = avcodec_find_decoder( codec_id );
+    return codec;
+}
+
 lsmash_root_t *libavsmash_open_file
 (
     AVFormatContext          **p_format_ctx,
@@ -373,7 +385,7 @@ AVCodec *libavsmash_find_decoder
             codec_id = get_codec_id_from_description( config->entries[i].summary );
         config->ctx->codec_id = codec_id;
     }
-    return avcodec_find_decoder( codec_id );
+    return find_decoder( codec_id, config->forced_decoder_name );
 }
 
 static lsmash_codec_specific_data_type get_codec_specific_data_type
@@ -758,8 +770,7 @@ void update_configuration
         }
         return;
     }
-    AVCodecContext *ctx   = config->ctx;
-    const AVCodec  *codec = ctx->codec;
+    AVCodecContext *ctx = config->ctx;
     void *app_specific      = ctx->opaque;
     int   refcounted_frames = ctx->refcounted_frames;
     avcodec_close( ctx );
@@ -770,7 +781,7 @@ void update_configuration
     }
     /* Find an appropriate decoder. */
     char error_string[96] = { 0 };
-    codec = avcodec_find_decoder( config->queue.codec_id );
+    const AVCodec *codec = find_decoder( config->queue.codec_id, config->forced_decoder_name );
     if( !codec )
     {
         strcpy( error_string, "Failed to find the decoder.\n" );

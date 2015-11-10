@@ -1878,8 +1878,14 @@ static void create_index
             continue;
         if( pkt_ctx->codec_id == AV_CODEC_ID_NONE )
             continue;
-        if( !av_codec_is_decoder( pkt_ctx->codec ) && open_decoder( pkt_ctx, pkt_ctx->codec_id, lwhp->threads ) )
-            continue;
+        if( !av_codec_is_decoder( pkt_ctx->codec ) )
+        {
+            const char *forced_decoder_name = pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO
+                                            ? vdhp->forced_decoder_name
+                                            : adhp->forced_decoder_name;
+            if( open_decoder( pkt_ctx, pkt_ctx->codec_id, forced_decoder_name, lwhp->threads ) < 0 )
+                continue;
+        }
         lwindex_helper_t *helper = get_index_helper( lwhp->format_name, pkt_ctx, stream );
         if( !helper )
         {

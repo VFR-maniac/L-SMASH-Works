@@ -70,6 +70,7 @@ typedef struct
     int                 av_seek_flags;
     int                 dv_in_avi;          /* unused */
     enum AVCodecID      codec_id;
+    const char         *forced_decoder_name;
     AVRational          time_base;
     uint32_t            frame_count;
     AVFrame            *frame_buffer;

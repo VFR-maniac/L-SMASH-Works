@@ -53,7 +53,7 @@ int lwlibav_get_desired_audio_track
              || adhp->frame_count == 0
              || lavf_open_file( &adhp->format, file_path, &adhp->lh );
     AVCodecContext *ctx = !error ? adhp->format->streams[ adhp->stream_index ]->codec : NULL;
-    if( error || open_decoder( ctx, adhp->codec_id, threads ) )
+    if( error || open_decoder( ctx, adhp->codec_id, adhp->forced_decoder_name, threads ) )
     {
         if( adhp->index_entries )
             av_freep( &adhp->index_entries );
