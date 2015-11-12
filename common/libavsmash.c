@@ -55,6 +55,30 @@ static AVCodec *find_decoder
     return codec;
 }
 
+static inline int is_qsv_decoder
+(
+    const AVCodec *codec
+)
+{
+    if( codec && codec->pix_fmts )
+        for( const enum AVPixelFormat *pix_fmt = codec->pix_fmts; *pix_fmt != AV_PIX_FMT_NONE; pix_fmt++ )
+            if( *pix_fmt == AV_PIX_FMT_QSV )
+                return 1;
+    return 0;
+}
+
+static int decoder_open
+(
+    AVCodecContext *ctx,
+    const AVCodec  *codec
+)
+{
+    int ret = avcodec_open2( ctx, codec, NULL );
+    if( is_qsv_decoder( ctx->codec ) )
+        ctx->has_b_frames = 16; /* the maximum decoder latency for AVC and HEVC frame */
+    return ret;
+}
+
 lsmash_root_t *libavsmash_open_file
 (
     AVFormatContext          **p_format_ctx,
@@ -732,7 +756,7 @@ void libavsmash_flush_buffers
                                          * For instance, when stream is encoded as AC-3,
                                          * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
                                          * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    if( decoder_open( ctx, codec ) < 0 )
     {
         config->error = 1;
         if( config->lh.show_log )
@@ -837,7 +861,7 @@ void update_configuration
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
     ctx->thread_count = 1;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    if( decoder_open( ctx, codec ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;

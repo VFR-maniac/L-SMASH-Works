@@ -257,15 +257,23 @@ static uint32_t seek_video
         libavsmash_flush_buffers( config );
     if( config->error )
         return 0;
-    int dummy;
+    int got_picture;
     uint64_t rap_cts = 0;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( config->ctx );
-    for( i = rap_number; i < composition_sample_number + decoder_delay; i++ )
+    uint32_t goal = composition_sample_number + decoder_delay;
+    for( i = rap_number; i < goal; i++ )
     {
         if( config->index == config->queue.index )
             config->delay_count = MIN( decoder_delay, i - rap_number );
-        int ret = decode_video_sample( vdhp, picture, &dummy, i );
+        int ret = decode_video_sample( vdhp, picture, &got_picture, i );
+        if( got_picture && decoder_delay > config->delay_count )
+        {
+            /* Shorten the distance to the goal if we got a frame earlier than expected. */
+            uint32_t new_decoder_delay = config->delay_count;
+            goal -= decoder_delay - new_decoder_delay;
+            decoder_delay = new_decoder_delay;
+        }
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
         if( i == vdhp->last_rap_number )
@@ -308,7 +316,12 @@ static int get_picture
             /* A new decoder configuration is needed. Anyway, stop getting picture. */
             break;
         if( !got_picture )
+        {
+            /* More input samples are required to output.
+             * Once any output is there after the decoder initialization, the goal become more distant. */
             ++ config->delay_count;
+            ++ goal;
+        }
     }
     /* Flush the last frames. */
     if( current > vdhp->sample_count && get_decoder_delay( config->ctx ) )
