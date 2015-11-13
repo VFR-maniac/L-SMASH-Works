@@ -317,8 +317,8 @@ static int get_picture
             break;
         if( !got_picture )
         {
-            /* More input samples are required to output.
-             * Once any output is there after the decoder initialization, the goal become more distant. */
+            /* Fundamental seek operations after the decoder initialization is already done, but
+             * more input samples are required to output and the goal become more distant. */
             ++ config->delay_count;
             ++ goal;
         }

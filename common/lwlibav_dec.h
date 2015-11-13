@@ -136,13 +136,7 @@ static inline int read_av_frame
     } while( 1 );
 }
 
-AVCodec *find_decoder
-(
-    enum AVCodecID  codec_id,
-    const char    **preferred_decoder_names
-);
-
-int open_decoder
+int find_and_open_decoder
 (
     AVCodecContext *ctx,
     enum AVCodecID  codec_id,

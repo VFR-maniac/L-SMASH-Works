@@ -55,7 +55,7 @@ int lwlibav_get_desired_video_track
              || vdhp->frame_count == 0
              || lavf_open_file( &vdhp->format, file_path, &vdhp->lh );
     AVCodecContext *ctx = !error ? vdhp->format->streams[ vdhp->stream_index ]->codec : NULL;
-    if( error || open_decoder( ctx, vdhp->codec_id, vdhp->preferred_decoder_names, threads ) )
+    if( error || find_and_open_decoder( ctx, vdhp->codec_id, vdhp->preferred_decoder_names, threads ) )
     {
         if( vdhp->index_entries )
             av_freep( &vdhp->index_entries );
@@ -449,9 +449,12 @@ static int get_picture
             }
             else
             {
-                /* frame coded picture but delayed by picture reordering */
+                /* frame coded picture
+                 * Fundamental seek operations after the decoder initialization is already done, but
+                 * more input pictures are required to output and the goal become more distant. */
                 vdhp->last_half_offset = 0;
                 vdhp->exh.delay_count += 1;
+                ++goal;
             }
         }
         ++current;

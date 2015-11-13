@@ -76,7 +76,7 @@ static inline int is_qsv_decoder
     return 0;
 }
 
-static int decoder_open
+static int open_decoder
 (
     AVCodecContext *ctx,
     const AVCodec  *codec
@@ -765,7 +765,7 @@ void libavsmash_flush_buffers
                                          * For instance, when stream is encoded as AC-3,
                                          * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
                                          * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( decoder_open( ctx, codec ) < 0 )
+    if( open_decoder( ctx, codec ) < 0 )
     {
         config->error = 1;
         if( config->lh.show_log )
@@ -870,7 +870,7 @@ void update_configuration
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
     ctx->thread_count = 1;
-    if( decoder_open( ctx, codec ) < 0 )
+    if( open_decoder( ctx, codec ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;

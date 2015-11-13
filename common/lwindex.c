@@ -1883,7 +1883,7 @@ static void create_index
             const char **preferred_decoder_names = pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO
                                                  ? vdhp->preferred_decoder_names
                                                  : adhp->preferred_decoder_names;
-            if( open_decoder( pkt_ctx, pkt_ctx->codec_id, preferred_decoder_names, lwhp->threads ) < 0 )
+            if( find_and_open_decoder( pkt_ctx, pkt_ctx->codec_id, preferred_decoder_names, lwhp->threads ) < 0 )
                 continue;
         }
         lwindex_helper_t *helper = get_index_helper( lwhp->format_name, pkt_ctx, stream );

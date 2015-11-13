@@ -35,7 +35,7 @@ extern "C"
 #include "utils.h"
 #include "lwlibav_dec.h"
 
-AVCodec *find_decoder
+static AVCodec *find_decoder
 (
     enum AVCodecID  codec_id,
     const char    **preferred_decoder_names
@@ -56,7 +56,31 @@ AVCodec *find_decoder
     return codec;
 }
 
-int open_decoder
+static inline int is_qsv_decoder
+(
+    const AVCodec *codec
+)
+{
+    if( codec && codec->pix_fmts )
+        for( const enum AVPixelFormat *pix_fmt = codec->pix_fmts; *pix_fmt != AV_PIX_FMT_NONE; pix_fmt++ )
+            if( *pix_fmt == AV_PIX_FMT_QSV )
+                return 1;
+    return 0;
+}
+
+static int open_decoder
+(
+    AVCodecContext *ctx,
+    const AVCodec  *codec
+)
+{
+    int ret = avcodec_open2( ctx, codec, NULL );
+    if( is_qsv_decoder( ctx->codec ) )
+        ctx->has_b_frames = 16; /* the maximum decoder latency for AVC and HEVC frame */
+    return ret;
+}
+
+int find_and_open_decoder
 (
     AVCodecContext *ctx,
     enum AVCodecID  codec_id,
@@ -68,7 +92,7 @@ int open_decoder
     if( !codec )
         return -1;
     ctx->thread_count = threads;
-    return (avcodec_open2( ctx, codec, NULL ) < 0) ? -1 : 0;
+    return (open_decoder( ctx, codec ) < 0) ? -1 : 0;
 }
 
 void lwlibav_flush_buffers
@@ -86,7 +110,7 @@ void lwlibav_flush_buffers
                                          * For instance, when stream is encoded as AC-3,
                                          * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
                                          * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    if( open_decoder( ctx, codec ) < 0 )
     {
         dhp->error = 1;
         if( dhp->lh.show_log )
@@ -163,7 +187,7 @@ void lwlibav_update_configuration
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
     ctx->thread_count = 1;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    if( open_decoder( ctx, codec ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;
