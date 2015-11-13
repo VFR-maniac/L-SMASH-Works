@@ -58,17 +58,18 @@ LSMASHVideoSource::LSMASHVideoSource
     int                 fps_den,
     int                 stacked_format,
     enum AVPixelFormat  pixel_format,
-    const char         *forced_decoder_name,
+    const char         *preferred_decoder_names,
     IScriptEnvironment *env
 )
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &vdh, 0, sizeof(libavsmash_video_decode_handler_t) );
     memset( &voh, 0, sizeof(libavsmash_video_output_handler_t) );
-    format_ctx                     = NULL;
-    vdh.seek_mode                  = seek_mode;
-    vdh.forward_seek_threshold     = forward_seek_threshold;
-    vdh.config.forced_decoder_name = forced_decoder_name;
+    format_ctx = NULL;
+    set_preferred_decoder_names( preferred_decoder_names );
+    vdh.seek_mode                      = seek_mode;
+    vdh.forward_seek_threshold         = forward_seek_threshold;
+    vdh.config.preferred_decoder_names = tokenize_preferred_decoder_names();
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
@@ -83,6 +84,7 @@ LSMASHVideoSource::LSMASHVideoSource
 
 LSMASHVideoSource::~LSMASHVideoSource()
 {
+    lw_freep( &vdh.config.preferred_decoder_names );
     libavsmash_cleanup_video_decode_handler( &vdh );
     libavsmash_cleanup_video_output_handler( &voh );
     if( format_ctx )
@@ -244,6 +246,7 @@ LSMASHAudioSource::LSMASHAudioSource
     bool                skip_priming,
     uint64_t            channel_layout,
     int                 sample_rate,
+    const char         *preferred_decoder_names,
     IScriptEnvironment *env
 )
 {
@@ -251,6 +254,8 @@ LSMASHAudioSource::LSMASHAudioSource
     memset( &adh, 0, sizeof(libavsmash_audio_decode_handler_t) );
     memset( &aoh, 0, sizeof(libavsmash_audio_output_handler_t) );
     format_ctx = NULL;
+    set_preferred_decoder_names( preferred_decoder_names );
+    adh.config.preferred_decoder_names = tokenize_preferred_decoder_names();
     get_audio_track( source, track_number, skip_priming, env );
     lsmash_discard_boxes( adh.root );
     prepare_audio_decoding( channel_layout, sample_rate, env );
@@ -258,6 +263,7 @@ LSMASHAudioSource::LSMASHAudioSource
 
 LSMASHAudioSource::~LSMASHAudioSource()
 {
+    lw_freep( &adh.config.preferred_decoder_names );
     libavsmash_cleanup_audio_decode_handler( &adh );
     libavsmash_cleanup_audio_output_handler( &aoh );
     if( format_ctx )
@@ -459,23 +465,23 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
 #ifdef NDEBUG
     av_log_set_level( AV_LOG_QUIET );
 #endif
-    const char *source                 = args[0].AsString();
-    uint32_t    track_number           = args[1].AsInt( 0 );
-    int         threads                = args[2].AsInt( 0 );
-    int         seek_mode              = args[3].AsInt( 0 );
-    uint32_t    forward_seek_threshold = args[4].AsInt( 10 );
-    int         direct_rendering       = args[5].AsBool( false ) ? 1 : 0;
-    int         fps_num                = args[6].AsInt( 0 );
-    int         fps_den                = args[7].AsInt( 1 );
-    int         stacked_format         = args[8].AsBool( false ) ? 1 : 0;
-    enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[9].AsString( NULL ) );
-    const char *forced_decoder_name    = args[10].AsString( NULL );
+    const char *source                  = args[0].AsString();
+    uint32_t    track_number            = args[1].AsInt( 0 );
+    int         threads                 = args[2].AsInt( 0 );
+    int         seek_mode               = args[3].AsInt( 0 );
+    uint32_t    forward_seek_threshold  = args[4].AsInt( 10 );
+    int         direct_rendering        = args[5].AsBool( false ) ? 1 : 0;
+    int         fps_num                 = args[6].AsInt( 0 );
+    int         fps_den                 = args[7].AsInt( 1 );
+    int         stacked_format          = args[8].AsBool( false ) ? 1 : 0;
+    enum AVPixelFormat pixel_format     = get_av_output_pixel_format( args[9].AsString( NULL ) );
+    const char *preferred_decoder_names = args[10].AsString( NULL );
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
     return new LSMASHVideoSource( source, track_number, threads, seek_mode, forward_seek_threshold,
-                                  direct_rendering, fps_num, fps_den, stacked_format, pixel_format, forced_decoder_name, env );
+                                  direct_rendering, fps_num, fps_den, stacked_format, pixel_format, preferred_decoder_names, env );
 }
 
 AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
@@ -483,11 +489,13 @@ AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScrip
 #ifdef NDEBUG
     av_log_set_level( AV_LOG_QUIET );
 #endif
-    const char *source        = args[0].AsString();
-    uint32_t    track_number  = args[1].AsInt( 0 );
-    bool        skip_priming  = args[2].AsBool( true );
-    const char *layout_string = args[3].AsString( NULL );
-    int         sample_rate   = args[4].AsInt( 0 );
+    const char *source                  = args[0].AsString();
+    uint32_t    track_number            = args[1].AsInt( 0 );
+    bool        skip_priming            = args[2].AsBool( true );
+    const char *layout_string           = args[3].AsString( NULL );
+    int         sample_rate             = args[4].AsInt( 0 );
+    const char *preferred_decoder_names = args[5].AsString( NULL );
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
-    return new LSMASHAudioSource( source, track_number, skip_priming, channel_layout, sample_rate, env );
+    return new LSMASHAudioSource( source, track_number, skip_priming,
+                                  channel_layout, sample_rate, preferred_decoder_names, env );
 }

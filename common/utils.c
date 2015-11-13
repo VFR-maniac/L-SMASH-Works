@@ -40,6 +40,8 @@ void *lw_malloc_zero( size_t size )
 
 void lw_freep( void *pointer )
 {
+    if( !pointer )
+        return;
     void **p = (void **)pointer;
     free( *p );
     *p = NULL;
@@ -190,4 +192,39 @@ int lw_try_rational_framerate
         }
     return (min_error < DOUBLE_EPSILON);
 #undef DOUBLE_EPSILON
+}
+
+const char **lw_tokenize_string
+(
+    char * str,         /* null-terminated string: separator charactors will be replaced with '\0'. */
+    char   separator,   /* separator */
+    char **bufs         /* If NULL, allocate memory block internally, which can be deallocated by lw_freep(). */
+)
+{
+    if( !str )
+        return NULL;
+    char **tokens = bufs ? bufs : (char **)malloc( 2 * sizeof(char *) );
+    if( !tokens )
+        return NULL;
+    size_t i = 1;
+    tokens[0] = str;
+    tokens[1] = NULL;   /* null-terminated */
+    for( char *p = str; *p != '\0'; p++ )
+        if( *p == separator )
+        {
+            *p = '\0';
+            if( *(p + 1) != '\0' )
+            {
+                if( !bufs )
+                {
+                    char **tmp = (char **)realloc( tokens, (i + 2) * sizeof(char *) );
+                    if( !tmp )
+                        break;
+                    tokens = tmp;
+                }
+                tokens[  i] = p + 1;
+                tokens[++i] = NULL;   /* null-terminated */
+            }
+        }
+    return (const char **)tokens;
 }

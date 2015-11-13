@@ -50,7 +50,7 @@ LWLibavVideoSource::LWLibavVideoSource
     int                 direct_rendering,
     int                 stacked_format,
     enum AVPixelFormat  pixel_format,
-    const char         *forced_decoder_name,
+    const char         *preferred_decoder_names,
     IScriptEnvironment *env
 )
 {
@@ -58,9 +58,10 @@ LWLibavVideoSource::LWLibavVideoSource
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
     memset( &vdh, 0, sizeof(lwlibav_video_decode_handler_t) );
     memset( &voh, 0, sizeof(lwlibav_video_output_handler_t) );
-    vdh.seek_mode              = seek_mode;
-    vdh.forward_seek_threshold = forward_seek_threshold;
-    vdh.forced_decoder_name    = forced_decoder_name;
+    set_preferred_decoder_names( preferred_decoder_names );
+    vdh.seek_mode               = seek_mode;
+    vdh.forward_seek_threshold  = forward_seek_threshold;
+    vdh.preferred_decoder_names = tokenize_preferred_decoder_names();
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
@@ -103,6 +104,7 @@ LWLibavVideoSource::LWLibavVideoSource
 
 LWLibavVideoSource::~LWLibavVideoSource()
 {
+    lw_freep( &vdh.preferred_decoder_names );
     lwlibav_cleanup_video_decode_handler( &vdh );
     lwlibav_cleanup_video_output_handler( &voh );
     if( lwh.file_path )
@@ -165,6 +167,7 @@ LWLibavAudioSource::LWLibavAudioSource
     lwlibav_option_t   *opt,
     uint64_t            channel_layout,
     int                 sample_rate,
+    const char         *preferred_decoder_names,
     IScriptEnvironment *env
 )
 {
@@ -172,6 +175,8 @@ LWLibavAudioSource::LWLibavAudioSource
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
     memset( &adh, 0, sizeof(lwlibav_audio_decode_handler_t) );
     memset( &aoh, 0, sizeof(lwlibav_audio_output_handler_t) );
+    set_preferred_decoder_names( preferred_decoder_names );
+    adh.preferred_decoder_names = tokenize_preferred_decoder_names();
     /* Set up error handler. */
     lw_log_handler_t lh;
     lh.level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
@@ -198,6 +203,7 @@ LWLibavAudioSource::LWLibavAudioSource
 
 LWLibavAudioSource::~LWLibavAudioSource()
 {
+    lw_freep( &adh.preferred_decoder_names );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( lwh.file_path )
@@ -256,20 +262,20 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
 #ifdef NDEBUG
     av_log_set_level( AV_LOG_QUIET );
 #endif
-    const char *source                 = args[0].AsString();
-    int         stream_index           = args[1].AsInt( -1 );
-    int         threads                = args[2].AsInt( 0 );
-    int         no_create_index        = args[3].AsBool( true ) ? 0 : 1;
-    int         seek_mode              = args[4].AsInt( 0 );
-    uint32_t    forward_seek_threshold = args[5].AsInt( 10 );
-    int         direct_rendering       = args[6].AsBool( false ) ? 1 : 0;
-    int         fps_num                = args[7].AsInt( 0 );
-    int         fps_den                = args[8].AsInt( 1 );
-    int         apply_repeat_flag      = args[9].AsBool( false ) ? 1 : 0;
-    int         field_dominance        = args[10].AsInt( 0 );
-    int         stacked_format         = args[11].AsBool( false ) ? 1 : 0;
-    enum AVPixelFormat pixel_format    = get_av_output_pixel_format( args[12].AsString( NULL ) );
-    const char *forced_decoder_name    = args[13].AsString( NULL );
+    const char *source                  = args[0].AsString();
+    int         stream_index            = args[1].AsInt( -1 );
+    int         threads                 = args[2].AsInt( 0 );
+    int         no_create_index         = args[3].AsBool( true ) ? 0 : 1;
+    int         seek_mode               = args[4].AsInt( 0 );
+    uint32_t    forward_seek_threshold  = args[5].AsInt( 10 );
+    int         direct_rendering        = args[6].AsBool( false ) ? 1 : 0;
+    int         fps_num                 = args[7].AsInt( 0 );
+    int         fps_den                 = args[8].AsInt( 1 );
+    int         apply_repeat_flag       = args[9].AsBool( false ) ? 1 : 0;
+    int         field_dominance         = args[10].AsInt( 0 );
+    int         stacked_format          = args[11].AsBool( false ) ? 1 : 0;
+    enum AVPixelFormat pixel_format     = get_av_output_pixel_format( args[12].AsString( NULL ) );
+    const char *preferred_decoder_names = args[13].AsString( NULL );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -289,7 +295,7 @@ AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScri
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
     direct_rendering      &= (pixel_format == AV_PIX_FMT_NONE);
     return new LWLibavVideoSource( &opt, seek_mode, forward_seek_threshold,
-                                   direct_rendering, stacked_format, pixel_format, forced_decoder_name, env );
+                                   direct_rendering, stacked_format, pixel_format, preferred_decoder_names, env );
 }
 
 AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScriptEnvironment *env )
@@ -297,12 +303,13 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
 #ifdef NDEBUG
     av_log_set_level( AV_LOG_QUIET );
 #endif
-    const char *source          = args[0].AsString();
-    int         stream_index    = args[1].AsInt( -1 );
-    int         no_create_index = args[2].AsBool( true  ) ? 0 : 1;
-    int         av_sync         = args[3].AsBool( false ) ? 1 : 0;
-    const char *layout_string   = args[4].AsString( NULL );
-    uint32_t    sample_rate     = args[5].AsInt( 0 );
+    const char *source                  = args[0].AsString();
+    int         stream_index            = args[1].AsInt( -1 );
+    int         no_create_index         = args[2].AsBool( true  ) ? 0 : 1;
+    int         av_sync                 = args[3].AsBool( false ) ? 1 : 0;
+    const char *layout_string           = args[4].AsString( NULL );
+    uint32_t    sample_rate             = args[5].AsInt( 0 );
+    const char *preferred_decoder_names = args[6].AsString( NULL );
     /* Set LW-Libav options. */
     lwlibav_option_t opt;
     opt.file_path         = source;
@@ -319,5 +326,5 @@ AVSValue __cdecl CreateLWLibavAudioSource( AVSValue args, void *user_data, IScri
     opt.vfr2cfr.fps_num   = 0;
     opt.vfr2cfr.fps_den   = 0;
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
-    return new LWLibavAudioSource( &opt, channel_layout, sample_rate, env );
+    return new LWLibavAudioSource( &opt, channel_layout, sample_rate, preferred_decoder_names, env );
 }

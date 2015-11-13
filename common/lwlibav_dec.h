@@ -79,7 +79,7 @@ typedef struct
     int                         av_seek_flags;
     int                         dv_in_avi;
     enum AVCodecID              codec_id;
-    const char                 *forced_decoder_name;
+    const char                **preferred_decoder_names;
     AVRational                  time_base;
     uint32_t                    frame_count;
     AVFrame                    *frame_buffer;
@@ -116,33 +116,6 @@ static inline void lavf_close_file( AVFormatContext **format_ctx )
     avformat_close_input( format_ctx );
 }
 
-static inline AVCodec *find_decoder
-(
-    enum AVCodecID  codec_id,
-    const char     *forced_decoder_name
-)
-{
-    AVCodec *codec = forced_decoder_name ? avcodec_find_decoder_by_name( forced_decoder_name ) : NULL;
-    if( !codec || codec->id != codec_id )
-        codec = avcodec_find_decoder( codec_id );
-    return codec;
-}
-
-static inline int open_decoder
-(
-    AVCodecContext *ctx,
-    enum AVCodecID  codec_id,
-    const char     *forced_decoder_name,
-    int             threads
-)
-{
-    AVCodec *codec = find_decoder( codec_id, forced_decoder_name );
-    if( !codec )
-        return -1;
-    ctx->thread_count = threads;
-    return (avcodec_open2( ctx, codec, NULL ) < 0) ? -1 : 0;
-}
-
 static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
 {
     return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
@@ -162,6 +135,20 @@ static inline int read_av_frame
             return ret;
     } while( 1 );
 }
+
+AVCodec *find_decoder
+(
+    enum AVCodecID  codec_id,
+    const char    **preferred_decoder_names
+);
+
+int open_decoder
+(
+    AVCodecContext *ctx,
+    enum AVCodecID  codec_id,
+    const char    **preferred_decoder_names,
+    int             threads
+);
 
 void lwlibav_flush_buffers
 (

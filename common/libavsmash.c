@@ -46,12 +46,21 @@ extern "C"
 static AVCodec *find_decoder
 (
     enum AVCodecID  codec_id,
-    const char     *forced_decoder_name
+    const char    **preferred_decoder_names
 )
 {
-    AVCodec *codec = forced_decoder_name ? avcodec_find_decoder_by_name( forced_decoder_name ) : NULL;
-    if( !codec || codec->id != codec_id )
-        codec = avcodec_find_decoder( codec_id );
+    AVCodec *codec = avcodec_find_decoder( codec_id );
+    if( codec && preferred_decoder_names )
+        for( const char **decoder_name = preferred_decoder_names; *decoder_name != NULL; decoder_name++ )
+        {
+            AVCodec *preferred_decoder = avcodec_find_decoder_by_name( *decoder_name );
+            if( preferred_decoder
+             && preferred_decoder->id == codec->id )
+            {
+                codec = preferred_decoder;
+                break;
+            }
+        }
     return codec;
 }
 
@@ -409,7 +418,7 @@ AVCodec *libavsmash_find_decoder
             codec_id = get_codec_id_from_description( config->entries[i].summary );
         config->ctx->codec_id = codec_id;
     }
-    return find_decoder( codec_id, config->forced_decoder_name );
+    return find_decoder( codec_id, config->preferred_decoder_names );
 }
 
 static lsmash_codec_specific_data_type get_codec_specific_data_type
@@ -805,7 +814,7 @@ void update_configuration
     }
     /* Find an appropriate decoder. */
     char error_string[96] = { 0 };
-    const AVCodec *codec = find_decoder( config->queue.codec_id, config->forced_decoder_name );
+    const AVCodec *codec = find_decoder( config->queue.codec_id, config->preferred_decoder_names );
     if( !codec )
     {
         strcpy( error_string, "Failed to find the decoder.\n" );

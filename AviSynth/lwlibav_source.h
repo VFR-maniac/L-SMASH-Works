@@ -29,11 +29,15 @@
 #include "../common/lwlibav_audio.h"
 #include "../common/lwindex.h"
 
-class LWLibavVideoSource : public IClip
+class LWLibavSource : public LSMASHSource
+{
+protected:
+    lwlibav_file_handler_t lwh;
+};
+
+class LWLibavVideoSource : public LWLibavSource
 {
 private:
-    VideoInfo                      vi;
-    lwlibav_file_handler_t         lwh;
     lwlibav_video_decode_handler_t vdh;
     lwlibav_video_output_handler_t voh;
     void prepare_video_decoding
@@ -52,22 +56,18 @@ public:
         int                 direct_rendering,
         int                 stacked_format,
         enum AVPixelFormat  pixel_format,
-        const char         *forced_decoder_name,
+        const char         *preferred_decoder_names,
         IScriptEnvironment *env
     );
     ~LWLibavVideoSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env );
     bool __stdcall GetParity( int n );
     void __stdcall GetAudio( void *buf, __int64 start, __int64 count, IScriptEnvironment *env ) {}
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
 
-class LWLibavAudioSource : public IClip
+class LWLibavAudioSource : public LWLibavSource
 {
 private:
-    VideoInfo                      vi;
-    lwlibav_file_handler_t         lwh;
     lwlibav_audio_decode_handler_t adh;
     lwlibav_audio_output_handler_t aoh;
     void prepare_audio_decoding
@@ -83,12 +83,11 @@ public:
         lwlibav_option_t   *opt,
         uint64_t            channel_layout,
         int                 sample_rate,
+        const char         *preferred_decoder_names,
         IScriptEnvironment *env
     );
     ~LWLibavAudioSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
     bool __stdcall GetParity( int n ) { return false; }
     void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };

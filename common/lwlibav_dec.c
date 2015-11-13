@@ -35,6 +35,42 @@ extern "C"
 #include "utils.h"
 #include "lwlibav_dec.h"
 
+AVCodec *find_decoder
+(
+    enum AVCodecID  codec_id,
+    const char    **preferred_decoder_names
+)
+{
+    AVCodec *codec = avcodec_find_decoder( codec_id );
+    if( codec && preferred_decoder_names )
+        for( const char **decoder_name = preferred_decoder_names; *decoder_name != NULL; decoder_name++ )
+        {
+            AVCodec *preferred_decoder = avcodec_find_decoder_by_name( *decoder_name );
+            if( preferred_decoder
+             && preferred_decoder->id == codec->id )
+            {
+                codec = preferred_decoder;
+                break;
+            }
+        }
+    return codec;
+}
+
+int open_decoder
+(
+    AVCodecContext *ctx,
+    enum AVCodecID  codec_id,
+    const char    **preferred_decoder_names,
+    int             threads
+)
+{
+    AVCodec *codec = find_decoder( codec_id, preferred_decoder_names );
+    if( !codec )
+        return -1;
+    ctx->thread_count = threads;
+    return (avcodec_open2( ctx, codec, NULL ) < 0) ? -1 : 0;
+}
+
 void lwlibav_flush_buffers
 (
     lwlibav_decode_handler_t *dhp
@@ -88,7 +124,7 @@ void lwlibav_update_configuration
     /* Find an appropriate decoder. */
     char error_string[96] = { 0 };
     lwlibav_extradata_t *entry = &exhp->entries[extradata_index];
-    const AVCodec *codec = find_decoder( entry->codec_id, dhp->forced_decoder_name );
+    const AVCodec *codec = find_decoder( entry->codec_id, dhp->preferred_decoder_names );
     if( !codec )
     {
         strcpy( error_string, "Failed to find the decoder.\n" );

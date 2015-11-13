@@ -122,3 +122,10 @@ int lw_try_rational_framerate
     int64_t *framerate_den,
     uint64_t timebase
 );
+
+const char **lw_tokenize_string
+(
+    char  *str,         /* null-terminated string: separator charactors will be replaced with '\0'. */
+    char   separator,   /* separator */
+    char **bufs         /* If NULL, allocate memory block internally, which can be deallocated by lw_freep(). */
+);

@@ -48,7 +48,7 @@ typedef struct
     uint32_t              delay_count;
     uint8_t              *input_buffer;
     AVCodecContext       *ctx;
-    const char           *forced_decoder_name;
+    const char          **preferred_decoder_names;
     libavsmash_summary_t *entries;
     extended_summary_t    prefer;
     lw_log_handler_t      lh;

@@ -25,12 +25,16 @@
 #include "../common/libavsmash_video.h"
 #include "../common/libavsmash_audio.h"
 
-class LSMASHVideoSource : public IClip
+class LibavSMASHSource : public LSMASHSource
+{
+protected:
+    lsmash_file_parameters_t file_param;
+    AVFormatContext         *format_ctx;
+};
+
+class LSMASHVideoSource : public LibavSMASHSource
 {
 private:
-    VideoInfo                         vi;
-    lsmash_file_parameters_t          file_param;
-    AVFormatContext                  *format_ctx;
     libavsmash_video_decode_handler_t vdh;
     libavsmash_video_output_handler_t voh;
     uint32_t open_file
@@ -67,23 +71,18 @@ public:
         int                 fps_den,
         int                 stacked_format,
         enum AVPixelFormat  pixel_format,
-        const char         *forced_decoder_name,
+        const char         *preferred_decoder_names,
         IScriptEnvironment *env
     );
     ~LSMASHVideoSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env );
     bool __stdcall GetParity( int n ) { return false; }
     void __stdcall GetAudio( void *buf, __int64 start, __int64 count, IScriptEnvironment *env ) {}
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
 
-class LSMASHAudioSource : public IClip
+class LSMASHAudioSource : public LibavSMASHSource
 {
 private:
-    VideoInfo                         vi;
-    lsmash_file_parameters_t          file_param;
-    AVFormatContext                  *format_ctx;
     libavsmash_audio_decode_handler_t adh;
     libavsmash_audio_output_handler_t aoh;
     uint32_t open_file
@@ -112,12 +111,11 @@ public:
         bool                skip_priming,
         uint64_t            channel_layout,
         int                 sample_rate,
+        const char         *preferred_decoder_names,
         IScriptEnvironment *env
     );
     ~LSMASHAudioSource();
     PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
     bool __stdcall GetParity( int n ) { return false; }
     void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
-    void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
-    const VideoInfo& __stdcall GetVideoInfo() { return vi; }
 };
