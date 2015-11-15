@@ -43,6 +43,7 @@ typedef struct
     libavsmash_video_output_handler_t voh;
     lsmash_file_parameters_t          file_param;
     AVFormatContext                  *format_ctx;
+    char preferred_decoder_names_buf[PREFERRED_DECODER_NAMES_BUFSIZE];
 } lsmas_handler_t;
 
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
@@ -239,13 +240,14 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     lsmas_handler_t *hp = (lsmas_handler_t *)instance_data;
     if( !hp )
         return;
+    lw_freep( &hp->vdh.config.preferred_decoder_names );
     libavsmash_cleanup_video_decode_handler( &hp->vdh );
     libavsmash_cleanup_video_output_handler( &hp->voh );
     if( hp->format_ctx )
         avformat_close_input( &hp->format_ctx );
     lsmash_close_file( &hp->file_param );
     lsmash_destroy_root( hp->vdh.root );
-    free( hp );
+    lw_free( hp );
 }
 
 static uint32_t open_file
@@ -443,20 +445,24 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     int64_t fps_num;
     int64_t fps_den;
     const char *format;
-    set_option_int64 ( &track_number,     0,    "track",          in, vsapi );
-    set_option_int64 ( &threads,          0,    "threads",        in, vsapi );
-    set_option_int64 ( &seek_mode,        0,    "seek_mode",      in, vsapi );
-    set_option_int64 ( &seek_threshold,   10,   "seek_threshold", in, vsapi );
-    set_option_int64 ( &variable_info,    0,    "variable",       in, vsapi );
-    set_option_int64 ( &direct_rendering, 0,    "dr",             in, vsapi );
-    set_option_int64 ( &fps_num,          0,    "fpsnum",         in, vsapi );
-    set_option_int64 ( &fps_den,          1,    "fpsden",         in, vsapi );
-    set_option_string( &format,           NULL, "format",         in, vsapi );
-    threads                         = threads >= 0 ? threads : 0;
-    vdhp->seek_mode                 = CLIP_VALUE( seek_mode,      0, 2 );
-    vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold, 1, 999 );
-    vs_vohp->variable_info          = CLIP_VALUE( variable_info,  0, 1 );
-    vs_vohp->direct_rendering       = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
+    const char *preferred_decoder_names;
+    set_option_int64 ( &track_number,            0,    "track",          in, vsapi );
+    set_option_int64 ( &threads,                 0,    "threads",        in, vsapi );
+    set_option_int64 ( &seek_mode,               0,    "seek_mode",      in, vsapi );
+    set_option_int64 ( &seek_threshold,          10,   "seek_threshold", in, vsapi );
+    set_option_int64 ( &variable_info,           0,    "variable",       in, vsapi );
+    set_option_int64 ( &direct_rendering,        0,    "dr",             in, vsapi );
+    set_option_int64 ( &fps_num,                 0,    "fpsnum",         in, vsapi );
+    set_option_int64 ( &fps_den,                 1,    "fpsden",         in, vsapi );
+    set_option_string( &format,                  NULL, "format",         in, vsapi );
+    set_option_string( &preferred_decoder_names, NULL, "decoder",        in, vsapi );
+    set_preferred_decoder_names_on_buf( hp->preferred_decoder_names_buf, preferred_decoder_names );
+    threads                              = threads >= 0 ? threads : 0;
+    vdhp->seek_mode                      = CLIP_VALUE( seek_mode,      0, 2 );
+    vdhp->forward_seek_threshold         = CLIP_VALUE( seek_threshold, 1, 999 );
+    vdhp->config.preferred_decoder_names = tokenize_preferred_decoder_names( hp->preferred_decoder_names_buf );
+    vs_vohp->variable_info               = CLIP_VALUE( variable_info,  0, 1 );
+    vs_vohp->direct_rendering            = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
     vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
     if( track_number && track_number > number_of_tracks )
     {

@@ -22,6 +22,7 @@
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "lsmashsource.h"
 
@@ -64,7 +65,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit( VSConfigPlugin config_func, VSRegis
         1,
         plugin
     );
-#define COMMON_OPTS "threads:int:opt;seek_mode:int:opt;seek_threshold:int:opt;dr:int:opt;fpsnum:int:opt;fpsden:int:opt;variable:int:opt;format:data:opt;"
+#define COMMON_OPTS "threads:int:opt;seek_mode:int:opt;seek_threshold:int:opt;dr:int:opt;fpsnum:int:opt;fpsden:int:opt;variable:int:opt;format:data:opt;decoder:data:opt;"
     register_func
     (
         "LibavSMASHSource",

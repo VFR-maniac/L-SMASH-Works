@@ -59,6 +59,11 @@ void *lw_malloc_zero
     size_t size
 );
 
+void  lw_free
+(
+    void *pointer
+);
+
 void  lw_freep
 (
     void *pointer

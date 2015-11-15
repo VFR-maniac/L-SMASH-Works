@@ -42,7 +42,7 @@ protected:
         if( preferred_decoder_names )
             memcpy( preferred_decoder_names_buf,
                     preferred_decoder_names,
-                    MIN( sizeof(preferred_decoder_names_buf), strlen(preferred_decoder_names) ) );
+                    MIN( sizeof(preferred_decoder_names_buf) - 1, strlen(preferred_decoder_names) ) );
     }
     inline const char **tokenize_preferred_decoder_names( void )
     {

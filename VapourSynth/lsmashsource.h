@@ -25,6 +25,8 @@
 
 #include "../common/utils.h"
 
+#define PREFERRED_DECODER_NAMES_BUFSIZE 512
+
 typedef struct
 {
     VSMap          *out;
@@ -40,7 +42,14 @@ void set_error
     ...
 );
 
-static inline void set_option_int64( int64_t *opt, int64_t default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static inline void set_option_int64
+(
+    int64_t     *opt,
+    int64_t      default_value,
+    const char  *arg,
+    const VSMap *in,
+    const VSAPI *vsapi
+)
 {
     int e;
     *opt = vsapi->propGetInt( in, arg, 0, &e );
@@ -48,10 +57,38 @@ static inline void set_option_int64( int64_t *opt, int64_t default_value, const 
         *opt = default_value;
 }
 
-static inline void set_option_string( const char **opt, const char *default_value, const char *arg, const VSMap *in, const VSAPI *vsapi )
+static inline void set_option_string
+(
+    const char **opt,
+    const char  *default_value,
+    const char  *arg,
+    const VSMap *in,
+    const VSAPI *vsapi
+)
 {
     int e;
     *opt = vsapi->propGetData( in, arg, 0, &e );
     if( e )
         *opt = default_value;
+}
+
+static inline void set_preferred_decoder_names_on_buf
+(
+          char *preferred_decoder_names_buf,
+    const char *preferred_decoder_names
+)
+{
+    memset( preferred_decoder_names_buf, 0, PREFERRED_DECODER_NAMES_BUFSIZE );
+    if( preferred_decoder_names )
+        memcpy( preferred_decoder_names_buf,
+                preferred_decoder_names,
+                MIN( PREFERRED_DECODER_NAMES_BUFSIZE - 1, strlen(preferred_decoder_names) ) );
+}
+
+static inline const char **tokenize_preferred_decoder_names
+(
+    char *preferred_decoder_names_buf
+)
+{
+    return lw_tokenize_string( preferred_decoder_names_buf, ',', NULL );
 }

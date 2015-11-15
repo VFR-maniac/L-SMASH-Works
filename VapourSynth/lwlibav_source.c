@@ -81,6 +81,7 @@ typedef struct
     lwlibav_file_handler_t         lwh;
     lwlibav_video_decode_handler_t vdh;
     lwlibav_video_output_handler_t voh;
+    char preferred_decoder_names_buf[PREFERRED_DECODER_NAMES_BUFSIZE];
 } lwlibav_handler_t;
 
 static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, VSNode *node, VSCore *core, const VSAPI *vsapi )
@@ -224,11 +225,11 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
     lwlibav_handler_t *hp = (lwlibav_handler_t *)instance_data;
     if( !hp )
         return;
+    lw_freep( &hp->vdh.preferred_decoder_names );
     lwlibav_cleanup_video_decode_handler( &hp->vdh );
     lwlibav_cleanup_video_output_handler( &hp->voh );
-    if( hp->lwh.file_path )
-        free( hp->lwh.file_path );
-    free( hp );
+    lw_free( hp->lwh.file_path );
+    lw_free( hp );
 }
 
 void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi )
@@ -282,18 +283,21 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     int64_t apply_repeat_flag;
     int64_t field_dominance;
     const char *format;
-    set_option_int64 ( &stream_index,     -1,    "stream_index",   in, vsapi );
-    set_option_int64 ( &threads,           0,    "threads",        in, vsapi );
-    set_option_int64 ( &cache_index,       1,    "cache",          in, vsapi );
-    set_option_int64 ( &seek_mode,         0,    "seek_mode",      in, vsapi );
-    set_option_int64 ( &seek_threshold,    10,   "seek_threshold", in, vsapi );
-    set_option_int64 ( &variable_info,     0,    "variable",       in, vsapi );
-    set_option_int64 ( &direct_rendering,  0,    "dr",             in, vsapi );
-    set_option_int64 ( &fps_num,           0,    "fpsnum",         in, vsapi );
-    set_option_int64 ( &fps_den,           1,    "fpsden",         in, vsapi );
-    set_option_int64 ( &apply_repeat_flag, 0,    "repeat",         in, vsapi );
-    set_option_int64 ( &field_dominance,   0,    "dominance",      in, vsapi );
-    set_option_string( &format,            NULL, "format",         in, vsapi );
+    const char *preferred_decoder_names;
+    set_option_int64 ( &stream_index,           -1,    "stream_index",   in, vsapi );
+    set_option_int64 ( &threads,                 0,    "threads",        in, vsapi );
+    set_option_int64 ( &cache_index,             1,    "cache",          in, vsapi );
+    set_option_int64 ( &seek_mode,               0,    "seek_mode",      in, vsapi );
+    set_option_int64 ( &seek_threshold,          10,   "seek_threshold", in, vsapi );
+    set_option_int64 ( &variable_info,           0,    "variable",       in, vsapi );
+    set_option_int64 ( &direct_rendering,        0,    "dr",             in, vsapi );
+    set_option_int64 ( &fps_num,                 0,    "fpsnum",         in, vsapi );
+    set_option_int64 ( &fps_den,                 1,    "fpsden",         in, vsapi );
+    set_option_int64 ( &apply_repeat_flag,       0,    "repeat",         in, vsapi );
+    set_option_int64 ( &field_dominance,         0,    "dominance",      in, vsapi );
+    set_option_string( &format,                  NULL, "format",         in, vsapi );
+    set_option_string( &preferred_decoder_names, NULL, "decoder",        in, vsapi );
+    set_preferred_decoder_names_on_buf( hp->preferred_decoder_names_buf, preferred_decoder_names );
     /* Set options. */
     lwlibav_option_t opt;
     opt.file_path         = file_path;
@@ -311,6 +315,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     opt.vfr2cfr.fps_den   = fps_den;
     vdhp->seek_mode                 = CLIP_VALUE( seek_mode,         0, 2 );
     vdhp->forward_seek_threshold    = CLIP_VALUE( seek_threshold,    1, 999 );
+    vdhp->preferred_decoder_names   = tokenize_preferred_decoder_names( hp->preferred_decoder_names_buf );
     vs_vohp->variable_info          = CLIP_VALUE( variable_info,     0, 1 );
     vs_vohp->direct_rendering       = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
     vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );

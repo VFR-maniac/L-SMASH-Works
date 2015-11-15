@@ -38,6 +38,11 @@ void *lw_malloc_zero( size_t size )
     return p;
 }
 
+void lw_free( void *pointer )
+{
+    free( pointer );
+}
+
 void lw_freep( void *pointer )
 {
     if( !pointer )
