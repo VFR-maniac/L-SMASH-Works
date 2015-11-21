@@ -309,7 +309,8 @@ static uint32_t seek_video
         return 0;
     if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
         av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
-    int      got_picture = 0;
+    int      got_picture  = 0;
+    int      output_ready = 0;
     int64_t  rap_pts = AV_NOPTS_VALUE;
     uint32_t current;
     uint32_t decoder_delay = get_decoder_delay( vdhp->ctx );
@@ -327,6 +328,7 @@ static uint32_t seek_video
             break;
         if( got_picture )
         {
+            output_ready = 1;
             exhp->delay_count = MIN( decoder_delay, current - rap_number );
             if( decoder_delay > exhp->delay_count )
             {
@@ -350,6 +352,12 @@ static uint32_t seek_video
                 goal += new_decoder_delay - decoder_delay;
                 decoder_delay = new_decoder_delay;
             }
+        }
+        else if( output_ready )
+        {
+            /* More input samples are required to output and the goal become more distant. */
+            ++decoder_delay;
+            ++goal;
         }
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */

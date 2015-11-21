@@ -258,6 +258,7 @@ static uint32_t seek_video
     if( config->error )
         return 0;
     int got_picture;
+    int output_ready = 0;
     uint64_t rap_cts = 0;
     uint32_t i;
     uint32_t decoder_delay = get_decoder_delay( config->ctx );
@@ -267,12 +268,22 @@ static uint32_t seek_video
         if( config->index == config->queue.index )
             config->delay_count = MIN( decoder_delay, i - rap_number );
         int ret = decode_video_sample( vdhp, picture, &got_picture, i );
-        if( got_picture && decoder_delay > config->delay_count )
+        if( got_picture )
         {
-            /* Shorten the distance to the goal if we got a frame earlier than expected. */
-            uint32_t new_decoder_delay = config->delay_count;
-            goal -= decoder_delay - new_decoder_delay;
-            decoder_delay = new_decoder_delay;
+            output_ready = 1;
+            if( decoder_delay > config->delay_count )
+            {
+                /* Shorten the distance to the goal if we got a frame earlier than expected. */
+                uint32_t new_decoder_delay = config->delay_count;
+                goal -= decoder_delay - new_decoder_delay;
+                decoder_delay = new_decoder_delay;
+            }
+        }
+        else if( output_ready )
+        {
+            /* More input samples are required to output and the goal become more distant. */
+            ++decoder_delay;
+            ++goal;
         }
         /* Some decoders return -1 when feeding a leading sample.
          * We don't consider as an error if the return value -1 is caused by a leading sample since it's not fatal at all. */
