@@ -876,7 +876,10 @@ static void handle_decoder_pix_fmt
 )
 {
     assert( ctx && ctx->codec );
-    ctx->pix_fmt = avcodec_find_best_pix_fmt_of_list( ctx->codec->pix_fmts, pix_fmt, 1, NULL );
+    if( ctx->codec->pix_fmts )
+        ctx->pix_fmt = avcodec_find_best_pix_fmt_of_list( ctx->codec->pix_fmts, pix_fmt, 1, NULL );
+    else
+        ctx->pix_fmt = pix_fmt;
 }
 
 /* Return 0 if successful.
