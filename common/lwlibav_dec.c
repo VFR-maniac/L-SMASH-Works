@@ -34,6 +34,7 @@ extern "C"
 
 #include "utils.h"
 #include "lwlibav_dec.h"
+#include "qsv.h"
 
 static AVCodec *find_decoder
 (
@@ -56,18 +57,6 @@ static AVCodec *find_decoder
     return codec;
 }
 
-static inline int is_qsv_decoder
-(
-    const AVCodec *codec
-)
-{
-    if( codec && codec->pix_fmts )
-        for( const enum AVPixelFormat *pix_fmt = codec->pix_fmts; *pix_fmt != AV_PIX_FMT_NONE; pix_fmt++ )
-            if( *pix_fmt == AV_PIX_FMT_QSV )
-                return 1;
-    return 0;
-}
-
 static int open_decoder
 (
     AVCodecContext *ctx,
@@ -76,7 +65,7 @@ static int open_decoder
 {
     int ret = avcodec_open2( ctx, codec, NULL );
     if( is_qsv_decoder( ctx->codec ) )
-        ctx->has_b_frames = 16; /* the maximum decoder latency for AVC and HEVC frame */
+        ret = do_qsv_decoder_workaround( ctx );
     return ret;
 }
 

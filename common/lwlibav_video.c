@@ -859,6 +859,18 @@ static uint32_t lwlibav_vfr2cfr
     return frame_number;
 }
 
+/* The pixel formats described in the index may not match pixel formats supported by the active decoder.
+ * This selects the best pixel format from supported pixel formats with best effort. */
+static void handle_decoder_pix_fmt
+(
+    AVCodecContext    *ctx,
+    enum AVPixelFormat pix_fmt
+)
+{
+    assert( ctx && ctx->codec );
+    ctx->pix_fmt = avcodec_find_best_pix_fmt_of_list( ctx->codec->pix_fmts, pix_fmt, 1, NULL );
+}
+
 /* Return 0 if successful.
  * Return 1 if the same frame was requested at the last call.
  * Return a negative value otherwise. */
@@ -947,6 +959,7 @@ int lwlibav_find_first_valid_video_frame
     vdhp->movable_frame_buffer = av_frame_alloc();
     if( !vdhp->movable_frame_buffer )
         return -1;
+    handle_decoder_pix_fmt( vdhp->ctx, vdhp->ctx->pix_fmt );
     vdhp->last_ts_frame_number = vdhp->frame_count;
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
                         : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
@@ -1015,8 +1028,8 @@ void set_video_basic_settings
     lwlibav_extradata_t *entry = &vdhp->exh.entries[ vdhp->frame_list[frame_number].extradata_index ];
     ctx->width                 = entry->width;
     ctx->height                = entry->height;
-    ctx->pix_fmt               = entry->pixel_format;
     ctx->bits_per_coded_sample = entry->bits_per_sample;
+    handle_decoder_pix_fmt( ctx, entry->pixel_format );
 }
 
 int try_decode_video_frame
