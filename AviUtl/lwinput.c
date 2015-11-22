@@ -97,13 +97,13 @@ static audio_option_t *audio_opt = &reader_opt.audio_opt;
 static int reader_disabled[5] = { 0 };
 static int audio_delay = 0;
 static char *settings_path = NULL;
-static const char *settings_path_list[2] = { "lsmash.ini", "plugins/lsmash.ini" };
-static const char *seek_mode_list[3] = { "Normal", "Unsafe", "Aggressive" };
-static const char *dummy_colorspace_list[3] = { "YUY2", "RGB", "YC48" };
-static const char *scaler_list[11] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
-                                       "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
-static const char *field_dominance_list[3] = { "Obey source flags", "Top -> Bottom", "Bottom -> Top" };
-static const char *avs_bit_depth_list[4] = { "8", "9", "10", "16" };
+static const char *settings_path_list[] = { "lsmash.ini", "plugins/lsmash.ini" };
+static const char *seek_mode_list[] = { "Normal", "Unsafe", "Aggressive" };
+static const char *dummy_colorspace_list[] = { "YUY2", "RGB", "YC48" };
+static const char *scaler_list[] = { "Fast bilinear", "Bilinear", "Bicubic", "Experimental", "Nearest neighbor", "Area averaging",
+                                     "L-bicubic/C-bilinear", "Gaussian", "Sinc", "Lanczos", "Bicubic spline" };
+static const char *field_dominance_list[] = { "Obey source flags", "Top -> Bottom", "Bottom -> Top" };
+static const char *avs_bit_depth_list[] = { "8", "9", "10", "16" };
 
 void au_message_box_desktop
 (
@@ -148,10 +148,27 @@ static int get_auto_threads( void )
     return n;
 }
 
+static inline void clean_preferred_decoder_names( void )
+{
+    lw_freep( &reader_opt.preferred_decoder_names );
+    memset( reader_opt.preferred_decoder_names_buf, 0, PREFERRED_DECODER_NAMES_BUFSIZE );
+}
+
+static inline void set_preferred_decoder_names_on_buf
+(
+    const char *preferred_decoder_names
+)
+{
+    clean_preferred_decoder_names();
+    memcpy( reader_opt.preferred_decoder_names_buf, preferred_decoder_names,
+            MIN( PREFERRED_DECODER_NAMES_BUFSIZE - 1, strlen(preferred_decoder_names) ) );
+    reader_opt.preferred_decoder_names = lw_tokenize_string( reader_opt.preferred_decoder_names_buf, ',', NULL );
+}
+
 static void get_settings( void )
 {
     FILE *ini = open_settings();
-    char buf[128];
+    char buf[512];
     if( ini )
     {
         /* threads */
@@ -297,11 +314,18 @@ static void get_settings( void )
             video_opt->dummy.colorspace = OUTPUT_YUY2;
         else
             video_opt->dummy.colorspace = CLIP_VALUE( video_opt->dummy.colorspace, 0, 2 );
+        /* preferred decoders settings */
+        char preferred_decoder_names[512] = { 0 };
+        if( !fgets( buf, sizeof(buf), ini ) || sscanf( buf, "preferred_decoders=%s", preferred_decoder_names ) != 1 )
+            clean_preferred_decoder_names();
+        else
+            set_preferred_decoder_names_on_buf( preferred_decoder_names );
         fclose( ini );
     }
     else
     {
         /* Set up defalut values. */
+        clean_preferred_decoder_names();
         reader_opt.threads                = 0;
         reader_opt.av_sync                = 1;
         reader_opt.no_create_index        = 0;
@@ -313,7 +337,6 @@ static void get_settings( void )
         reader_disabled[1]                = 0;
         reader_disabled[2]                = 0;
         reader_disabled[3]                = 0;
-        audio_delay                       = 0;
         video_opt->seek_mode              = 0;
         video_opt->forward_seek_threshold = 10;
         video_opt->scaler                 = 0;
@@ -329,8 +352,7 @@ static void get_settings( void )
         video_opt->dummy.framerate_den    = 1;
         video_opt->dummy.colorspace       = OUTPUT_YUY2;
         video_opt->avs.bit_depth          = 8;
-        audio_opt->channel_layout         = 0;
-        audio_opt->sample_rate            = 0;
+        audio_delay                       = 0;
         audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] = 71;
         audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] = 71;
         audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] = 0;
@@ -464,6 +486,7 @@ INPUT_HANDLE func_open( LPSTR file )
 
 BOOL func_close( INPUT_HANDLE ih )
 {
+    lw_freep( &reader_opt.preferred_decoder_names );
     lsmash_handler_t *hp = (lsmash_handler_t *)ih;
     if( !hp )
         return TRUE;
@@ -577,7 +600,7 @@ static BOOL CALLBACK dialog_proc
     LPARAM lparam
 )
 {
-    static char edit_buf[256] = { 0 };
+    static char edit_buf[512] = { 0 };
     switch( message )
     {
         case WM_INITDIALOG :
@@ -696,6 +719,8 @@ static BOOL CALLBACK dialog_proc
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->dummy.colorspace, 0 );
+            /* preferred decoders */
+            SetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPCTSTR)reader_opt.preferred_decoder_names_buf );
             /* Library informations */
             if( plugin_information[0] == 0 )
                 get_plugin_information();
@@ -755,6 +780,7 @@ static BOOL CALLBACK dialog_proc
                     return TRUE;
                 case IDOK :
                 {
+                    /* Open */
                     if( !settings_path )
                         settings_path = (char *)settings_path_list[0];
                     FILE *ini = fopen( settings_path, "w" );
@@ -854,6 +880,11 @@ static BOOL CALLBACK dialog_proc
                     fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->dummy.width, video_opt->dummy.height );
                     fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->dummy.framerate_num, video_opt->dummy.framerate_den );
                     fprintf( ini, "dummy_colorspace=%d\n", video_opt->dummy.colorspace );
+                    /* preferred decoders */
+                    GetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                    set_preferred_decoder_names_on_buf( edit_buf );
+                    fprintf( ini, "preferred_decoders=%s\n", edit_buf );
+                    /* Close */
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
                     MESSAGE_BOX_DESKTOP( MB_OK, "Please reopen the input file for updating settings!" );

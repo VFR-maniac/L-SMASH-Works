@@ -101,6 +101,8 @@ static void *open_file( char *file_path, reader_option_t *opt )
     lwlibav_opt.vfr2cfr.active    = opt->video_opt.vfr2cfr.active;
     lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
     lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
+    hp->vdh.preferred_decoder_names = opt->preferred_decoder_names;
+    hp->adh.preferred_decoder_names = opt->preferred_decoder_names;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = open_indicator;

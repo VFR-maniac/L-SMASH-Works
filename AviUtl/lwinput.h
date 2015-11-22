@@ -34,6 +34,7 @@
 #include "../common/utils.h"
 
 #define MAKE_AVIUTL_PITCH( x ) ((((x) + 31) & ~31) >> 3)
+#define PREFERRED_DECODER_NAMES_BUFSIZE 512
 
 #define MESSAGE_BOX_DESKTOP( uType, ... ) \
 do \
@@ -118,6 +119,8 @@ typedef struct
 {
     int threads;
     int av_sync;
+    char         preferred_decoder_names_buf[PREFERRED_DECODER_NAMES_BUFSIZE];
+    const char **preferred_decoder_names;
     /* for libav reader */
     int no_create_index;
     int force_video;

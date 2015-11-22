@@ -97,6 +97,8 @@ static void *open_file( char *file_name, reader_option_t *opt )
     hp->number_of_tracks = hp->movie_param.number_of_tracks;
     hp->threads          = opt->threads;
     hp->av_sync          = opt->av_sync;
+    hp->vdh.config.preferred_decoder_names = opt->preferred_decoder_names;
+    hp->adh.config.preferred_decoder_names = opt->preferred_decoder_names;
     lh.level = LW_LOG_WARNING;
     hp->vdh.config.lh = lh;
     hp->adh.config.lh = lh;
