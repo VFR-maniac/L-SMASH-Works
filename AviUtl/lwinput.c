@@ -747,7 +747,10 @@ static BOOL CALLBACK dialog_proc
                     }
                 }
                 if( buf > edit_buf )
+                {
+                    *(buf - 1) = '\0';  /* Replace the last '+' with NULL terminator. */
                     SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
+                }
                 else
                     set_string_to_dlg( hwnd, IDC_EDIT_CHANNEL_LAYOUT, "Unspecified" );
             }
