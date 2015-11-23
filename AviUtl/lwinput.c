@@ -556,6 +556,79 @@ BOOL func_is_keyframe( INPUT_HANDLE ih, int sample_number )
     return hp->is_keyframe ? hp->is_keyframe( hp, sample_number ) : TRUE;
 }
 
+static inline void set_buddy_window_for_updown_control
+(
+    HWND hwnd,
+    int  spin_idc,
+    int  buddy_idc
+)
+{
+    SendMessage( GetDlgItem( hwnd, spin_idc ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, buddy_idc ), 0 );
+}
+
+static inline void set_check_state
+(
+    HWND hwnd,
+    int  idc,   /* identifier for control */
+    int  value
+)
+{
+    SendMessage( GetDlgItem( hwnd, idc ), BM_SETCHECK, (WPARAM) value ? BST_CHECKED : BST_UNCHECKED, 0 );
+}
+
+static inline int get_check_state
+(
+    HWND hwnd,
+    int  idc    /* identifier for control */
+)
+{
+    return (BST_CHECKED == SendMessage( GetDlgItem( hwnd, idc ), BM_GETCHECK, 0, 0 ));
+}
+
+static void set_int_to_dlg
+(
+    HWND hwnd,
+    int  idc,   /* identifier for control */
+    int  value  /* message value */
+)
+{
+    char edit_buf[512];
+    sprintf( edit_buf, "%d", value );
+    SetDlgItemText( hwnd, idc, (LPCTSTR)edit_buf );
+}
+
+static int get_int_from_dlg
+(
+    HWND hwnd,
+    int  idc    /* identifier for control */
+)
+{
+    char edit_buf[512];
+    GetDlgItemText( hwnd, idc, (LPTSTR)edit_buf, sizeof(edit_buf) );
+    return atoi( edit_buf );
+}
+
+static int get_int_from_dlg_with_min
+(
+    HWND hwnd,
+    int  idc,   /* identifier for control */
+    int  min
+)
+{
+    int value = get_int_from_dlg( hwnd, idc );
+    return MAX( value, min );
+}
+
+static void set_string_to_dlg
+(
+    HWND  hwnd,
+    int   idc,  /* identifier for control */
+    char *value /* message value */
+)
+{
+    SetDlgItemText( hwnd, idc, (LPCTSTR)value );
+}
+
 static void send_mix_level
 (
     HWND  hwnd,
@@ -563,10 +636,10 @@ static void send_mix_level
     int   text_idc,
     int   range_min,
     int   range_max,
-    int   mix_level,
-    char *edit_buf
+    int   mix_level
 )
 {
+    char edit_buf[512];
     HWND hslider = GetDlgItem( hwnd, slider_idc );
     SendMessage( hslider, TBM_SETRANGE,    TRUE, MAKELPARAM( range_min, range_max ) );
     SendMessage( hslider, TBM_SETTICFREQ,  1,    0 );
@@ -582,10 +655,10 @@ static void get_mix_level
     HWND  hwnd,
     int   slider_idc,
     int   text_idc,
-    int  *mix_level,
-    char *edit_buf
+    int  *mix_level
 )
 {
+    char edit_buf[512];
     HWND hslider = GetDlgItem( hwnd, slider_idc );
     *mix_level = SendMessage( hslider, TBM_GETPOS, 0, 0 );
     sprintf( edit_buf, "%.2f", *mix_level / 100.0 );
@@ -600,31 +673,26 @@ static BOOL CALLBACK dialog_proc
     LPARAM lparam
 )
 {
-    static char edit_buf[512] = { 0 };
     switch( message )
     {
         case WM_INITDIALOG :
             InitCommonControls();
             get_settings();
             /* threads */
-            sprintf( edit_buf, "%d", reader_opt.threads );
-            SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
-            SendMessage( GetDlgItem( hwnd, IDC_SPIN_THREADS ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_THREADS ), 0 );
+            set_int_to_dlg( hwnd, IDC_EDIT_THREADS, reader_opt.threads );
+            set_buddy_window_for_updown_control( hwnd, IDC_SPIN_THREADS, IDC_EDIT_THREADS );
             /* av_sync */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_AV_SYNC ), BM_SETCHECK, (WPARAM) reader_opt.av_sync ? BST_CHECKED : BST_UNCHECKED, 0 );
+            set_check_state( hwnd, IDC_CHECK_AV_SYNC, reader_opt.av_sync );
             /* no_create_index */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_SETCHECK, (WPARAM) reader_opt.no_create_index ? BST_UNCHECKED : BST_CHECKED, 0 );
+            set_check_state( hwnd, IDC_CHECK_CREATE_INDEX_FILE, !reader_opt.no_create_index );
             /* force stream index */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_SETCHECK, (WPARAM) reader_opt.force_video ? BST_CHECKED : BST_UNCHECKED, 0 );
-            sprintf( edit_buf, "%d", reader_opt.force_video_index );
-            SetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPCTSTR)edit_buf );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_AUDIO ), BM_SETCHECK, (WPARAM) reader_opt.force_audio ? BST_CHECKED : BST_UNCHECKED, 0 );
-            sprintf( edit_buf, "%d", reader_opt.force_audio_index );
-            SetDlgItemText( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, (LPCTSTR)edit_buf );
+            set_check_state( hwnd, IDC_CHECK_FORCE_VIDEO, reader_opt.force_video );
+            set_check_state( hwnd, IDC_CHECK_FORCE_AUDIO, reader_opt.force_audio );
+            set_int_to_dlg( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, reader_opt.force_video_index );
+            set_int_to_dlg( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, reader_opt.force_audio_index );
             /* forward_seek_threshold */
-            sprintf( edit_buf, "%d", video_opt->forward_seek_threshold );
-            SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
-            SendMessage( GetDlgItem( hwnd, IDC_SPIN_FORWARD_THRESHOLD ), UDM_SETBUDDY, (WPARAM)GetDlgItem( hwnd, IDC_EDIT_FORWARD_THRESHOLD ), 0 );
+            set_int_to_dlg( hwnd, IDC_EDIT_FORWARD_THRESHOLD, video_opt->forward_seek_threshold );
+            set_buddy_window_for_updown_control( hwnd, IDC_SPIN_FORWARD_THRESHOLD, IDC_EDIT_FORWARD_THRESHOLD );
             /* seek mode */
             HWND hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE );
             for( int i = 0; i < 3; i++ )
@@ -636,20 +704,18 @@ static BOOL CALLBACK dialog_proc
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)scaler_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->scaler, 0 );
             /* apply_repeat_flag */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG ), BM_SETCHECK, (WPARAM) video_opt->apply_repeat_flag ? BST_CHECKED : BST_UNCHECKED, 0 );
+            set_check_state( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG, video_opt->apply_repeat_flag );
             /* field_dominance */
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)field_dominance_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->field_dominance, 0 );
             /* VFR->CFR */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_VFR_TO_CFR ), BM_SETCHECK, (WPARAM) video_opt->vfr2cfr.active ? BST_CHECKED : BST_UNCHECKED, 0 );
-            sprintf( edit_buf, "%d", video_opt->vfr2cfr.framerate_num );
-            SetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->vfr2cfr.framerate_den );
-            SetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, (LPCTSTR)edit_buf );
+            set_check_state( hwnd, IDC_CHECK_VFR_TO_CFR, video_opt->vfr2cfr.active );
+            set_int_to_dlg( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, video_opt->vfr2cfr.framerate_num );
+            set_int_to_dlg( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, video_opt->vfr2cfr.framerate_den );
             /* LW48 output */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_SETCHECK, (WPARAM) video_opt->colorspace == 0 ? BST_UNCHECKED : BST_CHECKED, 0 );
+            set_check_state( hwnd, IDC_CHECK_LW48_OUTPUT, video_opt->colorspace != 0 );
             /* AVS bit-depth */
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_AVS_BITDEPTH );
             for( int i = 0; i < 4; i++ )
@@ -659,11 +725,11 @@ static BOOL CALLBACK dialog_proc
                     SendMessage( hcombo, CB_SETCURSEL, i, 0 );
             }
             /* audio_delay */
-            sprintf( edit_buf, "%d", audio_delay );
-            SetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPCTSTR)edit_buf );
+            set_int_to_dlg( hwnd, IDC_EDIT_AUDIO_DELAY, audio_delay );
             /* channel_layout */
             if( audio_opt->channel_layout )
             {
+                char edit_buf[512] = { 0 };
                 char *buf = edit_buf;
                 for( int i = 0; i < 64; i++ )
                 {
@@ -681,40 +747,34 @@ static BOOL CALLBACK dialog_proc
                     }
                 }
                 if( buf > edit_buf )
-                    *(buf - 1) = '\0';  /* Set NULL terminator. */
+                    SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
                 else
-                    memcpy( edit_buf, "Unspecified", 12 );
+                    set_string_to_dlg( hwnd, IDC_EDIT_CHANNEL_LAYOUT, "Unspecified" );
             }
             else
-                memcpy( edit_buf, "Unspecified", 12 );
-            SetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPCTSTR)edit_buf );
+                set_string_to_dlg( hwnd, IDC_EDIT_CHANNEL_LAYOUT, "Unspecified" );
             /* sample_rate */
             if( audio_opt->sample_rate > 0 )
-                sprintf( edit_buf, "%d", audio_opt->sample_rate );
+                set_int_to_dlg( hwnd, IDC_EDIT_SAMPLE_RATE, audio_opt->sample_rate );
             else
             {
                 audio_opt->sample_rate = 0;
-                memcpy( edit_buf, "0 (Auto)", 12 );
+                set_string_to_dlg( hwnd, IDC_EDIT_SAMPLE_RATE, "0 (Auto)" );
             }
-            SetDlgItemText( hwnd, IDC_EDIT_SAMPLE_RATE, (LPCTSTR)edit_buf );
             /* mix_level */
-            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], edit_buf );
-            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, 0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], edit_buf );
-            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ], edit_buf );
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] );
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, 0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] );
+            send_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      0, 500, audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
             /* readers */
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_SETCHECK, (WPARAM) reader_disabled[0] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[1] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_VPY_INPUT        ), BM_SETCHECK, (WPARAM) reader_disabled[2] ? BST_UNCHECKED : BST_CHECKED, 0 );
-            SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_SETCHECK, (WPARAM) reader_disabled[3] ? BST_UNCHECKED : BST_CHECKED, 0 );
+            set_check_state( hwnd, IDC_CHECK_LIBAVSMASH_INPUT, !reader_disabled[0] );
+            set_check_state( hwnd, IDC_CHECK_AVS_INPUT,        !reader_disabled[1] );
+            set_check_state( hwnd, IDC_CHECK_VPY_INPUT,        !reader_disabled[2] );
+            set_check_state( hwnd, IDC_CHECK_LIBAV_INPUT,      !reader_disabled[3] );
             /* dummy reader */
-            sprintf( edit_buf, "%d", video_opt->dummy.width );
-            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->dummy.height );
-            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->dummy.framerate_num );
-            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPCTSTR)edit_buf );
-            sprintf( edit_buf, "%d", video_opt->dummy.framerate_den );
-            SetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPCTSTR)edit_buf );
+            set_int_to_dlg( hwnd, IDC_EDIT_DUMMY_WIDTH,         video_opt->dummy.width );
+            set_int_to_dlg( hwnd, IDC_EDIT_DUMMY_HEIGHT,        video_opt->dummy.height );
+            set_int_to_dlg( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, video_opt->dummy.framerate_num );
+            set_int_to_dlg( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, video_opt->dummy.framerate_den );
             hcombo = GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE );
             for( int i = 0; i < 3; i++ )
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
@@ -739,14 +799,12 @@ static BOOL CALLBACK dialog_proc
                 LPNMUPDOWN lpnmud = (LPNMUPDOWN)lparam;
                 if( lpnmud->hdr.code == UDN_DELTAPOS )
                 {
-                    GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.threads = atoi( edit_buf );
+                    reader_opt.threads = get_int_from_dlg( hwnd, IDC_EDIT_THREADS );
                     if( lpnmud->iDelta )
                         reader_opt.threads += lpnmud->iDelta > 0 ? -1 : 1;
                     if( reader_opt.threads < 0 )
                         reader_opt.threads = 0;
-                    sprintf( edit_buf, "%d", reader_opt.threads );
-                    SetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPCTSTR)edit_buf );
+                    set_int_to_dlg( hwnd, IDC_EDIT_THREADS, reader_opt.threads );
                 }
             }
             else if( wparam == IDC_SPIN_FORWARD_THRESHOLD )
@@ -754,23 +812,21 @@ static BOOL CALLBACK dialog_proc
                 LPNMUPDOWN lpnmud = (LPNMUPDOWN)lparam;
                 if( lpnmud->hdr.code == UDN_DELTAPOS )
                 {
-                    GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->forward_seek_threshold = atoi( edit_buf );
+                    video_opt->forward_seek_threshold = get_int_from_dlg( hwnd, IDC_EDIT_FORWARD_THRESHOLD );
                     if( lpnmud->iDelta )
                         video_opt->forward_seek_threshold += lpnmud->iDelta > 0 ? -1 : 1;
                     video_opt->forward_seek_threshold = CLIP_VALUE( video_opt->forward_seek_threshold, 1, 999 );
-                    sprintf( edit_buf, "%d", video_opt->forward_seek_threshold );
-                    SetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPCTSTR)edit_buf );
+                    set_int_to_dlg( hwnd, IDC_EDIT_FORWARD_THRESHOLD, video_opt->forward_seek_threshold );
                 }
             }
             return TRUE;
         case WM_HSCROLL :
             if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER ) == (HWND)lparam )
-                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   &audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ], edit_buf );
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_CENTER,   IDC_TEXT_MIX_LEVEL_CENTER,   &audio_opt->mix_level[MIX_LEVEL_INDEX_CENTER  ] );
             else if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND ) == (HWND)lparam )
-                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, &audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND], edit_buf );
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_SURROUND, IDC_TEXT_MIX_LEVEL_SURROUND, &audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND] );
             else if( GetDlgItem( hwnd, IDC_SLIDER_MIX_LEVEL_LFE ) == (HWND)lparam )
-                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      &audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ], edit_buf );
+                get_mix_level( hwnd, IDC_SLIDER_MIX_LEVEL_LFE,      IDC_TEXT_MIX_LEVEL_LFE,      &audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
             return FALSE;
         case WM_COMMAND :
             switch( wparam )
@@ -790,68 +846,64 @@ static BOOL CALLBACK dialog_proc
                         return FALSE;
                     }
                     /* threads */
-                    GetDlgItemText( hwnd, IDC_EDIT_THREADS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.threads = MAX( atoi( edit_buf ), 0 );
+                    reader_opt.threads = get_int_from_dlg_with_min( hwnd, IDC_EDIT_THREADS, 0 );
                     if( reader_opt.threads > 0 )
                         fprintf( ini, "threads=%d\n", reader_opt.threads );
                     else
                         fprintf( ini, "threads=0 (auto)\n" );
                     /* av_sync */
-                    reader_opt.av_sync = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AV_SYNC ), BM_GETCHECK, 0, 0 ));
+                    reader_opt.av_sync = get_check_state( hwnd, IDC_CHECK_AV_SYNC );
                     fprintf( ini, "av_sync=%d\n", reader_opt.av_sync );
                     /* no_create_index */
-                    reader_opt.no_create_index = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_CREATE_INDEX_FILE ), BM_GETCHECK, 0, 0 ));
+                    reader_opt.no_create_index = !get_check_state( hwnd, IDC_CHECK_CREATE_INDEX_FILE );
                     fprintf( ini, "no_create_index=%d\n", reader_opt.no_create_index );
                     /* force stream index */
-                    reader_opt.force_video = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_VIDEO ), BM_GETCHECK, 0, 0 ));
-                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.force_video_index = MAX( atoi( edit_buf ), -1 );
+                    reader_opt.force_video = get_check_state( hwnd, IDC_CHECK_FORCE_VIDEO );
+                    reader_opt.force_audio = get_check_state( hwnd, IDC_CHECK_FORCE_AUDIO );
+                    reader_opt.force_video_index = get_int_from_dlg_with_min( hwnd, IDC_EDIT_FORCE_VIDEO_INDEX, -1 );
+                    reader_opt.force_audio_index = get_int_from_dlg_with_min( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, -1 );
                     fprintf( ini, "force_video_index=%d:%d\n", reader_opt.force_video, reader_opt.force_video_index );
-                    reader_opt.force_audio = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_FORCE_AUDIO ), BM_GETCHECK, 0, 0 ));
-                    GetDlgItemText( hwnd, IDC_EDIT_FORCE_AUDIO_INDEX, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    reader_opt.force_audio_index = MAX( atoi( edit_buf ), -1 );
                     fprintf( ini, "force_audio_index=%d:%d\n", reader_opt.force_audio, reader_opt.force_audio_index );
                     /* seek_mode */
                     video_opt->seek_mode = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SEEK_MODE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "seek_mode=%d\n", video_opt->seek_mode );
                     /* forward_seek_threshold */
-                    GetDlgItemText( hwnd, IDC_EDIT_FORWARD_THRESHOLD, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->forward_seek_threshold = CLIP_VALUE( atoi( edit_buf ), 1, 999 );
+                    video_opt->forward_seek_threshold = get_int_from_dlg( hwnd, IDC_EDIT_FORWARD_THRESHOLD );
+                    video_opt->forward_seek_threshold = CLIP_VALUE( video_opt->forward_seek_threshold, 1, 999 );
                     fprintf( ini, "forward_threshold=%d\n", video_opt->forward_seek_threshold );
                     /* scaler */
                     video_opt->scaler = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_SCALER ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "scaler=%d\n", video_opt->scaler );
                     /* apply_repeat_flag */
-                    video_opt->apply_repeat_flag = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG ), BM_GETCHECK, 0, 0 ));
+                    video_opt->apply_repeat_flag = get_check_state( hwnd, IDC_CHECK_APPLY_REPEAT_FLAG );
                     fprintf( ini, "apply_repeat_flag=%d\n", video_opt->apply_repeat_flag );
                     /* field_dominance */
                     video_opt->field_dominance = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_FIELD_DOMINANCE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "field_dominance=%d\n", video_opt->field_dominance );
                     /* VFR->CFR */
-                    video_opt->vfr2cfr.active = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_VFR_TO_CFR ), BM_GETCHECK, 0, 0 ));
-                    GetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->vfr2cfr.framerate_num = MAX( atoi( edit_buf ), 1 );
-                    GetDlgItemText( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->vfr2cfr.framerate_den = MAX( atoi( edit_buf ), 1 );
+                    video_opt->vfr2cfr.active = get_check_state( hwnd, IDC_CHECK_VFR_TO_CFR );
+                    video_opt->vfr2cfr.framerate_num = get_int_from_dlg_with_min( hwnd, IDC_EDIT_CONST_FRAMERATE_NUM, 1 );
+                    video_opt->vfr2cfr.framerate_den = get_int_from_dlg_with_min( hwnd, IDC_EDIT_CONST_FRAMERATE_DEN, 1 );
                     fprintf( ini, "vfr2cfr=%d:%d:%d\n", video_opt->vfr2cfr.active, video_opt->vfr2cfr.framerate_num, video_opt->vfr2cfr.framerate_den );
                     /* LW48 output */
-                    video_opt->colorspace = (BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LW48_OUTPUT ), BM_GETCHECK, 0, 0 )) ? OUTPUT_LW48 : 0;
+                    video_opt->colorspace = (get_check_state( hwnd, IDC_CHECK_LW48_OUTPUT ) ? OUTPUT_LW48 : 0);
                     fprintf( ini, "colorspace=%d\n", video_opt->colorspace );
                     /* AVS bit-depth */
                     video_opt->avs.bit_depth = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_AVS_BITDEPTH ), CB_GETCURSEL, 0, 0 );
                     video_opt->avs.bit_depth = atoi( avs_bit_depth_list[ video_opt->avs.bit_depth ] );
                     fprintf( ini, "avs_bit_depth=%d\n", video_opt->avs.bit_depth );
                     /* audio_delay */
-                    GetDlgItemText( hwnd, IDC_EDIT_AUDIO_DELAY, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    audio_delay = atoi( edit_buf );
+                    audio_delay = get_int_from_dlg( hwnd, IDC_EDIT_AUDIO_DELAY );
                     fprintf( ini, "audio_delay=%d\n", audio_delay );
                     /* channel_layout */
-                    GetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    audio_opt->channel_layout = av_get_channel_layout( edit_buf );
+                    {
+                        char edit_buf[512];
+                        GetDlgItemText( hwnd, IDC_EDIT_CHANNEL_LAYOUT, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                        audio_opt->channel_layout = av_get_channel_layout( edit_buf );
+                    }
                     fprintf( ini, "channel_layout=0x%"PRIx64"\n", audio_opt->channel_layout );
                     /* sample_rate */
-                    GetDlgItemText( hwnd, IDC_EDIT_SAMPLE_RATE, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    audio_opt->sample_rate = atoi( edit_buf );
+                    audio_opt->sample_rate = get_int_from_dlg_with_min( hwnd, IDC_EDIT_SAMPLE_RATE, 0 );
                     fprintf( ini, "sample_rate=%d\n", audio_opt->sample_rate );
                     /* mix_level */
                     fprintf( ini, "mix_level=%d:%d:%d\n",
@@ -859,31 +911,30 @@ static BOOL CALLBACK dialog_proc
                              audio_opt->mix_level[MIX_LEVEL_INDEX_SURROUND],
                              audio_opt->mix_level[MIX_LEVEL_INDEX_LFE     ] );
                     /* readers */
-                    reader_disabled[0] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAVSMASH_INPUT ), BM_GETCHECK, 0, 0 ));
-                    reader_disabled[1] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_AVS_INPUT        ), BM_GETCHECK, 0, 0 ));
-                    reader_disabled[2] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_VPY_INPUT        ), BM_GETCHECK, 0, 0 ));
-                    reader_disabled[3] = !(BST_CHECKED == SendMessage( GetDlgItem( hwnd, IDC_CHECK_LIBAV_INPUT      ), BM_GETCHECK, 0, 0 ));
+                    reader_disabled[0] = !get_check_state( hwnd, IDC_CHECK_LIBAVSMASH_INPUT );
+                    reader_disabled[1] = !get_check_state( hwnd, IDC_CHECK_AVS_INPUT        );
+                    reader_disabled[2] = !get_check_state( hwnd, IDC_CHECK_VPY_INPUT        );
+                    reader_disabled[3] = !get_check_state( hwnd, IDC_CHECK_LIBAV_INPUT      );
                     fprintf( ini, "libavsmash_disabled=%d\n", reader_disabled[0] );
                     fprintf( ini, "avs_disabled=%d\n",        reader_disabled[1] );
                     fprintf( ini, "vpy_disabled=%d\n",        reader_disabled[2] );
                     fprintf( ini, "libav_disabled=%d\n",      reader_disabled[3] );
                     /* dummy reader */
-                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_WIDTH, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->dummy.width = MAX( atoi( edit_buf ), 32 );
-                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_HEIGHT, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->dummy.height = MAX( atoi( edit_buf ), 32 );
-                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->dummy.framerate_num = MAX( atoi( edit_buf ), 1 );
-                    GetDlgItemText( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    video_opt->dummy.framerate_den = MAX( atoi( edit_buf ), 1 );
-                    video_opt->dummy.colorspace = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
+                    video_opt->dummy.width         = get_int_from_dlg_with_min( hwnd, IDC_EDIT_DUMMY_WIDTH,  32 );
+                    video_opt->dummy.height        = get_int_from_dlg_with_min( hwnd, IDC_EDIT_DUMMY_HEIGHT, 32 );
+                    video_opt->dummy.framerate_num = get_int_from_dlg_with_min( hwnd, IDC_EDIT_DUMMY_FRAMERATE_NUM, 1 );
+                    video_opt->dummy.framerate_den = get_int_from_dlg_with_min( hwnd, IDC_EDIT_DUMMY_FRAMERATE_DEN, 1 );
+                    video_opt->dummy.colorspace    = SendMessage( GetDlgItem( hwnd, IDC_COMBOBOX_DUMMY_COLORSPACE ), CB_GETCURSEL, 0, 0 );
                     fprintf( ini, "dummy_resolution=%dx%d\n", video_opt->dummy.width, video_opt->dummy.height );
-                    fprintf( ini, "dummy_framerate=%d/%d\n", video_opt->dummy.framerate_num, video_opt->dummy.framerate_den );
-                    fprintf( ini, "dummy_colorspace=%d\n", video_opt->dummy.colorspace );
+                    fprintf( ini, "dummy_framerate=%d/%d\n",  video_opt->dummy.framerate_num, video_opt->dummy.framerate_den );
+                    fprintf( ini, "dummy_colorspace=%d\n",    video_opt->dummy.colorspace );
                     /* preferred decoders */
-                    GetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPTSTR)edit_buf, sizeof(edit_buf) );
-                    set_preferred_decoder_names_on_buf( edit_buf );
-                    fprintf( ini, "preferred_decoders=%s\n", edit_buf );
+                    {
+                        char edit_buf[512];
+                        GetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPTSTR)edit_buf, sizeof(edit_buf) );
+                        set_preferred_decoder_names_on_buf( edit_buf );
+                        fprintf( ini, "preferred_decoders=%s\n", edit_buf );
+                    }
                     /* Close */
                     fclose( ini );
                     EndDialog( hwnd, IDOK );
