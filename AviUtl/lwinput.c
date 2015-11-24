@@ -619,7 +619,7 @@ static int get_int_from_dlg_with_min
     return MAX( value, min );
 }
 
-static void set_string_to_dlg
+static inline void set_string_to_dlg
 (
     HWND  hwnd,
     int   idc,  /* identifier for control */
@@ -795,8 +795,10 @@ static BOOL CALLBACK dialog_proc
                     memcpy( buf, *decoder, length );
                     buf += length;
                 }
-                SetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPCTSTR)edit_buf );
+                set_string_to_dlg( hwnd, IDC_EDIT_PREFERRED_DECODERS, edit_buf );
             }
+            else
+                set_string_to_dlg( hwnd, IDC_EDIT_PREFERRED_DECODERS, "" );
             /* Library informations */
             if( plugin_information[0] == 0 )
                 get_plugin_information();
