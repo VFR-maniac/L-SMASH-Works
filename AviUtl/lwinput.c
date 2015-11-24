@@ -783,7 +783,20 @@ static BOOL CALLBACK dialog_proc
                 SendMessage( hcombo, CB_ADDSTRING, 0, (LPARAM)dummy_colorspace_list[i] );
             SendMessage( hcombo, CB_SETCURSEL, video_opt->dummy.colorspace, 0 );
             /* preferred decoders */
-            SetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPCTSTR)reader_opt.preferred_decoder_names_buf );
+            if( reader_opt.preferred_decoder_names )
+            {
+                char edit_buf[512] = { 0 };
+                char *buf = edit_buf;
+                for( const char **decoder = reader_opt.preferred_decoder_names; *decoder != NULL; decoder++ )
+                {
+                    if( *decoder != *reader_opt.preferred_decoder_names )
+                        *(buf++) = ',';
+                    int length = strlen( *decoder );
+                    memcpy( buf, *decoder, length );
+                    buf += length;
+                }
+                SetDlgItemText( hwnd, IDC_EDIT_PREFERRED_DECODERS, (LPCTSTR)edit_buf );
+            }
             /* Library informations */
             if( plugin_information[0] == 0 )
                 get_plugin_information();
