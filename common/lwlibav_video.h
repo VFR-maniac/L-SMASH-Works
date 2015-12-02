@@ -85,16 +85,23 @@ typedef struct
     enum AVPixelFormat  initial_pix_fmt;
     enum AVColorSpace   initial_colorspace;
     AVPacket            packet;
-    order_converter_t  *order_converter;    /* stored in decoding order */
-    uint8_t            *keyframe_list;      /* stored in decoding order */
-    uint32_t            last_half_frame;
-    uint32_t            last_half_offset;
-    uint32_t            last_frame_number;
-    uint32_t            last_rap_number;
+    order_converter_t  *order_converter;            /* maps of decoding to presentation stored in decoding order */
+    uint8_t            *keyframe_list;              /* keyframe list stored in decoding order */
+    uint32_t            last_half_frame;            /* The last frame consists of complementary field coded picture pair
+                                                     * if set to non-zero, otherwise single frame coded picture. */
+    uint32_t            last_frame_number;          /* the number of the last requested frame */
+    uint32_t            last_rap_number;            /* the number of the last random accessible picture */
+    uint32_t            last_fed_picture_number;    /* the number of the last picture fed to the decoder
+                                                     * This number could be larger than frame_count to handle flush. */
     uint32_t            first_valid_frame_number;
-    AVFrame            *first_valid_frame;
-    AVFrame            *last_frame_buffer;
-    AVFrame            *movable_frame_buffer;
+    AVFrame            *first_valid_frame;          /* the frame buffer
+                                                     * where the first valid frame data is stored */
+    AVFrame            *last_req_frame;             /* the pointer to the frame buffer
+                                                     * where the last requested frame data is stored */
+    AVFrame            *last_dec_frame;             /* the pointer to the frame buffer
+                                                     * where the last output frame data from the decoder is stored */
+    AVFrame            *movable_frame_buffer;       /* the frame buffer
+                                                     * where the decoder outputs temporally stored frame data */
     int64_t             stream_duration;
     int64_t             min_ts;
     uint32_t            last_ts_frame_number;
