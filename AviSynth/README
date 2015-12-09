@@ -5,7 +5,8 @@
     [Functions]
         [LSMASHVideoSource]
             LSMASHVideoSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
-                              bool dr = false, int fpsnum = 0, int fpsden = 1, bool stacked = false, string format = "")
+                              bool dr = false, int fpsnum = 0, int fpsden = 1,
+                              bool stacked = false, string format = "", string decoder = "")
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
                 * RAP is an abbreviation of random accessible point.
             [Arguments]
@@ -83,8 +84,14 @@
                         "RGB24"
                         "RGB32"
                     Note: direct rendering is not available at all if pixel format is forced.
+                + decoder (defalut : "")
+                    Names of preferred decoder candidates separated by comma.
+                    For instance, if you prefer to use the 'h264_qsv' and 'mpeg2_qsv' decoders instead of the generally
+                    used 'h264' and 'mpeg2video' decoder, then specify as "h264_qsv,mpeg2_qsv". The evaluations are done
+                    in the written order and the first matched decoder is used if any.
         [LSMASHAudioSource]
-            LSMASHAudioSource(string source, int track = 0, bool skip_priming = true, string layout = "", int rate = 0)
+            LSMASHAudioSource(string source, int track = 0, bool skip_priming = true,
+                              string layout = "", int rate = 0, string decoder = "")
                 * This function uses libavcodec as audio decoder and L-SMASH as demuxer.
             [Arguments]
                 + source
@@ -169,11 +176,13 @@
                     Audio sampling rate or sampling frequency in units of Hz.
                     The value 0 means audio stream is output to the buffer via the resampler at the maximum sampling rate in audio stream.
                     Otherwise, audio stream is output to the buffer via the resampler at specified sampling rate.
+                + decoder (defalut : "")
+                    Same as 'decoder' of LSMASHVideoSource().
         [LWLibavVideoSource]
             LWLibavVideoSource(string source, int stream_index = -1, int threads = 0, bool cache = true,
                                int seek_mode = 0, int seek_threshold = 10, bool dr = false,
-                               int fpsnum = 0, int fpsden = 1,
-                               bool repeat = false, int dominance = 0, bool stacked = false, string format = "")
+                               int fpsnum = 0, int fpsden = 1, bool repeat = false, int dominance = 0,
+                               bool stacked = false, string format = "", string decoder = "")
                 * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
                 + source
@@ -212,8 +221,11 @@
                     Same as 'stacked' of LSMASHVideoSource().
                 + format (default : "")
                     Same as 'format' of LSMASHVideoSource().
+                + decoder (defalut : "")
+                    Same as 'decoder' of LSMASHVideoSource().
         [LWLibavAudioSource]
-            LWLibavAudioSource(string source, int stream_index = -1, bool cache = true, bool av_sync = false, string layout = "", int rate = 0)
+            LWLibavAudioSource(string source, int stream_index = -1, bool cache = true, bool av_sync = false,
+                               string layout = "", int rate = 0, string decoder = "")
                 * This function uses libavcodec as audio decoder and libavformat as demuxer.
                 * If audio stream can be coded as lossy, do pre-roll whenever any seek of audio stream occurs.
             [Arguments]
@@ -230,3 +242,5 @@
                     Same as 'layout' of LSMASHAudioSource().
                 + rate (default : 0)
                     Same as 'rate' of LSMASHAudioSource().
+                + decoder (defalut : "")
+                    Same as 'decoder' of LSMASHVideoSource().
