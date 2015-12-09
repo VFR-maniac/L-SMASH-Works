@@ -5,7 +5,8 @@
     [Functions]
         [LibavSMASHSource]
             LibavSMASHSource(string source, int track = 0, int threads = 0, int seek_mode = 0, int seek_threshold = 10,
-                             int dr = 0, int fpsnum = 0, int fpsden = 1, int variable = 0, string format = "")
+                             int dr = 0, int fpsnum = 0, int fpsden = 1, int variable = 0, string format = "",
+                             string decoder = "")
                 * This function uses libavcodec as video decoder and L-SMASH as demuxer.
                 * RAP is an abbreviation of random accessible point.
             [Arguments]
@@ -75,10 +76,15 @@
                         "RGB27"
                         "RGB30"
                         "RGB48"
+                + decoder (defalut : "")
+                    Names of preferred decoder candidates separated by comma.
+                    For instance, if you prefer to use the 'h264_qsv' and 'mpeg2_qsv' decoders instead of the generally
+                    used 'h264' and 'mpeg2video' decoder, then specify as "h264_qsv,mpeg2_qsv". The evaluations are done
+                    in the written order and the first matched decoder is used if any.
         [LWLibavSource]
             LWLibavSource(string source, int stream_index = -1, int threads = 0, int cache = 1,
                           int seek_mode = 0, int seek_threshold = 10, int dr = 0, int fpsnum = 0, int fpsden = 1, 
-                          int variable = 0, string format = "", int repeat = 0, int dominance = 1)
+                          int variable = 0, string format = "", int repeat = 0, int dominance = 1, string decoder = "")
                 * This function uses libavcodec as video decoder and libavformat as demuxer.
             [Arguments]
                 + source
@@ -116,3 +122,5 @@
                     This option is enabled only if one or more of the following conditions is true.
                         - 'repeat' is set to 0.
                         - There is a video frame consisting of two separated field coded pictures.
+                + decoder (defalut : "")
+                    Same as 'decoder' of LibavSMASHSource().
