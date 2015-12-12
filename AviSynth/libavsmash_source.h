@@ -27,36 +27,40 @@
 
 class LibavSMASHSource : public LSMASHSource
 {
+private:
+    void (*free_format_ctx)( AVFormatContext *p )
+        = []( AVFormatContext *p ){ avformat_close_input( &p ); };
 protected:
     lsmash_file_parameters_t file_param;
-    AVFormatContext         *format_ctx;
+    std::unique_ptr< AVFormatContext, decltype( free_format_ctx ) > format_ctx;
+    LibavSMASHSource() : format_ctx{ nullptr, free_format_ctx } {}
+    ~LibavSMASHSource() = default;
+    LibavSMASHSource( const LibavSMASHSource & ) = delete;
+    LibavSMASHSource & operator= ( const LibavSMASHSource & ) = delete;
 };
 
 class LSMASHVideoSource : public LibavSMASHSource
 {
 private:
-    libavsmash_video_decode_handler_t vdh;
-    libavsmash_video_output_handler_t voh;
+    std::unique_ptr< libavsmash_video_decode_handler_t, decltype( &libavsmash_video_free_decode_handler ) > vdhp;
+    std::unique_ptr< libavsmash_video_output_handler_t, decltype( &libavsmash_video_free_output_handler ) > vohp;
+    LSMASHVideoSource()
+      : LibavSMASHSource{},
+        vdhp{ libavsmash_video_alloc_decode_handler(), libavsmash_video_free_decode_handler },
+        vohp{ libavsmash_video_alloc_output_handler(), libavsmash_video_free_output_handler } {}
     uint32_t open_file
     (
-        const char         *source,
-        IScriptEnvironment *env
+        const char                        *source,
+        IScriptEnvironment                *env
     );
     void get_video_track
     (
-        const char         *source,
-        uint32_t            track_number,
-        int                 threads,
-        int                 fps_num,
-        int                 fps_den,
-        IScriptEnvironment *env
-    );
-    void prepare_video_decoding
-    (
-        int                 direct_rendering,
-        int                 stacked_format,
-        enum AVPixelFormat  pixel_format,
-        IScriptEnvironment *env
+        const char                        *source,
+        uint32_t                           track_number,
+        int                                threads,
+        int                                fps_num,
+        int                                fps_den,
+        IScriptEnvironment                *env
     );
 public:
     LSMASHVideoSource
@@ -85,6 +89,7 @@ class LSMASHAudioSource : public LibavSMASHSource
 private:
     libavsmash_audio_decode_handler_t adh;
     libavsmash_audio_output_handler_t aoh;
+    LSMASHAudioSource() : LibavSMASHSource{} {}
     uint32_t open_file
     (
         const char         *source,
@@ -115,7 +120,7 @@ public:
         IScriptEnvironment *env
     );
     ~LSMASHAudioSource();
-    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return NULL; }
+    PVideoFrame __stdcall GetFrame( int n, IScriptEnvironment *env ) { return nullptr; }
     bool __stdcall GetParity( int n ) { return false; }
     void __stdcall GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env );
 };

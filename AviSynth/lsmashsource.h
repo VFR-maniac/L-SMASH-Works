@@ -21,6 +21,7 @@
 /* This file is available under an ISC license.
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
+#include <memory>
 #include <windows.h>
 
 #include "../common/cpp_compat.h"
@@ -46,7 +47,7 @@ protected:
     }
     inline const char **tokenize_preferred_decoder_names( void )
     {
-        return lw_tokenize_string( preferred_decoder_names_buf, ',', NULL );
+        return lw_tokenize_string( preferred_decoder_names_buf, ',', nullptr );
     }
     void __stdcall SetCacheHints( int cachehints, int frame_range ) {}
     const VideoInfo& __stdcall GetVideoInfo() { return vi; }

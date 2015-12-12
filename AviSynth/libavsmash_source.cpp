@@ -46,6 +46,156 @@ extern "C"
 static const char func_name_video_source[] = "LSMASHVideoSource";
 static const char func_name_audio_source[] = "LSMASHAudioSource";
 
+uint32_t LSMASHVideoSource::open_file
+(
+    const char                        *source,
+    IScriptEnvironment                *env
+)
+{
+    libavsmash_video_decode_handler_t *vdhp = this->vdhp.get();
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    lhp->name     = func_name_video_source;
+    lhp->level    = LW_LOG_FATAL;
+    lhp->show_log = throw_error;
+    lsmash_movie_parameters_t movie_param;
+    AVFormatContext *format_ctx = nullptr;
+    lsmash_root_t *root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
+    this->format_ctx.reset( format_ctx );
+    libavsmash_video_set_root( vdhp, root );
+    return movie_param.number_of_tracks;
+}
+
+void LSMASHVideoSource::get_video_track
+(
+    const char                        *source,
+    uint32_t                           track_number,
+    int                                threads,
+    int                                fps_num,
+    int                                fps_den,
+    IScriptEnvironment                *env
+)
+{
+    libavsmash_video_decode_handler_t *vdhp = this->vdhp.get();
+    libavsmash_video_output_handler_t *vohp = this->vohp.get();
+    uint32_t number_of_tracks = open_file( source, env );
+    if( track_number && track_number > number_of_tracks )
+        env->ThrowError( "LSMASHVideoSource: the number of tracks equals %I32u.", number_of_tracks );
+    /* L-SMASH */
+    lsmash_root_t *root = libavsmash_video_get_root( vdhp );
+    uint32_t i;
+    uint32_t track_id;
+    lsmash_media_parameters_t media_param;
+    if( track_number == 0 )
+    {
+        /* Get the first video track. */
+        for( i = 1; i <= number_of_tracks; i++ )
+        {
+            track_id = lsmash_get_track_ID( root, i );
+            if( track_id == 0 )
+                env->ThrowError( "LSMASHVideoSource: failed to find video track." );
+            libavsmash_video_set_track_id( vdhp, track_id );
+            lsmash_initialize_media_parameters( &media_param );
+            if( lsmash_get_media_parameters( root, track_id, &media_param ) )
+                env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
+            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+                break;
+        }
+        if( i > number_of_tracks )
+            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
+    }
+    else
+    {
+        /* Get the desired video track. */
+        track_id = lsmash_get_track_ID( root, track_number );
+        if( track_id == 0 )
+            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
+        libavsmash_video_set_track_id( vdhp, track_id );
+        lsmash_initialize_media_parameters( &media_param );
+        if( lsmash_get_media_parameters( root, track_id, &media_param ) )
+            env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
+        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+            env->ThrowError( "LSMASHVideoSource: the track you specified is not a video track." );
+    }
+    if( lsmash_construct_timeline( root, track_id ) )
+        env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
+    if( libavsmash_video_get_summaries( vdhp ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
+    uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
+    uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
+    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
+    /* Calculate average framerate. */
+    int64_t src_fps_num = 25;
+    int64_t src_fps_den = 1;
+    libavsmash_video_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
+    if( fps_num > 0 && fps_den > 0 )
+    {
+        if( libavsmash_video_get_error( vdhp ) )
+            env->ThrowError( "LSMASHVideoSource: failed to get the minimum CTS of video stream." );
+        vi.fps_numerator   = (unsigned int)fps_num;
+        vi.fps_denominator = (unsigned int)fps_den;
+        vohp->vfr2cfr     = 1;
+        vohp->cfr_num     = (uint32_t)fps_num;
+        vohp->cfr_den     = (uint32_t)fps_den;
+        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
+                                     * ((double)media_duration / media_timescale)
+                                     + 0.5);
+    }
+    else
+    {
+        libavsmash_video_clear_error( vdhp );
+        vi.fps_numerator   = (unsigned int)src_fps_num;
+        vi.fps_denominator = (unsigned int)src_fps_den;
+        vohp->frame_count = sample_count;
+    }
+    vi.num_frames = vohp->frame_count;
+    /* libavformat */
+    AVFormatContext *format_ctx = this->format_ctx.get();
+    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
+    if( i == format_ctx->nb_streams )
+        env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
+    /* libavcodec */
+    AVStream       *stream = format_ctx->streams[i];
+    AVCodecContext *ctx    = stream->codec;
+    libavsmash_video_set_codec_context( vdhp, ctx );
+    AVCodec *codec = libavsmash_video_find_decoder( vdhp );
+    if( !codec )
+        env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
+    ctx->thread_count = threads;
+    if( avcodec_open2( ctx, codec, nullptr ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
+}
+
+static void prepare_video_decoding
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
+    int                                direct_rendering,
+    int                                stacked_format,
+    enum AVPixelFormat                 pixel_format,
+    IScriptEnvironment                *env
+)
+{
+    /* Initialize the video decoder configuration. */
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    lhp->priv = env;
+    if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
+    /* Set up output format. */
+    AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
+    int max_width  = libavsmash_video_get_max_width ( vdhp );
+    int max_height = libavsmash_video_get_max_height( vdhp );
+    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
+        as_setup_video_rendering( vohp, ctx, "LSMASHVideoSource",
+                                  direct_rendering, stacked_format, pixel_format,
+                                  max_width, max_height );
+    libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
+    /* Find the first valid video sample. */
+    if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
+        env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
+    /* Force seeking at the first reading. */
+    libavsmash_video_force_seek( vdhp );
+}
+
 LSMASHVideoSource::LSMASHVideoSource
 (
     const char         *source,
@@ -60,181 +210,50 @@ LSMASHVideoSource::LSMASHVideoSource
     enum AVPixelFormat  pixel_format,
     const char         *preferred_decoder_names,
     IScriptEnvironment *env
-)
+) : LSMASHVideoSource{}
 {
     memset( &vi,  0, sizeof(VideoInfo) );
-    memset( &vdh, 0, sizeof(libavsmash_video_decode_handler_t) );
-    memset( &voh, 0, sizeof(libavsmash_video_output_handler_t) );
-    format_ctx = NULL;
+    libavsmash_video_decode_handler_t *vdhp = this->vdhp.get();
+    libavsmash_video_output_handler_t *vohp = this->vohp.get();
     set_preferred_decoder_names( preferred_decoder_names );
-    vdh.seek_mode                      = seek_mode;
-    vdh.forward_seek_threshold         = forward_seek_threshold;
-    vdh.config.preferred_decoder_names = tokenize_preferred_decoder_names();
+    libavsmash_video_set_seek_mode              ( vdhp, seek_mode );
+    libavsmash_video_set_forward_seek_threshold ( vdhp, forward_seek_threshold );
+    libavsmash_video_set_preferred_decoder_names( vdhp, tokenize_preferred_decoder_names() );
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
-    if( !as_vohp )
+    if( as_vohp == nullptr )
         env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
     as_vohp->vi  = &vi;
     as_vohp->env = env;
-    voh.private_handler      = as_vohp;
-    voh.free_private_handler = as_free_video_output_handler;
+    vohp->private_handler      = as_vohp;
+    vohp->free_private_handler = as_free_video_output_handler;
     get_video_track( source, track_number, threads, fps_num, fps_den, env );
-    lsmash_discard_boxes( vdh.root );
-    prepare_video_decoding( direct_rendering, stacked_format, pixel_format, env );
+    lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
+    prepare_video_decoding( vdhp, vohp, direct_rendering, stacked_format, pixel_format, env );
 }
 
 LSMASHVideoSource::~LSMASHVideoSource()
 {
-    lw_freep( &vdh.config.preferred_decoder_names );
-    libavsmash_cleanup_video_decode_handler( &vdh );
-    libavsmash_cleanup_video_output_handler( &voh );
-    if( format_ctx )
-        avformat_close_input( &format_ctx );
+    libavsmash_video_decode_handler_t *vdhp = this->vdhp.get();
+    lsmash_root_t *root = libavsmash_video_get_root( vdhp );
+    lw_free( libavsmash_video_get_preferred_decoder_names( vdhp ) );
     lsmash_close_file( &file_param );
-    lsmash_destroy_root( vdh.root );
-}
-
-uint32_t LSMASHVideoSource::open_file( const char *source, IScriptEnvironment *env )
-{
-    lw_log_handler_t *lhp = &vdh.config.lh;
-    lhp->name     = func_name_video_source;
-    lhp->level    = LW_LOG_FATAL;
-    lhp->show_log = throw_error;
-    lsmash_movie_parameters_t movie_param;
-    vdh.root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
-    return movie_param.number_of_tracks;
-}
-
-void LSMASHVideoSource::get_video_track
-(
-    const char         *source,
-    uint32_t            track_number,
-    int                 threads,
-    int                 fps_num,
-    int                 fps_den,
-    IScriptEnvironment *env
-)
-{
-    uint32_t number_of_tracks = open_file( source, env );
-    if( track_number && track_number > number_of_tracks )
-        env->ThrowError( "LSMASHVideoSource: the number of tracks equals %I32u.", number_of_tracks );
-    /* L-SMASH */
-    uint32_t i;
-    lsmash_media_parameters_t media_param;
-    if( track_number == 0 )
-    {
-        /* Get the first video track. */
-        for( i = 1; i <= number_of_tracks; i++ )
-        {
-            vdh.track_ID = lsmash_get_track_ID( vdh.root, i );
-            if( vdh.track_ID == 0 )
-                env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-            lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( vdh.root, vdh.track_ID, &media_param ) )
-                env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
-            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-                break;
-        }
-        if( i > number_of_tracks )
-            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-    }
-    else
-    {
-        /* Get the desired video track. */
-        vdh.track_ID = lsmash_get_track_ID( vdh.root, track_number );
-        if( vdh.track_ID == 0 )
-            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-        lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( vdh.root, vdh.track_ID, &media_param ) )
-            env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
-        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-            env->ThrowError( "LSMASHVideoSource: the track you specified is not a video track." );
-    }
-    if( lsmash_construct_timeline( vdh.root, vdh.track_ID ) )
-        env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
-    if( get_summaries( vdh.root, vdh.track_ID, &vdh.config ) )
-        env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
-    vdh.sample_count    = lsmash_get_sample_count_in_media_timeline( vdh.root, vdh.track_ID );
-    vdh.media_duration  = lsmash_get_media_duration_from_media_timeline( vdh.root, vdh.track_ID );
-    vdh.media_timescale = media_param.timescale;
-    /* Calculate average framerate. */
-    int64_t src_fps_num = 25;
-    int64_t src_fps_den = 1;
-    libavsmash_setup_timestamp_info( &vdh, &src_fps_num, &src_fps_den );
-    if( fps_num > 0 && fps_den > 0 )
-    {
-        vi.fps_numerator   = (unsigned int)fps_num;
-        vi.fps_denominator = (unsigned int)fps_den;
-        voh.vfr2cfr     = 1;
-        voh.cfr_num     = (uint32_t)fps_num;
-        voh.cfr_den     = (uint32_t)fps_den;
-        voh.frame_count = (uint32_t)(((double)voh.cfr_num / voh.cfr_den)
-                                   * ((double)vdh.media_duration / vdh.media_timescale)
-                                   + 0.5);
-        uint32_t min_cts_sample_number = vdh.order_converter ? vdh.order_converter[1].composition_to_decoding : 1;
-        if( lsmash_get_cts_from_media_timeline( vdh.root, vdh.track_ID, min_cts_sample_number, &vdh.min_cts ) )
-            env->ThrowError( "LSMASHVideoSource: failed to get the minimum CTS of video stream." );
-    }
-    else
-    {
-        vi.fps_numerator   = (unsigned int)src_fps_num;
-        vi.fps_denominator = (unsigned int)src_fps_den;
-        voh.frame_count = vdh.sample_count;
-    }
-    vi.num_frames = voh.frame_count;
-    /* libavformat */
-    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
-    if( i == format_ctx->nb_streams )
-        env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
-    /* libavcodec */
-    AVStream       *stream = format_ctx->streams[i];
-    AVCodecContext *ctx    = stream->codec;
-    vdh.config.ctx = ctx;
-    AVCodec *codec = libavsmash_find_decoder( &vdh.config );
-    if( !codec )
-        env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
-    ctx->thread_count = threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
-}
-
-void LSMASHVideoSource::prepare_video_decoding
-(
-    int                 direct_rendering,
-    int                 stacked_format,
-    enum AVPixelFormat  pixel_format,
-    IScriptEnvironment *env
-)
-{
-    vdh.frame_buffer = av_frame_alloc();
-    if( !vdh.frame_buffer )
-        env->ThrowError( "LSMASHVideoSource: failed to allocate video frame buffer." );
-    /* Initialize the video decoder configuration. */
-    codec_configuration_t *config = &vdh.config;
-    config->lh.priv = env;
-    if( initialize_decoder_configuration( vdh.root, vdh.track_ID, config ) )
-        env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
-    /* Set up output format. */
-    config->get_buffer = as_setup_video_rendering( &voh, config->ctx, "LSMASHVideoSource",
-                                                   direct_rendering, stacked_format, pixel_format,
-                                                   config->prefer.width, config->prefer.height );
-    /* Find the first valid video sample. */
-    if( libavsmash_find_first_valid_video_frame( &vdh ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
-    /* Force seeking at the first reading. */
-    vdh.last_sample_number = vdh.sample_count + 1;
+    lsmash_destroy_root( root );
 }
 
 PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *env )
 {
     uint32_t sample_number = n + 1;     /* For L-SMASH, sample_number is 1-origin. */
-    codec_configuration_t *config = &vdh.config;
-    config->lh.priv = env;
-    if( config->error )
+    libavsmash_video_decode_handler_t *vdhp = this->vdhp.get();
+    libavsmash_video_output_handler_t *vohp = this->vohp.get();
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    lhp->priv = env;
+    if( libavsmash_video_get_error( vdhp )
+     || libavsmash_video_get_frame( vdhp, vohp, sample_number ) < 0 )
         return env->NewVideoFrame( vi );
-    if( libavsmash_get_video_frame( &vdh, &voh, sample_number ) < 0 )
-        return env->NewVideoFrame( vi );
-    PVideoFrame as_frame;
-    if( make_frame( &voh, config->ctx, vdh.frame_buffer, as_frame, env ) < 0 )
+    AVCodecContext *ctx      = libavsmash_video_get_codec_context( vdhp );
+    AVFrame        *av_frame = libavsmash_video_get_frame_buffer ( vdhp );
+    PVideoFrame     as_frame;
+    if( make_frame( vohp, ctx, av_frame, as_frame, env ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return as_frame;
 }
@@ -248,12 +267,11 @@ LSMASHAudioSource::LSMASHAudioSource
     int                 sample_rate,
     const char         *preferred_decoder_names,
     IScriptEnvironment *env
-)
+) : LSMASHAudioSource{}
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &adh, 0, sizeof(libavsmash_audio_decode_handler_t) );
     memset( &aoh, 0, sizeof(libavsmash_audio_output_handler_t) );
-    format_ctx = NULL;
     set_preferred_decoder_names( preferred_decoder_names );
     adh.config.preferred_decoder_names = tokenize_preferred_decoder_names();
     get_audio_track( source, track_number, skip_priming, env );
@@ -266,8 +284,6 @@ LSMASHAudioSource::~LSMASHAudioSource()
     lw_freep( &adh.config.preferred_decoder_names );
     libavsmash_cleanup_audio_decode_handler( &adh );
     libavsmash_cleanup_audio_output_handler( &aoh );
-    if( format_ctx )
-        avformat_close_input( &format_ctx );
     lsmash_close_file( &file_param );
     lsmash_destroy_root( adh.root );
 }
@@ -279,7 +295,9 @@ uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *e
     lhp->level    = LW_LOG_FATAL;
     lhp->show_log = throw_error;
     lsmash_movie_parameters_t movie_param;
+    AVFormatContext *format_ctx = nullptr;
     adh.root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
+    this->format_ctx.reset( format_ctx );
     return movie_param.number_of_tracks;
 }
 
@@ -304,7 +322,7 @@ static char *duplicate_as_string( void *src, size_t length )
 {
     char *dst = new char[length + 1];
     if( !dst )
-        return NULL;
+        return nullptr;
     memcpy( dst, src, length );
     dst[length] = '\0';
     return dst;
@@ -370,7 +388,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
                 lsmash_cleanup_itunes_metadata( &metadata );
                 continue;
             }
-            char *value = NULL;
+            char *value = nullptr;
             if( metadata.type == ITUNES_METADATA_TYPE_STRING )
             {
                 int length = strlen( metadata.value.string );
@@ -411,6 +429,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         }
     }
     /* libavformat */
+    AVFormatContext *format_ctx = this->format_ctx.get();
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
     if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
@@ -422,7 +441,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     if( !codec )
         env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
     ctx->thread_count = 0;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    if( avcodec_open2( ctx, codec, nullptr ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
@@ -474,8 +493,8 @@ AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScrip
     int         fps_num                 = args[6].AsInt( 0 );
     int         fps_den                 = args[7].AsInt( 1 );
     int         stacked_format          = args[8].AsBool( false ) ? 1 : 0;
-    enum AVPixelFormat pixel_format     = get_av_output_pixel_format( args[9].AsString( NULL ) );
-    const char *preferred_decoder_names = args[10].AsString( NULL );
+    enum AVPixelFormat pixel_format     = get_av_output_pixel_format( args[9].AsString( nullptr ) );
+    const char *preferred_decoder_names = args[10].AsString( nullptr );
     threads                = threads >= 0 ? threads : 0;
     seek_mode              = CLIP_VALUE( seek_mode, 0, 2 );
     forward_seek_threshold = CLIP_VALUE( forward_seek_threshold, 1, 999 );
@@ -492,9 +511,9 @@ AVSValue __cdecl CreateLSMASHAudioSource( AVSValue args, void *user_data, IScrip
     const char *source                  = args[0].AsString();
     uint32_t    track_number            = args[1].AsInt( 0 );
     bool        skip_priming            = args[2].AsBool( true );
-    const char *layout_string           = args[3].AsString( NULL );
+    const char *layout_string           = args[3].AsString( nullptr );
     int         sample_rate             = args[4].AsInt( 0 );
-    const char *preferred_decoder_names = args[5].AsString( NULL );
+    const char *preferred_decoder_names = args[5].AsString( nullptr );
     uint64_t channel_layout = layout_string ? av_get_channel_layout( layout_string ) : 0;
     return new LSMASHAudioSource( source, track_number, skip_priming,
                                   channel_layout, sample_rate, preferred_decoder_names, env );

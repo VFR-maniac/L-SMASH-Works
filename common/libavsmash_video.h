@@ -20,89 +20,278 @@
 
 /* This file is available under an ISC license. */
 
-#define SEEK_MODE_NORMAL     0
-#define SEEK_MODE_UNSAFE     1
-#define SEEK_MODE_AGGRESSIVE 2
-
+/*****************************************************************************
+ * Opaque Handlers
+ *****************************************************************************/
 typedef lw_video_scaler_handler_t libavsmash_video_scaler_handler_t;
 typedef lw_video_output_handler_t libavsmash_video_output_handler_t;
 
-typedef struct
-{
-    uint32_t composition_to_decoding;
-} order_converter_t;
+typedef struct libavsmash_video_decode_handler_tag libavsmash_video_decode_handler_t;
 
-typedef struct
-{
-    lsmash_root_t        *root;
-    uint32_t              track_ID;
-    uint32_t              forward_seek_threshold;
-    int                   seek_mode;
-    codec_configuration_t config;
-    AVFrame              *frame_buffer;
-    order_converter_t    *order_converter;
-    uint8_t              *keyframe_list;
-    uint32_t              sample_count;
-    uint32_t              last_sample_number;
-    uint32_t              last_rap_number;
-    uint32_t              first_valid_frame_number;
-    AVFrame              *first_valid_frame;
-    uint32_t              media_timescale;
-    uint64_t              media_duration;
-    uint64_t              min_cts;
-} libavsmash_video_decode_handler_t;
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+libavsmash_video_decode_handler_t *libavsmash_video_alloc_decode_handler
+(
+    void
+);
 
-int libavsmash_setup_timestamp_info
+libavsmash_video_output_handler_t *libavsmash_video_alloc_output_handler
+(
+    void
+);
+
+void libavsmash_video_free_decode_handler
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+void libavsmash_video_free_output_handler
+(
+    libavsmash_video_output_handler_t *vohp
+);
+
+void libavsmash_video_free_decode_handler_ptr
+(
+    libavsmash_video_decode_handler_t **vdhpp
+);
+
+void libavsmash_video_free_output_handler_ptr
+(
+    libavsmash_video_output_handler_t **vohpp
+);
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void libavsmash_video_set_root
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    lsmash_root_t                     *root
+);
+
+void libavsmash_video_set_track_id
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           track_id
+);
+
+void libavsmash_video_set_forward_seek_threshold
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           forward_seek_threshold
+);
+
+void libavsmash_video_set_seek_mode
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    int                                seek_mode
+);
+
+void libavsmash_video_set_preferred_decoder_names
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    const char                       **preferred_decoder_names
+);
+
+void libavsmash_video_set_log_handler
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    lw_log_handler_t                  *lh
+);
+
+void libavsmash_video_set_codec_context
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    AVCodecContext                    *ctx
+);
+
+void libavsmash_video_set_get_buffer_func
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int )
+);
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+lsmash_root_t *libavsmash_video_get_root
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_get_track_id
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_get_forward_seek_threshold
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_video_get_seek_mode
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+const char **libavsmash_video_get_preferred_decoder_names
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_video_get_error
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+lw_log_handler_t *libavsmash_video_get_log_handler
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+AVCodecContext *libavsmash_video_get_codec_context
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_video_get_max_width
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_video_get_max_height
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+AVFrame *libavsmash_video_get_frame_buffer
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_get_sample_count
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_get_media_timescale
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint64_t libavsmash_video_get_media_duration
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+/* This function must be called after a success of libavsmash_video_setup_timestamp_info(). */
+uint64_t libavsmash_video_get_min_cts
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+/*****************************************************************************
+ * Fetchers
+ *****************************************************************************/
+uint32_t libavsmash_video_fetch_sample_count
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_fetch_media_timescale
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint64_t libavsmash_video_fetch_media_duration
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+int libavsmash_video_initialize_decoder_configuration
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+int libavsmash_video_get_summaries
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+AVCodec *libavsmash_video_find_decoder
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+void libavsmash_video_force_seek
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+uint32_t libavsmash_video_get_coded_sample_number
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           composition_sample_number
+);
+
+int libavsmash_video_get_cts
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           coded_sample_number,
+    uint64_t                          *cts
+);
+
+int libavsmash_video_get_sample_duration
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           coded_sample_number,
+    uint32_t                          *sample_duration
+);
+
+void libavsmash_video_clear_error
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+void libavsmash_video_close_codec_context
+(
+    libavsmash_video_decode_handler_t *vdhp
+);
+
+/* Setup average framerate and timestamp list.
+ * Set an error if failed to get the minimum composition timestamp.
+ * The minimum composition timestamp is used for VFR -> CFR conversion. */
+int libavsmash_video_setup_timestamp_info
 (
     libavsmash_video_decode_handler_t *vdhp,
     int64_t                           *framerate_num,
     int64_t                           *framerate_den
 );
 
-static inline uint32_t get_decoding_sample_number
-(
-    order_converter_t *order_converter,
-    uint32_t           composition_sample_number
-)
-{
-    return order_converter
-         ? order_converter[composition_sample_number].composition_to_decoding
-         : composition_sample_number;
-}
-
-int libavsmash_get_video_frame
+int libavsmash_video_get_frame
 (
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_number
 );
 
-int libavsmash_find_first_valid_video_frame
+int libavsmash_video_find_first_valid_frame
 (
     libavsmash_video_decode_handler_t *vdhp
 );
 
-int libavsmash_create_keyframe_list
+int libavsmash_video_create_keyframe_list
 (
     libavsmash_video_decode_handler_t *vdhp
 );
 
-int libavsmash_is_keyframe
+int libavsmash_video_is_keyframe
 (
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
     uint32_t                           sample_number
 );
-
-void libavsmash_cleanup_video_decode_handler
-(
-    libavsmash_video_decode_handler_t *vdhp
-);
-
-static inline void libavsmash_cleanup_video_output_handler
-(
-    libavsmash_video_output_handler_t *vohp
-)
-{
-    lw_cleanup_video_output_handler( vohp );
-}

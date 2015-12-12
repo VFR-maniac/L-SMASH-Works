@@ -65,9 +65,9 @@ typedef struct libavsmash_handler_tag
     AVFormatContext                  *format_ctx;
     int                               threads;
     /* Video stuff */
-    libavsmash_video_info_handler_t   vih;
-    libavsmash_video_decode_handler_t vdh;
-    libavsmash_video_output_handler_t voh;
+    libavsmash_video_info_handler_t    vih;
+    libavsmash_video_decode_handler_t *vdhp;
+    libavsmash_video_output_handler_t *vohp;
     /* Audio stuff */
     libavsmash_audio_info_handler_t   aih;
     libavsmash_audio_decode_handler_t adh;
@@ -76,19 +76,57 @@ typedef struct libavsmash_handler_tag
     int                               av_sync;
 } libavsmash_handler_t;
 
-static void *open_file( char *file_name, reader_option_t *opt )
+/* Deallocate the handler of this plugin. */
+static void free_handler
+(
+    libavsmash_handler_t **hpp
+)
+{
+    if( !hpp || !*hpp )
+        return;
+    libavsmash_handler_t *hp = *hpp;
+    libavsmash_video_free_decode_handler( hp->vdhp );
+    libavsmash_video_free_output_handler( hp->vohp );
+    lw_freep( hpp );
+}
+
+/* Allocate the handler of this plugin. */
+static libavsmash_handler_t *alloc_handler
+(
+    void
+)
 {
     libavsmash_handler_t *hp = lw_malloc_zero( sizeof(libavsmash_handler_t) );
     if( !hp )
         return NULL;
+    hp->vdhp = libavsmash_video_alloc_decode_handler();
+    if( !hp->vdhp )
+    {
+        free_handler( &hp );
+        return NULL;
+    }
+    hp->vohp = libavsmash_video_alloc_output_handler();
+    if( !hp->vohp )
+    {
+        free_handler( &hp );
+        return NULL;
+    }
+    return hp;
+}
+
+static void *open_file( char *file_name, reader_option_t *opt )
+{
+    libavsmash_handler_t *hp = alloc_handler();
+    if( !hp )
+        return NULL;
     /* Set up the log handlers. */
     hp->uType = MB_ICONERROR | MB_OK;
-    lw_log_handler_t lh = { 0 };
-    lh.priv     = &hp->uType;
-    lh.level    = LW_LOG_QUIET;
-    lh.show_log = au_message_box_desktop;
+    lw_log_handler_t *vlhp = libavsmash_video_get_log_handler( hp->vdhp );
+    vlhp->priv     = &hp->uType;
+    vlhp->level    = LW_LOG_QUIET;
+    vlhp->show_log = au_message_box_desktop;
     /* Open file. */
-    hp->root = libavsmash_open_file( &hp->format_ctx, file_name, &hp->file_param, &hp->movie_param, &lh );
+    hp->root = libavsmash_open_file( &hp->format_ctx, file_name, &hp->file_param, &hp->movie_param, vlhp );
     if( !hp->root )
     {
         free( hp );
@@ -97,11 +135,10 @@ static void *open_file( char *file_name, reader_option_t *opt )
     hp->number_of_tracks = hp->movie_param.number_of_tracks;
     hp->threads          = opt->threads;
     hp->av_sync          = opt->av_sync;
-    hp->vdh.config.preferred_decoder_names = opt->preferred_decoder_names;
+    libavsmash_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
     hp->adh.config.preferred_decoder_names = opt->preferred_decoder_names;
-    lh.level = LW_LOG_WARNING;
-    hp->vdh.config.lh = lh;
-    hp->adh.config.lh = lh;
+    vlhp->level = LW_LOG_WARNING;
+    hp->adh.config.lh = *vlhp;
     return hp;
 }
 
@@ -175,33 +212,34 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the timeline shift." );
         return -1;
     }
-    uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( hp->root, track_ID );
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
-        hp->vdh.root            = hp->root;
-        hp->vdh.track_ID        = track_ID;
-        hp->vdh.media_duration  = media_duration;
-        hp->vdh.media_timescale = media_param.timescale;
-        hp->vih.media_timescale = media_param.timescale;
-        hp->vdh.sample_count    = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
-        if( get_summaries( hp->root, track_ID, &hp->vdh.config ) )
+        libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
+        libavsmash_video_set_root    ( vdhp, hp->root );
+        libavsmash_video_set_track_id( vdhp, track_ID );
+        (void)libavsmash_video_fetch_media_duration( vdhp );
+        uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
+        uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
+        hp->vih.media_timescale = media_timescale;
+        if( libavsmash_video_get_summaries( vdhp ) < 0 )
             return -1;
-        hp->vdh.config.lh.show_log = au_message_box_desktop;
+        lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+        lhp->show_log = au_message_box_desktop;
         int64_t fps_num = 25;
         int64_t fps_den = 1;
-        libavsmash_setup_timestamp_info( &hp->vdh, &fps_num, &fps_den );
+        libavsmash_video_setup_timestamp_info( vdhp, &fps_num, &fps_den );
         h->framerate_num = (int)fps_num;
         h->framerate_den = (int)fps_den;
-        h->video_sample_count = hp->vdh.sample_count;
-        uint32_t min_cts_sample_number = hp->vdh.order_converter ? hp->vdh.order_converter[1].composition_to_decoding : 1;
-        if( lsmash_get_cts_from_media_timeline( hp->root, track_ID, min_cts_sample_number, &hp->vdh.min_cts ) )
+        h->video_sample_count = sample_count;
+        if( libavsmash_video_get_error( vdhp ) )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
             return -1;
         }
         if( hp->av_sync )
         {
-            hp->vih.start_pts = hp->vdh.min_cts + ctd_shift
+            uint64_t min_cts = libavsmash_video_get_min_cts( vdhp );
+            hp->vih.start_pts = min_cts + ctd_shift
                               + get_empty_duration( hp->root, track_ID, hp->movie_param.timescale, hp->vih.media_timescale );
             hp->vih.skip_duration = ctd_shift + get_start_time( hp->root, track_ID );
         }
@@ -211,7 +249,7 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         hp->adh.track_ID          = track_ID;
         hp->aih.media_timescale   = media_param.timescale;
         hp->adh.frame_count       = lsmash_get_sample_count_in_media_timeline( hp->root, track_ID );
-        h->audio_pcm_sample_count = media_duration;
+        h->audio_pcm_sample_count = lsmash_get_media_duration_from_media_timeline( hp->root, track_ID );
         if( get_summaries( hp->root, track_ID, &hp->adh.config ) )
             return -1;
         hp->adh.config.lh.show_log = au_message_box_desktop;
@@ -237,10 +275,19 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         return -1;
     }
     /* libavcodec */
-    AVCodecContext        *ctx    = hp->format_ctx->streams[i]->codec;
-    codec_configuration_t *config = type == AVMEDIA_TYPE_VIDEO ? &hp->vdh.config : &hp->adh.config;
-    config->ctx = ctx;
-    AVCodec *codec = libavsmash_find_decoder( config );
+    AVCodecContext *ctx = hp->format_ctx->streams[i]->codec;
+    AVCodec        *codec;
+    if( type == AVMEDIA_TYPE_VIDEO )
+    {
+        libavsmash_video_set_codec_context( hp->vdhp, ctx );
+        codec = libavsmash_video_find_decoder( hp->vdhp );
+    }
+    else
+    {
+        codec_configuration_t *config = &hp->adh.config;
+        config->ctx = ctx;
+        codec = libavsmash_find_decoder( config );
+    }
     if( !codec )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s decoder.", codec->name );
@@ -260,12 +307,9 @@ static int get_first_video_track( lsmash_handler_t *h )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !get_first_track_of_type( h, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ) )
         return 0;
-    lsmash_destruct_timeline( hp->root, hp->vdh.track_ID );
-    if( hp->vdh.config.ctx )
-    {
-        avcodec_close( hp->vdh.config.ctx );
-        hp->vdh.config.ctx = NULL;
-    }
+    uint32_t track_id = libavsmash_video_get_track_id( hp->vdhp );
+    lsmash_destruct_timeline( hp->root, track_id );
+    libavsmash_video_close_codec_context( hp->vdhp );
     return -1;
 }
 
@@ -292,55 +336,54 @@ static void destroy_disposable( void *private_stuff )
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
-    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
-    if( !vdhp->config.ctx )
+    libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
+    AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
+    if( !ctx )
         return 0;
-    vdhp->frame_buffer = av_frame_alloc();
-    if( !vdhp->frame_buffer )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate video frame buffer." );
-        return -1;
-    }
-    vdhp->seek_mode              = opt->seek_mode;
-    vdhp->forward_seek_threshold = opt->forward_seek_threshold;
-    if( libavsmash_create_keyframe_list( vdhp ) < 0 )
+    libavsmash_video_set_seek_mode             ( vdhp, opt->seek_mode );
+    libavsmash_video_set_forward_seek_threshold( vdhp, opt->forward_seek_threshold );
+    if( libavsmash_video_create_keyframe_list( vdhp ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to create keyframe list." );
         return -1;
     }
     /* Initialize the video decoder configuration. */
-    codec_configuration_t *config = &vdhp->config;
-    if( initialize_decoder_configuration( vdhp->root, vdhp->track_ID, config ) < 0 )
+    if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
     /* Set up video rendering. */
-    libavsmash_video_output_handler_t *vohp = &hp->voh;
-    if( !au_setup_video_rendering( vohp, config->ctx, opt, &h->video_format, config->prefer.width, config->prefer.height ) )
+    libavsmash_video_output_handler_t *vohp = hp->vohp;
+    int max_width  = libavsmash_video_get_max_width ( vdhp );
+    int max_height = libavsmash_video_get_max_height( vdhp );
+    if( !au_setup_video_rendering( vohp, ctx, opt, &h->video_format, max_width, max_height ) )
         return -1;
     vohp->vfr2cfr = opt->vfr2cfr.active;
     if( vohp->vfr2cfr )
     {
+        uint32_t media_timescale = libavsmash_video_get_media_timescale( vdhp );
+        uint64_t media_duration  = libavsmash_video_get_media_duration ( vdhp );
         h->framerate_num = opt->vfr2cfr.framerate_num;
         h->framerate_den = opt->vfr2cfr.framerate_den;
         vohp->cfr_num     = opt->vfr2cfr.framerate_num;
         vohp->cfr_den     = opt->vfr2cfr.framerate_den;
         vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
-                          * ((double)vdhp->media_duration / vdhp->media_timescale)
+                          * ((double)media_duration / media_timescale)
                           + 0.5;
     }
     else
-        vohp->frame_count = vdhp->sample_count;
+        vohp->frame_count = libavsmash_video_get_sample_count( vdhp );
     h->video_sample_count = vohp->frame_count;
 #ifndef DEBUG_VIDEO
-    config->lh.level = LW_LOG_FATAL;
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    lhp->level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( libavsmash_find_first_valid_video_frame( vdhp ) < 0 )
+    if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
-    vdhp->last_sample_number = vdhp->sample_count + 1;
+    libavsmash_video_force_seek( vdhp );
     return 0;
 }
 
@@ -382,7 +425,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
         return -1;
     }
-    if( hp->av_sync && hp->vdh.track_ID )
+    if( hp->av_sync && libavsmash_video_get_track_id( hp->vdhp ) )
     {
         AVRational audio_sample_base = (AVRational){ 1, aohp->output_sample_rate };
         hp->av_gap = av_rescale_q( hp->aih.start_pts,
@@ -399,23 +442,25 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
-    libavsmash_video_decode_handler_t *vdhp = &hp->vdh;
-    if( vdhp->config.error )
+    libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
+    if( libavsmash_video_get_error( vdhp ) )
         return 0;
-    libavsmash_video_output_handler_t *vohp = &hp->voh;
+    libavsmash_video_output_handler_t *vohp = hp->vohp;
     ++sample_number;            /* For L-SMASH, sample_number is 1-origin. */
     if( sample_number == 1 )
     {
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    int ret = libavsmash_get_video_frame( vdhp, vohp, sample_number );
+    int ret = libavsmash_video_get_frame( vdhp, vohp, sample_number );
     if( ret != 0 && !(ret == 1 && sample_number == 1) )
         /* Skip writing frame data into AviUtl's frame buffer.
          * Apparently, AviUtl clears the frame buffer at the first frame.
          * Therefore, don't skip in that case. */
         return 0;
-    return convert_colorspace( vohp, vdhp->config.ctx, vdhp->frame_buffer, buf );
+    AVCodecContext *ctx      = libavsmash_video_get_codec_context( vdhp );
+    AVFrame        *av_frame = libavsmash_video_get_frame_buffer ( vdhp );
+    return convert_colorspace( vohp, ctx, av_frame, buf );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -427,7 +472,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 static int is_keyframe( lsmash_handler_t *h, int sample_number )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
-    return libavsmash_is_keyframe( &hp->vdh, &hp->voh, sample_number + 1 );
+    return libavsmash_video_is_keyframe( hp->vdhp, hp->vohp, sample_number + 1 );
 }
 
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
@@ -450,8 +495,9 @@ static void video_cleanup( lsmash_handler_t *h )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     if( !hp )
         return;
-    libavsmash_cleanup_video_decode_handler( &hp->vdh );
-    libavsmash_cleanup_video_output_handler( &hp->voh );
+    /* Free and then set nullptr since other functions might reference the pointer later. */
+    libavsmash_video_free_decode_handler_ptr( &hp->vdhp );
+    libavsmash_video_free_output_handler_ptr( &hp->vohp );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )
@@ -468,11 +514,10 @@ static void close_file( void *private_stuff )
     libavsmash_handler_t *hp = (libavsmash_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->format_ctx )
-        avformat_close_input( &hp->format_ctx );
+    avformat_close_input( &hp->format_ctx );
     lsmash_close_file( &hp->file_param );
     lsmash_destroy_root( hp->root );
-    free( hp );
+    lw_free( hp );
 }
 
 lsmash_reader_t libavsmash_reader =
