@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libavsmash_video_internal.h
+ * libavsmash_audio_internal.h
  *****************************************************************************
  * Copyright (C) 2012-2015 L-SMASH Works project
  *
@@ -20,31 +20,19 @@
 
 /* This file is available under an ISC license. */
 
-#define SEEK_MODE_NORMAL     0
-#define SEEK_MODE_UNSAFE     1
-#define SEEK_MODE_AGGRESSIVE 2
-
-typedef struct
-{
-    uint32_t composition_to_decoding;
-} order_converter_t;
-
-struct libavsmash_video_decode_handler_tag
+struct libavsmash_audio_decode_handler_tag
 {
     lsmash_root_t        *root;
     uint32_t              track_id;
     codec_configuration_t config;
     AVFrame              *frame_buffer;
-    uint32_t              forward_seek_threshold;
-    int                   seek_mode;
-    order_converter_t    *order_converter;
-    uint8_t              *keyframe_list;
-    uint32_t              sample_count;
-    uint32_t              last_sample_number;
-    uint32_t              last_rap_number;
-    uint32_t              first_valid_frame_number;
-    AVFrame              *first_valid_frame;
-    uint32_t              media_timescale;
-    uint64_t              media_duration;
+    AVPacket              packet;
+    uint64_t              pcm_sample_count;
+    uint64_t              next_pcm_sample_number;
+    uint32_t              last_frame_number;
+    uint32_t              frame_count;
+    int                   implicit_preroll;
+    uint32_t              media_timescale;  /* unused */
+    uint64_t              media_duration;   /* unused */
     uint64_t              min_cts;
 };

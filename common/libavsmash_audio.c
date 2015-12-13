@@ -41,8 +41,330 @@ extern "C"
 #include "resample.h"
 #include "libavsmash.h"
 #include "libavsmash_audio.h"
+#include "libavsmash_audio_internal.h"
 
 #define RESAMPLE_PCM_COUNT( SAMPLES ) (((SAMPLES) * output_sample_rate - 1) / current_sample_rate + 1)
+
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+libavsmash_audio_decode_handler_t *libavsmash_audio_alloc_decode_handler
+(
+    void
+)
+{
+    libavsmash_audio_decode_handler_t *adhp = (libavsmash_audio_decode_handler_t *)lw_malloc_zero( sizeof(libavsmash_audio_decode_handler_t) );
+    if( !adhp )
+        return NULL;
+    adhp->frame_buffer = av_frame_alloc();
+    if( !adhp->frame_buffer )
+    {
+        libavsmash_audio_free_decode_handler( adhp );
+        return NULL;
+    }
+    return adhp;
+}
+
+libavsmash_audio_output_handler_t *libavsmash_audio_alloc_output_handler
+(
+    void
+)
+{
+    return (libavsmash_audio_output_handler_t *)lw_malloc_zero( sizeof(libavsmash_audio_output_handler_t) );
+}
+
+void libavsmash_audio_free_decode_handler
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return;
+    av_frame_free( &adhp->frame_buffer );
+    cleanup_configuration( &adhp->config );
+    lw_free( adhp );
+}
+
+void libavsmash_audio_free_output_handler
+(
+    libavsmash_audio_output_handler_t *aohp
+)
+{
+    if( !aohp )
+        return;
+    lw_cleanup_audio_output_handler( aohp );
+    lw_free( aohp );
+}
+
+void libavsmash_audio_free_decode_handler_ptr
+(
+    libavsmash_audio_decode_handler_t **adhpp
+)
+{
+    if( !adhpp || !*adhpp )
+        return;
+    libavsmash_audio_free_decode_handler( *adhpp );
+    *adhpp = NULL;
+}
+
+void libavsmash_audio_free_output_handler_ptr
+(
+    libavsmash_audio_output_handler_t **aohpp
+)
+{
+    if( !aohpp || !*aohpp )
+        return;
+    libavsmash_audio_free_output_handler( *aohpp );
+    *aohpp = NULL;
+}
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void libavsmash_audio_set_root
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    lsmash_root_t                     *root
+)
+{
+    adhp->root = root;
+}
+
+void libavsmash_audio_set_track_id
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    uint32_t                           track_id
+)
+{
+    adhp->track_id = track_id;
+}
+
+void libavsmash_audio_set_preferred_decoder_names
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    const char                       **preferred_decoder_names
+)
+{
+    adhp->config.preferred_decoder_names = preferred_decoder_names;
+}
+
+void libavsmash_audio_set_codec_context
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    AVCodecContext                    *ctx
+)
+{
+    adhp->config.ctx = ctx;
+}
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+lsmash_root_t *libavsmash_audio_get_root
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->root : NULL;
+}
+
+uint32_t libavsmash_audio_get_track_id
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->track_id : 0;
+}
+
+AVCodecContext *libavsmash_audio_get_codec_context
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.ctx : NULL;
+}
+
+const char **libavsmash_audio_get_preferred_decoder_names
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.preferred_decoder_names : NULL;
+}
+
+int libavsmash_audio_get_error
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.error : -1;
+}
+
+uint64_t libavsmash_audio_get_best_used_channel_layout
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.prefer.channel_layout : 0;
+}
+
+enum AVSampleFormat libavsmash_audio_get_best_used_sample_format
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.prefer.sample_format : AV_SAMPLE_FMT_NONE;
+}
+
+int libavsmash_audio_get_best_used_sample_rate
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.prefer.sample_rate : 0;
+}
+
+int libavsmash_audio_get_best_used_bits_per_sample
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->config.prefer.bits_per_sample : 0;
+}
+
+lw_log_handler_t *libavsmash_audio_get_log_handler
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? &adhp->config.lh : NULL;
+}
+
+/*****************************************************************************
+ * Fetchers
+ *****************************************************************************/
+uint32_t libavsmash_audio_fetch_sample_count
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return 0;
+    adhp->frame_count = lsmash_get_sample_count_in_media_timeline( adhp->root, adhp->track_id );
+    return adhp->frame_count;
+}
+
+uint32_t libavsmash_audio_fetch_media_timescale
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return 0;
+    lsmash_media_parameters_t media_param;
+    lsmash_initialize_media_parameters( &media_param );
+    if( lsmash_get_media_parameters( adhp->root, adhp->track_id, &media_param ) < 0 )
+        return 0;
+    adhp->media_timescale = media_param.timescale;
+    return adhp->media_timescale;
+}
+
+uint64_t libavsmash_audio_fetch_media_duration
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return 0;
+    adhp->media_duration = lsmash_get_media_duration_from_media_timeline( adhp->root, adhp->track_id );
+    return adhp->media_duration;
+}
+
+uint64_t libavsmash_audio_fetch_min_cts
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp || lsmash_get_cts_from_media_timeline( adhp->root, adhp->track_id, 1, &adhp->min_cts ) < 0 )
+        return UINT64_MAX;
+    return adhp->min_cts;
+}
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+int libavsmash_audio_initialize_decoder_configuration
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return initialize_decoder_configuration( adhp->root, adhp->track_id, &adhp->config );
+}
+
+int libavsmash_audio_get_summaries
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return get_summaries( adhp->root, adhp->track_id, &adhp->config );
+}
+
+AVCodec *libavsmash_audio_find_decoder
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return libavsmash_find_decoder( &adhp->config );
+}
+
+void libavsmash_audio_force_seek
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    /* Force seek before the next reading. */
+    adhp->next_pcm_sample_number = adhp->pcm_sample_count + 1;
+}
+
+void libavsmash_audio_clear_error
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    adhp->config.error = 0;
+}
+
+void libavsmash_audio_close_codec_context
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp || !adhp->config.ctx )
+        return;
+    avcodec_close( adhp->config.ctx );
+    adhp->config.ctx = NULL;
+}
+
+void libavsmash_audio_apply_delay
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    int64_t                            delay
+)
+{
+    if( !adhp )
+        return;
+    adhp->pcm_sample_count += delay;
+}
+
+void libavsmash_audio_set_implicit_preroll
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return;
+    adhp->implicit_preroll = 1;
+}
 
 static uint64_t count_sequence_output_pcm_samples
 (
@@ -67,7 +389,7 @@ static uint64_t count_sequence_output_pcm_samples
     return resampled_sample_count > skip_output_samples ? resampled_sample_count - skip_output_samples : 0;
 }
 
-uint64_t libavsmash_count_overall_pcm_samples
+uint64_t libavsmash_audio_count_overall_pcm_samples
 (
     libavsmash_audio_decode_handler_t *adhp,
     int                                output_sample_rate,
@@ -90,7 +412,7 @@ uint64_t libavsmash_count_overall_pcm_samples
     {
         /* Get configuration index. */
         lsmash_sample_t sample;
-        if( lsmash_get_sample_info_from_media_timeline( adhp->root, adhp->track_ID, i, &sample ) )
+        if( lsmash_get_sample_info_from_media_timeline( adhp->root, adhp->track_id, i, &sample ) )
             continue;
         if( current_index != sample.index )
         {
@@ -103,7 +425,7 @@ uint64_t libavsmash_count_overall_pcm_samples
         uint32_t frame_length;
         if( es->frame_length )
             frame_length = es->frame_length;
-        else if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_ID, i, &frame_length ) )
+        else if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_id, i, &frame_length ) )
             continue;
         /* */
         if( (current_sample_rate != es->sample_rate && es->sample_rate > 0)
@@ -137,7 +459,10 @@ uint64_t libavsmash_count_overall_pcm_samples
         sequence_pcm_count += frame_length;
     }
     if( !es || (sequence_pcm_count == 0 && overall_pcm_count == 0) )
+    {
+        adhp->pcm_sample_count = 0;
         return 0;
+    }
     /* Count the number of output PCM audio samples in the last sequence. */
     if( orig_skip_decoded_samples > prior_sequences_pcm_count )
         *skip_decoded_samples += (orig_skip_decoded_samples - prior_sequences_pcm_count) * es->upsampling;
@@ -147,6 +472,7 @@ uint64_t libavsmash_count_overall_pcm_samples
                                                             current_sample_rate,
                                                             output_sample_rate );
     /* Return the number of output PCM audio samples. */
+    adhp->pcm_sample_count = overall_pcm_count;
     return overall_pcm_count;
 }
 
@@ -159,7 +485,7 @@ static inline int get_frame_length
 )
 {
     lsmash_sample_t sample;
-    if( lsmash_get_sample_info_from_media_timeline( adhp->root, adhp->track_ID, frame_number, &sample ) )
+    if( lsmash_get_sample_info_from_media_timeline( adhp->root, adhp->track_id, frame_number, &sample ) )
         return -1;
     *sp = &adhp->config.entries[ sample.index - 1 ];
     libavsmash_summary_t *s = *sp;
@@ -167,7 +493,7 @@ static inline int get_frame_length
     {
         /* variable frame length
          * Guess the frame length from sample duration. */
-        if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_ID, frame_number, frame_length ) )
+        if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_id, frame_number, frame_length ) )
             return -1;
         *frame_length *= s->extended.upsampling;
     }
@@ -186,7 +512,7 @@ static uint32_t get_preroll_samples
 {
     /* Some audio CODEC requires pre-roll for correct composition. */
     lsmash_sample_property_t prop;
-    if( lsmash_get_sample_property_from_media_timeline( adhp->root, adhp->track_ID, *frame_number, &prop ) )
+    if( lsmash_get_sample_property_from_media_timeline( adhp->root, adhp->track_id, *frame_number, &prop ) )
         return 0;
     if( prop.pre_roll.distance == 0 )
     {
@@ -275,7 +601,7 @@ static int find_start_audio_frame
     return frame_number;
 }
 
-uint64_t libavsmash_get_pcm_audio_samples
+uint64_t libavsmash_audio_get_pcm_samples
 (
     libavsmash_audio_decode_handler_t *adhp,
     libavsmash_audio_output_handler_t *aohp,
@@ -351,10 +677,10 @@ uint64_t libavsmash_get_pcm_audio_samples
         }
         else if( pkt->size <= 0 )
             /* Getting an audio packet must be after flushing all remaining samples in resampler's FIFO buffer. */
-            while( get_sample( adhp->root, adhp->track_ID, frame_number, config, pkt ) == 2 )
+            while( get_sample( adhp->root, adhp->track_id, frame_number, config, pkt ) == 2 )
                 if( config->update_pending )
                     /* Update the decoder configuration. */
-                    update_configuration( adhp->root, adhp->track_ID, config );
+                    update_configuration( adhp->root, adhp->track_id, config );
         /* Decode and output from an audio packet. */
         output_flags   = AUDIO_OUTPUT_NO_FLAGS;
         output_length += output_pcm_samples_from_packet( aohp, config->ctx, pkt, adhp->frame_buffer, (uint8_t **)&buf, &output_flags );
@@ -377,14 +703,4 @@ audio_out:
     adhp->next_pcm_sample_number = start + output_length;
     adhp->last_frame_number      = frame_number;
     return output_length;
-}
-
-void libavsmash_cleanup_audio_decode_handler
-(
-    libavsmash_audio_decode_handler_t *adhp
-)
-{
-    if( adhp->frame_buffer )
-        av_frame_free( &adhp->frame_buffer );
-    cleanup_configuration( &adhp->config );
 }

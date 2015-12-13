@@ -258,46 +258,18 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     return as_frame;
 }
 
-LSMASHAudioSource::LSMASHAudioSource
-(
-    const char         *source,
-    uint32_t            track_number,
-    bool                skip_priming,
-    uint64_t            channel_layout,
-    int                 sample_rate,
-    const char         *preferred_decoder_names,
-    IScriptEnvironment *env
-) : LSMASHAudioSource{}
-{
-    memset( &vi,  0, sizeof(VideoInfo) );
-    memset( &adh, 0, sizeof(libavsmash_audio_decode_handler_t) );
-    memset( &aoh, 0, sizeof(libavsmash_audio_output_handler_t) );
-    set_preferred_decoder_names( preferred_decoder_names );
-    adh.config.preferred_decoder_names = tokenize_preferred_decoder_names();
-    get_audio_track( source, track_number, skip_priming, env );
-    lsmash_discard_boxes( adh.root );
-    prepare_audio_decoding( channel_layout, sample_rate, env );
-}
-
-LSMASHAudioSource::~LSMASHAudioSource()
-{
-    lw_freep( &adh.config.preferred_decoder_names );
-    libavsmash_cleanup_audio_decode_handler( &adh );
-    libavsmash_cleanup_audio_output_handler( &aoh );
-    lsmash_close_file( &file_param );
-    lsmash_destroy_root( adh.root );
-}
-
 uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *env )
 {
-    lw_log_handler_t *lhp = &adh.config.lh;
+    libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
+    lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
     lhp->name     = func_name_audio_source;
     lhp->level    = LW_LOG_FATAL;
     lhp->show_log = throw_error;
     lsmash_movie_parameters_t movie_param;
     AVFormatContext *format_ctx = nullptr;
-    adh.root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
+    lsmash_root_t *root = libavsmash_open_file( &format_ctx, source, &file_param, &movie_param, lhp );
     this->format_ctx.reset( format_ctx );
+    libavsmash_audio_set_root( adhp, root );
     return movie_param.number_of_tracks;
 }
 
@@ -330,22 +302,26 @@ static char *duplicate_as_string( void *src, size_t length )
 
 void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_number, bool skip_priming, IScriptEnvironment *env )
 {
+    libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
     uint32_t number_of_tracks = open_file( source, env );
     if( track_number && track_number > number_of_tracks )
         env->ThrowError( "LSMASHAudioSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
+    lsmash_root_t *root = libavsmash_audio_get_root( adhp );
     uint32_t i;
+    uint32_t track_id;
     lsmash_media_parameters_t media_param;
     if( track_number == 0 )
     {
         /* Get the first audio track. */
         for( i = 1; i <= number_of_tracks; i++ )
         {
-            adh.track_ID = lsmash_get_track_ID( adh.root, i );
-            if( adh.track_ID == 0 )
+            track_id = lsmash_get_track_ID( root, i );
+            if( track_id == 0 )
                 env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
+            libavsmash_audio_set_track_id( adhp, track_id );
             lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( adh.root, adh.track_ID, &media_param ) )
+            if( lsmash_get_media_parameters( root, track_id, &media_param ) )
                 env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
             if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
                 break;
@@ -356,28 +332,30 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     else
     {
         /* Get the desired audio track. */
-        adh.track_ID = lsmash_get_track_ID( adh.root, track_number );
-        if( adh.track_ID == 0 )
+        track_id = lsmash_get_track_ID( root, track_number );
+        if( track_id == 0 )
             env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
+            libavsmash_audio_set_track_id( adhp, track_id );
         lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( adh.root, adh.track_ID, &media_param ) )
+        if( lsmash_get_media_parameters( root, track_id, &media_param ) )
             env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
         if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
             env->ThrowError( "LSMASHAudioSource: the track you specified is not an audio track." );
     }
-    if( lsmash_construct_timeline( adh.root, adh.track_ID ) )
+    if( lsmash_construct_timeline( root, track_id ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
-    if( get_summaries( adh.root, adh.track_ID, &adh.config ) )
+     if( libavsmash_audio_get_summaries( adhp ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to get summaries." );
-    adh.frame_count = lsmash_get_sample_count_in_media_timeline( adh.root, adh.track_ID );
-    vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( adh.root, adh.track_ID );
+    (void)libavsmash_audio_fetch_sample_count( adhp );
+    vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( root, track_id );
     if( skip_priming )
     {
-        uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( adh.root );
+        libavsmash_audio_output_handler_t *aohp = this->aohp.get();
+        uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( root );
         for( i = 1; i <= itunes_metadata_count; i++ )
         {
             lsmash_itunes_metadata_t metadata;
-            if( lsmash_get_itunes_metadata( adh.root, i, &metadata ) < 0 )
+            if( lsmash_get_itunes_metadata( root, i, &metadata ) < 0 )
                 continue;
             if( metadata.item != ITUNES_METADATA_ITEM_CUSTOM
              || (metadata.type != ITUNES_METADATA_TYPE_STRING && metadata.type != ITUNES_METADATA_TYPE_BINARY)
@@ -415,17 +393,17 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
                 continue;
             }
             delete [] value;
-            adh.implicit_preroll     = 1;
-            aoh.skip_decoded_samples = priming_samples;
+            libavsmash_audio_set_implicit_preroll( adhp );
+            aohp->skip_decoded_samples = priming_samples;
             vi.num_audio_samples = duration + priming_samples;
             break;
         }
-        if( aoh.skip_decoded_samples == 0 )
+        if( aohp->skip_decoded_samples == 0 )
         {
             uint32_t ctd_shift;
-            if( lsmash_get_composition_to_decode_shift_from_media_timeline( adh.root, adh.track_ID, &ctd_shift ) )
+            if( lsmash_get_composition_to_decode_shift_from_media_timeline( root, track_id, &ctd_shift ) )
                 env->ThrowError( "LSMASHAudioSource: failed to get the timeline shift." );
-            aoh.skip_decoded_samples = ctd_shift + get_start_time( adh.root, adh.track_ID );
+            aohp->skip_decoded_samples = ctd_shift + get_start_time( root, track_id );
         }
     }
     /* libavformat */
@@ -436,8 +414,8 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     /* libavcodec */
     AVStream       *stream = format_ctx->streams[i];
     AVCodecContext *ctx    = stream->codec;
-    adh.config.ctx = ctx;
-    AVCodec *codec = libavsmash_find_decoder( &adh.config );
+    libavsmash_audio_set_codec_context( adhp, ctx );
+    AVCodec *codec = libavsmash_audio_find_decoder( adhp );
     if( !codec )
         env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
     ctx->thread_count = 0;
@@ -445,38 +423,72 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
-void LSMASHAudioSource::prepare_audio_decoding
+static void prepare_audio_decoding
 (
-    uint64_t            channel_layout,
-    int                 sample_rate,
-    IScriptEnvironment *env
+    libavsmash_audio_decode_handler_t *adhp,
+    libavsmash_audio_output_handler_t *aohp,
+    uint64_t                           channel_layout,
+    int                                sample_rate,
+    VideoInfo                         &vi,
+    IScriptEnvironment                *env
 )
 {
-    adh.frame_buffer = av_frame_alloc();
-    if( !adh.frame_buffer )
-        env->ThrowError( "LSMASHAudioSource: failed to allocate audio frame buffer." );
     /* Initialize the audio decoder configuration. */
-    codec_configuration_t *config = &adh.config;
-    config->lh.priv = env;
-    if( initialize_decoder_configuration( adh.root, adh.track_ID, config ) )
+    lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
+    lhp->priv = env;
+    if( libavsmash_audio_initialize_decoder_configuration( adhp ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
-    aoh.output_channel_layout  = config->prefer.channel_layout;
-    aoh.output_sample_format   = config->prefer.sample_format;
-    aoh.output_sample_rate     = config->prefer.sample_rate;
-    aoh.output_bits_per_sample = config->prefer.bits_per_sample;
-    as_setup_audio_rendering( &aoh, config->ctx, &vi, env, "LSMASHAudioSource", channel_layout, sample_rate );
+    aohp->output_channel_layout  = libavsmash_audio_get_best_used_channel_layout ( adhp );
+    aohp->output_sample_format   = libavsmash_audio_get_best_used_sample_format  ( adhp );
+    aohp->output_sample_rate     = libavsmash_audio_get_best_used_sample_rate    ( adhp );
+    aohp->output_bits_per_sample = libavsmash_audio_get_best_used_bits_per_sample( adhp );
+    AVCodecContext *ctx = libavsmash_audio_get_codec_context( adhp );
+    as_setup_audio_rendering( aohp, ctx, &vi, env, "LSMASHAudioSource", channel_layout, sample_rate );
     /* Count the number of PCM audio samples. */
-    vi.num_audio_samples = libavsmash_count_overall_pcm_samples( &adh, aoh.output_sample_rate, &aoh.skip_decoded_samples );
+    vi.num_audio_samples = libavsmash_audio_count_overall_pcm_samples( adhp, aohp->output_sample_rate, &aohp->skip_decoded_samples );
     if( vi.num_audio_samples == 0 )
         env->ThrowError( "LSMASHAudioSource: no valid audio frame." );
     /* Force seeking at the first reading. */
-    adh.next_pcm_sample_number = vi.num_audio_samples + 1;
+    libavsmash_audio_force_seek( adhp );
+}
+
+LSMASHAudioSource::LSMASHAudioSource
+(
+    const char         *source,
+    uint32_t            track_number,
+    bool                skip_priming,
+    uint64_t            channel_layout,
+    int                 sample_rate,
+    const char         *preferred_decoder_names,
+    IScriptEnvironment *env
+) : LSMASHAudioSource{}
+{
+    memset( &vi,  0, sizeof(VideoInfo) );
+    libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
+    libavsmash_audio_output_handler_t *aohp = this->aohp.get();
+    set_preferred_decoder_names( preferred_decoder_names );
+    libavsmash_audio_set_preferred_decoder_names( adhp, tokenize_preferred_decoder_names() );
+    get_audio_track( source, track_number, skip_priming, env );
+    lsmash_discard_boxes( libavsmash_audio_get_root( adhp ) );
+    prepare_audio_decoding( adhp, aohp, channel_layout, sample_rate, vi, env );
+}
+
+LSMASHAudioSource::~LSMASHAudioSource()
+{
+    libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
+    lsmash_root_t *root = libavsmash_audio_get_root( adhp );
+    lw_freep( libavsmash_audio_get_preferred_decoder_names( adhp ) );
+    lsmash_close_file( &file_param );
+    lsmash_destroy_root( root );
 }
 
 void __stdcall LSMASHAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    adh.config.lh.priv = env;
-    return (void)libavsmash_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
+    libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
+    libavsmash_audio_output_handler_t *aohp = this->aohp.get();
+    lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
+    lhp->priv = env;
+    return (void)libavsmash_audio_get_pcm_samples( adhp, aohp, buf, start, wanted_length );
 }
 
 AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )

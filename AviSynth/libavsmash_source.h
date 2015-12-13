@@ -87,9 +87,12 @@ public:
 class LSMASHAudioSource : public LibavSMASHSource
 {
 private:
-    libavsmash_audio_decode_handler_t adh;
-    libavsmash_audio_output_handler_t aoh;
-    LSMASHAudioSource() : LibavSMASHSource{} {}
+    std::unique_ptr< libavsmash_audio_decode_handler_t, decltype( &libavsmash_audio_free_decode_handler ) > adhp;
+    std::unique_ptr< libavsmash_audio_output_handler_t, decltype( &libavsmash_audio_free_output_handler ) > aohp;
+    LSMASHAudioSource()
+      : LibavSMASHSource{},
+        adhp{ libavsmash_audio_alloc_decode_handler(), libavsmash_audio_free_decode_handler },
+        aohp{ libavsmash_audio_alloc_output_handler(), libavsmash_audio_free_output_handler } {}
     uint32_t open_file
     (
         const char         *source,
@@ -100,12 +103,6 @@ private:
         const char         *source,
         uint32_t            track_number,
         bool                skip_priming,
-        IScriptEnvironment *env
-    );
-    void prepare_audio_decoding
-    (
-        uint64_t            channel_layout,
-        int                 sample_rate,
         IScriptEnvironment *env
     );
 public:
