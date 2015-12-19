@@ -20,103 +20,144 @@
 
 /* This file is available under an ISC license. */
 
+/*****************************************************************************
+ * Opaque Handlers
+ *****************************************************************************/
 typedef lw_video_scaler_handler_t lwlibav_video_scaler_handler_t;
 typedef lw_video_output_handler_t lwlibav_video_output_handler_t;
 
-#define LW_VFRAME_FLAG_KEY                 0x1
-#define LW_VFRAME_FLAG_LEADING             0x2
-#define LW_VFRAME_FLAG_CORRUPT             0x4
-#define LW_VFRAME_FLAG_INVISIBLE           0x8
-#define LW_VFRAME_FLAG_COUNTERPART_MISSING 0x10
+typedef struct lwlibav_video_decode_handler_tag lwlibav_video_decode_handler_t;
 
-typedef enum
+/*****************************************************************************
+ * Enumerators
+ *****************************************************************************/
+typedef enum lw_field_info
 {
     LW_FIELD_INFO_UNKNOWN = 0,  /* unknown */
     LW_FIELD_INFO_TOP,          /* top field first or top field coded */
     LW_FIELD_INFO_BOTTOM,       /* bottom field first or bottom field coded */
 } lw_field_info_t;
 
-typedef struct
-{
-    int64_t         pts;
-    int64_t         dts;
-    int64_t         file_offset;
-    uint32_t        sample_number;      /* unique value in decoding order */
-    int             extradata_index;
-    int             flags;
-    int             pict_type;          /* may be stored as enum AVPictureType */
-    int             poc;
-    int             repeat_pict;
-    lw_field_info_t field_info;
-} video_frame_info_t;
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+lwlibav_video_decode_handler_t *lwlibav_video_alloc_decode_handler
+(
+    void
+);
 
-typedef struct
-{
-    uint32_t decoding_to_presentation;
-} order_converter_t;
+lwlibav_video_output_handler_t *lwlibav_video_alloc_output_handler
+(
+    void
+);
 
-typedef struct
-{
-    /* common */
-    AVFormatContext    *format;
-    int                 stream_index;
-    int                 error;
-    lw_log_handler_t    lh;
-    lwlibav_extradata_handler_t exh;
-    AVCodecContext     *ctx;
-    AVIndexEntry       *index_entries;
-    int                 index_entries_count;
-    int                 lw_seek_flags;
-    int                 av_seek_flags;
-    int                 dv_in_avi;          /* unused */
-    enum AVCodecID      codec_id;
-    const char        **preferred_decoder_names;
-    AVRational          time_base;
-    uint32_t            frame_count;
-    AVFrame            *frame_buffer;
-    video_frame_info_t *frame_list;         /* stored in presentation order */
-    /* */
-    uint32_t            forward_seek_threshold;
-    int                 seek_mode;
-    int                 max_width;
-    int                 max_height;
-    int                 initial_width;
-    int                 initial_height;
-    enum AVPixelFormat  initial_pix_fmt;
-    enum AVColorSpace   initial_colorspace;
-    AVPacket            packet;
-    order_converter_t  *order_converter;            /* maps of decoding to presentation stored in decoding order */
-    uint8_t            *keyframe_list;              /* keyframe list stored in decoding order */
-    uint32_t            last_half_frame;            /* The last frame consists of complementary field coded picture pair
-                                                     * if set to non-zero, otherwise single frame coded picture. */
-    uint32_t            last_frame_number;          /* the number of the last requested frame */
-    uint32_t            last_rap_number;            /* the number of the last random accessible picture */
-    uint32_t            last_fed_picture_number;    /* the number of the last picture fed to the decoder
-                                                     * This number could be larger than frame_count to handle flush. */
-    uint32_t            first_valid_frame_number;
-    AVFrame            *first_valid_frame;          /* the frame buffer
-                                                     * where the first valid frame data is stored */
-    AVFrame            *last_req_frame;             /* the pointer to the frame buffer
-                                                     * where the last requested frame data is stored */
-    AVFrame            *last_dec_frame;             /* the pointer to the frame buffer
-                                                     * where the last output frame data from the decoder is stored */
-    AVFrame            *movable_frame_buffer;       /* the frame buffer
-                                                     * where the decoder outputs temporally stored frame data */
-    int64_t             stream_duration;
-    int64_t             min_ts;
-    uint32_t            last_ts_frame_number;
-    AVRational          actual_time_base;
-    int                 strict_cfr;
-} lwlibav_video_decode_handler_t;
+void lwlibav_video_free_decode_handler
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
 
-int lwlibav_get_desired_video_track
+void lwlibav_video_free_output_handler
+(
+    lwlibav_video_output_handler_t *vohp
+);
+
+void lwlibav_video_free_decode_handler_ptr
+(
+    lwlibav_video_decode_handler_t **vdhpp
+);
+
+void lwlibav_video_free_output_handler_ptr
+(
+    lwlibav_video_output_handler_t **vohpp
+);
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void lwlibav_video_set_forward_seek_threshold
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        forward_seek_threshold
+);
+
+void lwlibav_video_set_seek_mode
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    int                             seek_mode
+);
+
+void lwlibav_video_set_preferred_decoder_names
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    const char                    **preferred_decoder_names
+);
+
+void lwlibav_video_set_log_handler
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lw_log_handler_t               *lh
+);
+
+void lwlibav_video_set_get_buffer_func
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int )
+);
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+const char **lwlibav_video_get_preferred_decoder_names
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+int lwlibav_video_get_error
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+lw_log_handler_t *lwlibav_video_get_log_handler
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+AVCodecContext *lwlibav_video_get_codec_context
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+int lwlibav_video_get_max_width
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+int lwlibav_video_get_max_height
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+AVFrame *lwlibav_video_get_frame_buffer
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+void lwlibav_video_force_seek
+(
+    lwlibav_video_decode_handler_t *vdhp
+);
+
+int lwlibav_video_get_desired_track
 (
     const char                     *file_path,
     lwlibav_video_decode_handler_t *vdhp,
     int                             threads
 );
 
-void lwlibav_setup_timestamp_info
+void lwlibav_video_setup_timestamp_info
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
@@ -125,48 +166,32 @@ void lwlibav_setup_timestamp_info
     int64_t                        *framerate_den
 );
 
-void lwlibav_find_random_accessible_point
+void lwlibav_video_set_initial_input_format
 (
-    lwlibav_video_decode_handler_t *vdhp,
-    uint32_t                        presentation_sample_number,
-    uint32_t                        decoding_sample_number,
-    uint32_t                       *rap_number
+    lwlibav_video_decode_handler_t *vdhp
 );
 
-int64_t lwlibav_get_random_accessible_point_position
-(
-    lwlibav_video_decode_handler_t *vdhp,
-    uint32_t                        rap_number
-);
-
-int lwlibav_get_video_frame
+int lwlibav_video_get_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_number
 );
 
-int lwlibav_is_keyframe
+int lwlibav_video_is_keyframe
 (
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
     uint32_t                        frame_number
 );
 
-void lwlibav_cleanup_video_decode_handler
+int lwlibav_video_find_first_valid_frame
 (
     lwlibav_video_decode_handler_t *vdhp
 );
 
-static inline void lwlibav_cleanup_video_output_handler
+enum lw_field_info lwlibav_video_get_field_info
 (
-    lwlibav_video_output_handler_t *vohp
-)
-{
-    lw_cleanup_video_output_handler( vohp );
-}
-
-int lwlibav_find_first_valid_video_frame
-(
-    lwlibav_video_decode_handler_t *vdhp
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        frame_number
 );

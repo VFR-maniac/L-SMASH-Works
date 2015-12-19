@@ -42,6 +42,36 @@ extern "C"
 
 #pragma warning( disable:4996 )
 
+static void prepare_video_decoding
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    int                             direct_rendering,
+    int                             stacked_format,
+    enum AVPixelFormat              pixel_format,
+    IScriptEnvironment             *env
+)
+{
+    /* Import AVIndexEntrys. */
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to import AVIndexEntrys for video." );
+    /* Set up output format. */
+    lwlibav_video_set_initial_input_format( vdhp );
+    AVCodecContext *ctx = lwlibav_video_get_codec_context( vdhp );
+    int max_width  = lwlibav_video_get_max_width ( vdhp );
+    int max_height = lwlibav_video_get_max_height( vdhp );
+    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
+        as_setup_video_rendering( vohp, ctx, "LWLibavVideoSource",
+                                  direct_rendering, stacked_format, pixel_format,
+                                  max_width, max_height );
+    lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
+    /* Find the first valid video sample. */
+    if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )
+        env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
+    /* Force seeking at the first reading. */
+    lwlibav_video_force_seek( vdhp );
+}
+
 LWLibavVideoSource::LWLibavVideoSource
 (
     lwlibav_option_t   *opt,
@@ -52,28 +82,28 @@ LWLibavVideoSource::LWLibavVideoSource
     enum AVPixelFormat  pixel_format,
     const char         *preferred_decoder_names,
     IScriptEnvironment *env
-)
+) : LWLibavVideoSource{}
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
-    memset( &vdh, 0, sizeof(lwlibav_video_decode_handler_t) );
-    memset( &voh, 0, sizeof(lwlibav_video_output_handler_t) );
+    lwlibav_video_decode_handler_t *vdhp = this->vdhp.get();
+    lwlibav_video_output_handler_t *vohp = this->vohp.get();
     set_preferred_decoder_names( preferred_decoder_names );
-    vdh.seek_mode               = seek_mode;
-    vdh.forward_seek_threshold  = forward_seek_threshold;
-    vdh.preferred_decoder_names = tokenize_preferred_decoder_names();
+    lwlibav_video_set_seek_mode              ( vdhp, seek_mode );
+    lwlibav_video_set_forward_seek_threshold ( vdhp, forward_seek_threshold );
+    lwlibav_video_set_preferred_decoder_names( vdhp, tokenize_preferred_decoder_names() );
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( !as_vohp )
         env->ThrowError( "LWLibavVideoSource: failed to allocate the AviSynth video output handler." );
     as_vohp->vi  = &vi;
     as_vohp->env = env;
-    voh.private_handler      = as_vohp;
-    voh.free_private_handler = as_free_video_output_handler;
+    vohp->private_handler      = as_vohp;
+    vohp->free_private_handler = as_free_video_output_handler;
     /* Set up error handler. */
-    lw_log_handler_t lh;
-    lh.level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
-    lh.priv     = env;
-    lh.show_log = throw_error;
+    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( vdhp );
+    lhp->level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
+    lhp->priv     = env;
+    lhp->show_log = throw_error;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = NULL;
@@ -82,72 +112,46 @@ LWLibavVideoSource::LWLibavVideoSource
     /* Construct index. */
     lwlibav_audio_decode_handler_t adh = { 0 };
     lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( &lwh, &vdh, &voh, &adh, &aoh, &lh, opt, &indicator, NULL );
+    int ret = lwlibav_construct_index( &lwh, vdhp, vohp, &adh, &aoh, lhp, opt, &indicator, NULL );
     lwlibav_cleanup_audio_decode_handler( &adh );
     lwlibav_cleanup_audio_output_handler( &aoh );
     if( ret < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to construct index." );
     /* Get the desired video track. */
-    if( lwlibav_get_desired_video_track( lwh.file_path, &vdh, lwh.threads ) < 0 )
+    if( lwlibav_video_get_desired_track( lwh.file_path, vdhp, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to get the video track." );
-    vdh.lh = lh;
     /* Set average framerate. */
     int64_t fps_num = 25;
     int64_t fps_den = 1;
-    lwlibav_setup_timestamp_info( &lwh, &vdh, &voh, &fps_num, &fps_den );
+    lwlibav_video_setup_timestamp_info( &lwh, vdhp, vohp, &fps_num, &fps_den );
     vi.fps_numerator   = (unsigned int)fps_num;
     vi.fps_denominator = (unsigned int)fps_den;
-    vi.num_frames      = voh.frame_count;
+    vi.num_frames      = vohp->frame_count;
     /* */
-    prepare_video_decoding( direct_rendering, stacked_format, pixel_format, env );
+    prepare_video_decoding( vdhp, vohp, direct_rendering, stacked_format, pixel_format, env );
 }
 
 LWLibavVideoSource::~LWLibavVideoSource()
 {
-    lw_freep( &vdh.preferred_decoder_names );
-    lwlibav_cleanup_video_decode_handler( &vdh );
-    lwlibav_cleanup_video_output_handler( &voh );
-    if( lwh.file_path )
-        free( lwh.file_path );
-}
-
-void LWLibavVideoSource::prepare_video_decoding
-(
-    int                 direct_rendering,
-    int                 stacked_format,
-    enum AVPixelFormat  pixel_format,
-    IScriptEnvironment *env
-)
-{
-    vdh.lh.priv = env;
-    /* Import AVIndexEntrys. */
-    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)&vdh ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: failed to import AVIndexEntrys for video." );
-    /* Set up output format. */
-    vdh.ctx->width      = vdh.initial_width;
-    vdh.ctx->height     = vdh.initial_height;
-    vdh.ctx->pix_fmt    = vdh.initial_pix_fmt;
-    vdh.ctx->colorspace = vdh.initial_colorspace;
-    vdh.exh.get_buffer = as_setup_video_rendering( &voh, vdh.ctx, "LWLibavVideoSource",
-                                                   direct_rendering, stacked_format, pixel_format,
-                                                   vdh.max_width, vdh.max_height );
-    /* Find the first valid video sample. */
-    if( lwlibav_find_first_valid_video_frame( &vdh ) < 0 )
-        env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
-    /* Force seeking at the first reading. */
-    vdh.last_frame_number = vdh.frame_count + 1;
+    lwlibav_video_decode_handler_t *vdhp = this->vdhp.get();
+    lw_free( lwlibav_video_get_preferred_decoder_names( vdhp ) );
+    lw_free( lwh.file_path );
 }
 
 PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *env )
 {
     uint32_t frame_number = n + 1;     /* frame_number is 1-origin. */
-    vdh.lh.priv = env;
-    if( vdh.error )
+    lwlibav_video_decode_handler_t *vdhp = this->vdhp.get();
+    lwlibav_video_output_handler_t *vohp = this->vohp.get();
+    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( vdhp );
+    lhp->priv = env;
+    if( lwlibav_video_get_error( vdhp )
+     || lwlibav_video_get_frame( vdhp, vohp, frame_number ) < 0 )
         return env->NewVideoFrame( vi );
-    if( lwlibav_get_video_frame( &vdh, &voh, frame_number ) < 0 )
-        return env->NewVideoFrame( vi );
-    PVideoFrame as_frame;
-    if( make_frame( &voh, vdh.ctx, vdh.frame_buffer, as_frame, env ) < 0 )
+    AVCodecContext *ctx      = lwlibav_video_get_codec_context( vdhp );
+    AVFrame        *av_frame = lwlibav_video_get_frame_buffer ( vdhp );
+    PVideoFrame     as_frame;
+    if( make_frame( vohp, ctx, av_frame, as_frame, env ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to make a frame." );
     return as_frame;
 }
@@ -155,10 +159,11 @@ PVideoFrame __stdcall LWLibavVideoSource::GetFrame( int n, IScriptEnvironment *e
 bool __stdcall LWLibavVideoSource::GetParity( int n )
 {
     uint32_t frame_number = n + 1;     /* frame_number is 1-origin. */
-    if( !voh.repeat_control )
-        return vdh.frame_list[frame_number].field_info == LW_FIELD_INFO_TOP ? true : false;
-    uint32_t t = voh.frame_order_list[frame_number].top;
-    uint32_t b = voh.frame_order_list[frame_number].bottom;
+    lwlibav_video_output_handler_t *vohp = this->vohp.get();
+    if( !vohp->repeat_control )
+        return lwlibav_video_get_field_info( vdhp.get(), frame_number ) == LW_FIELD_INFO_TOP ? true : false;
+    uint32_t t = vohp->frame_order_list[frame_number].top;
+    uint32_t b = vohp->frame_order_list[frame_number].bottom;
     return t < b ? true : false;
 }
 
@@ -169,7 +174,7 @@ LWLibavAudioSource::LWLibavAudioSource
     int                 sample_rate,
     const char         *preferred_decoder_names,
     IScriptEnvironment *env
-)
+) : LWLibavAudioSource{}
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
@@ -188,12 +193,10 @@ LWLibavAudioSource::LWLibavAudioSource
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    lwlibav_video_decode_handler_t vdh = { 0 };
-    lwlibav_video_output_handler_t voh = { 0 };
-    if( lwlibav_construct_index( &lwh, &vdh, &voh, &adh, &aoh, &lh, opt, &indicator, NULL ) < 0 )
+    if( lwlibav_construct_index( &lwh, vdhp.get(), vohp.get(), &adh, &aoh, &lh, opt, &indicator, NULL ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get construct index." );
-    lwlibav_cleanup_video_decode_handler( &vdh );
-    lwlibav_cleanup_video_output_handler( &voh );
+    free_video_decode_handler();
+    free_video_output_handler();
     /* Get the desired video track. */
     if( lwlibav_get_desired_audio_track( lwh.file_path, &adh, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get the audio track." );

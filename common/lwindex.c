@@ -40,6 +40,7 @@ extern "C"
 #include "audio_output.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
+#include "lwlibav_video_internal.h"
 #include "lwlibav_audio.h"
 #include "progress.h"
 #include "lwindex.h"
@@ -2997,9 +2998,6 @@ int lwlibav_construct_index
 )
 {
     /* Allocate frame buffer. */
-    vdhp->frame_buffer = av_frame_alloc();
-    if( !vdhp->frame_buffer )
-        return -1;
     adhp->frame_buffer = av_frame_alloc();
     if( !adhp->frame_buffer )
     {
@@ -3011,7 +3009,6 @@ int lwlibav_construct_index
     char *index_file_path = (char *)lw_malloc_zero(file_path_length + 5);
     if( !index_file_path )
     {
-        av_frame_free( &vdhp->frame_buffer );
         av_frame_free( &adhp->frame_buffer );
         return -1;
     }
@@ -3075,8 +3072,6 @@ int lwlibav_construct_index
     adhp->ctx = NULL;
     return 0;
 fail:
-    if( vdhp->frame_buffer )
-        av_frame_free( &vdhp->frame_buffer );
     if( adhp->frame_buffer )
         av_frame_free( &adhp->frame_buffer );
     if( lwhp->file_path )

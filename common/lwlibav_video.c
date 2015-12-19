@@ -39,12 +39,226 @@ extern "C"
 #include "video_output.h"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
+#include "lwlibav_video_internal.h"
 
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1
 #define SEEK_MODE_AGGRESSIVE 2
 
-int lwlibav_get_desired_video_track
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+lwlibav_video_decode_handler_t *lwlibav_video_alloc_decode_handler
+(
+    void
+)
+{
+    lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)lw_malloc_zero( sizeof(lwlibav_video_decode_handler_t) );
+    if( !vdhp )
+        return NULL;
+    vdhp->frame_buffer = av_frame_alloc();
+    if( !vdhp->frame_buffer )
+    {
+        lwlibav_video_free_decode_handler( vdhp );
+        return NULL;
+    }
+    return vdhp;
+}
+
+lwlibav_video_output_handler_t *lwlibav_video_alloc_output_handler
+(
+    void
+)
+{
+    return (lwlibav_video_output_handler_t *)lw_malloc_zero( sizeof(lwlibav_video_output_handler_t) );
+}
+
+void lwlibav_video_free_decode_handler
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    if( !vdhp )
+        return;
+    lwlibav_extradata_handler_t *exhp = &vdhp->exh;
+    if( exhp->entries )
+    {
+        for( int i = 0; i < exhp->entry_count; i++ )
+            if( exhp->entries[i].extradata )
+                av_free( exhp->entries[i].extradata );
+        lw_free( exhp->entries );
+    }
+    av_packet_unref( &vdhp->packet );
+    lw_free( vdhp->frame_list );
+    lw_free( vdhp->order_converter );
+    lw_free( vdhp->keyframe_list );
+    av_free( vdhp->index_entries );
+    av_frame_free( &vdhp->frame_buffer );
+    av_frame_free( &vdhp->first_valid_frame );
+    av_frame_free( &vdhp->movable_frame_buffer );
+    if( vdhp->ctx )
+    {
+        avcodec_close( vdhp->ctx );
+        vdhp->ctx = NULL;
+    }
+    if( vdhp->format )
+        lavf_close_file( &vdhp->format );
+    lw_free( vdhp );
+}
+
+void lwlibav_video_free_output_handler
+(
+    lwlibav_video_output_handler_t *vohp
+)
+{
+    if( !vohp )
+        return;
+    lw_cleanup_video_output_handler( vohp );
+    lw_free( vohp );
+}
+
+void lwlibav_video_free_decode_handler_ptr
+(
+    lwlibav_video_decode_handler_t **vdhpp
+)
+{
+    if( !vdhpp || !*vdhpp )
+        return;
+    lwlibav_video_free_decode_handler( *vdhpp );
+    *vdhpp = NULL;
+}
+
+void lwlibav_video_free_output_handler_ptr
+(
+    lwlibav_video_output_handler_t **vohpp
+)
+{
+    if( !vohpp || !*vohpp )
+        return;
+    lwlibav_video_free_output_handler( *vohpp );
+    *vohpp = NULL;
+}
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void lwlibav_video_set_forward_seek_threshold
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        forward_seek_threshold
+)
+{
+    vdhp->forward_seek_threshold = forward_seek_threshold;
+}
+
+void lwlibav_video_set_seek_mode
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    int                             seek_mode
+)
+{
+    vdhp->seek_mode = seek_mode;
+}
+
+void lwlibav_video_set_preferred_decoder_names
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    const char                    **preferred_decoder_names
+)
+{
+    vdhp->preferred_decoder_names = preferred_decoder_names;
+}
+
+void lwlibav_video_set_log_handler
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lw_log_handler_t               *lh
+)
+{
+    vdhp->lh = *lh;
+}
+
+void lwlibav_video_set_get_buffer_func
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int )
+)
+{
+    vdhp->exh.get_buffer = get_buffer;
+}
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+const char **lwlibav_video_get_preferred_decoder_names
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->preferred_decoder_names : NULL;
+}
+
+int lwlibav_video_get_error
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->error : -1;
+}
+
+lw_log_handler_t *lwlibav_video_get_log_handler
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? &vdhp->lh : NULL;
+}
+
+AVCodecContext *lwlibav_video_get_codec_context
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->ctx : NULL;
+}
+
+int lwlibav_video_get_max_width
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->max_width : 0;
+}
+
+int lwlibav_video_get_max_height
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->max_height : 0;
+}
+
+AVFrame *lwlibav_video_get_frame_buffer
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    return vdhp ? vdhp->frame_buffer : NULL;
+}
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+void lwlibav_video_force_seek
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    /* Force seek before the next reading. */
+    vdhp->last_frame_number = vdhp->frame_count + 1;
+}
+
+int lwlibav_video_get_desired_track
 (
     const char                     *file_path,
     lwlibav_video_decode_handler_t *vdhp,
@@ -57,19 +271,12 @@ int lwlibav_get_desired_video_track
     AVCodecContext *ctx = !error ? vdhp->format->streams[ vdhp->stream_index ]->codec : NULL;
     if( error || find_and_open_decoder( ctx, vdhp->codec_id, vdhp->preferred_decoder_names, threads ) )
     {
-        if( vdhp->index_entries )
-            av_freep( &vdhp->index_entries );
-        if( vdhp->frame_list )
-            lw_freep( &vdhp->frame_list );
-        if( vdhp->order_converter )
-            lw_freep( &vdhp->order_converter );
-        if( vdhp->keyframe_list )
-            lw_freep( &vdhp->keyframe_list );
+        av_freep( &vdhp->index_entries );
+        lw_freep( &vdhp->frame_list );
+        lw_freep( &vdhp->order_converter );
+        lw_freep( &vdhp->keyframe_list );
         if( vdhp->format )
-        {
             lavf_close_file( &vdhp->format );
-            vdhp->format = NULL;
-        }
         return -1;
     }
     vdhp->ctx = ctx;
@@ -77,7 +284,7 @@ int lwlibav_get_desired_video_track
     return 0;
 }
 
-void lwlibav_setup_timestamp_info
+void lwlibav_video_setup_timestamp_info
 (
     lwlibav_file_handler_t         *lwhp,
     lwlibav_video_decode_handler_t *vdhp,
@@ -130,6 +337,17 @@ use_avg_frame_rate:
     *framerate_num = (int64_t)stream->avg_frame_rate.num;
     *framerate_den = (int64_t)stream->avg_frame_rate.den;
     return;
+}
+
+void lwlibav_video_set_initial_input_format
+(
+    lwlibav_video_decode_handler_t *vdhp
+)
+{
+    vdhp->ctx->width      = vdhp->initial_width;
+    vdhp->ctx->height     = vdhp->initial_height;
+    vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
+    vdhp->ctx->colorspace = vdhp->initial_colorspace;
 }
 
 /* Set the indentifier in output order to identify output picture.
@@ -288,7 +506,7 @@ static int decode_video_picture
     return 0;
 }
 
-void lwlibav_find_random_accessible_point
+static void find_random_accessible_point
 (
     lwlibav_video_decode_handler_t *vdhp,
     uint32_t                        presentation_picture_number,
@@ -315,7 +533,7 @@ void lwlibav_find_random_accessible_point
         *rap_number = 1;
 }
 
-int64_t lwlibav_get_random_accessible_point_position
+static int64_t get_random_accessible_point_position
 (
     lwlibav_video_decode_handler_t *vdhp,
     uint32_t                        rap_number
@@ -744,13 +962,13 @@ static int get_requested_picture
     }
     else
     {
-        lwlibav_find_random_accessible_point( vdhp, picture_number, 0, &rap_number );
+        find_random_accessible_point( vdhp, picture_number, 0, &rap_number );
         if( rap_number == vdhp->last_rap_number && picture_number > last_frame_number )
             start_number = vdhp->last_fed_picture_number + 1;
         else
         {
             /* Require starting to decode from random accessible picture. */
-            rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
+            rap_pos = get_random_accessible_point_position( vdhp, rap_number );
             vdhp->last_rap_number = rap_number;
             start_number = seek_video( vdhp, frame, picture_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
         }
@@ -773,8 +991,8 @@ static int get_requested_picture
         else
         {
             /* Retry to decode from more past random accessible picture. */
-            lwlibav_find_random_accessible_point( vdhp, picture_number, rap_number - 1, &rap_number );
-            rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
+            find_random_accessible_point( vdhp, picture_number, rap_number - 1, &rap_number );
+            rap_pos = get_random_accessible_point_position( vdhp, rap_number );
             vdhp->last_rap_number = rap_number;
         }
         start_number = seek_video( vdhp, frame, picture_number, rap_number, rap_pos, seek_mode != SEEK_MODE_NORMAL );
@@ -1070,7 +1288,7 @@ static void handle_decoder_pix_fmt
 /* Return 0 if successful.
  * Return 1 if the same frame was requested at the last call.
  * Return a negative value otherwise. */
-int lwlibav_get_video_frame
+int lwlibav_video_get_frame
 (
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
@@ -1090,7 +1308,7 @@ int lwlibav_get_video_frame
     return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
 }
 
-int lwlibav_is_keyframe
+int lwlibav_video_is_keyframe
 (
     lwlibav_video_decode_handler_t *vdhp,
     lwlibav_video_output_handler_t *vohp,
@@ -1110,44 +1328,7 @@ int lwlibav_is_keyframe
     return !!(vdhp->frame_list[frame_number].flags & LW_VFRAME_FLAG_KEY);
 }
 
-void lwlibav_cleanup_video_decode_handler
-(
-    lwlibav_video_decode_handler_t *vdhp
-)
-{
-    lwlibav_extradata_handler_t *exhp = &vdhp->exh;
-    if( exhp->entries )
-    {
-        for( int i = 0; i < exhp->entry_count; i++ )
-            if( exhp->entries[i].extradata )
-                av_free( exhp->entries[i].extradata );
-        free( exhp->entries );
-    }
-    av_packet_unref( &vdhp->packet );
-    if( vdhp->frame_list )
-        lw_freep( &vdhp->frame_list );
-    if( vdhp->order_converter )
-        lw_freep( &vdhp->order_converter );
-    if( vdhp->keyframe_list )
-        lw_freep( &vdhp->keyframe_list );
-    if( vdhp->index_entries )
-        av_freep( &vdhp->index_entries );
-    if( vdhp->frame_buffer )
-        av_frame_free( &vdhp->frame_buffer );
-    if( vdhp->first_valid_frame )
-        av_frame_free( &vdhp->first_valid_frame );
-    if( vdhp->movable_frame_buffer )
-        av_frame_free( &vdhp->movable_frame_buffer );
-    if( vdhp->ctx )
-    {
-        avcodec_close( vdhp->ctx );
-        vdhp->ctx = NULL;
-    }
-    if( vdhp->format )
-        lavf_close_file( &vdhp->format );
-}
-
-int lwlibav_find_first_valid_video_frame
+int lwlibav_video_find_first_valid_frame
 (
     lwlibav_video_decode_handler_t *vdhp
 )
@@ -1164,8 +1345,8 @@ int lwlibav_find_first_valid_video_frame
     {
         vdhp->av_seek_flags |= AVSEEK_FLAG_BACKWARD;
         uint32_t rap_number;
-        lwlibav_find_random_accessible_point( vdhp, 1, 0, &rap_number );
-        int64_t rap_pos = lwlibav_get_random_accessible_point_position( vdhp, rap_number );
+        find_random_accessible_point( vdhp, 1, 0, &rap_number );
+        int64_t rap_pos = get_random_accessible_point_position( vdhp, rap_number );
         if( av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
             av_seek_frame( vdhp->format, vdhp->stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
     }
@@ -1217,6 +1398,17 @@ int lwlibav_find_first_valid_video_frame
         }
     }
     return 0;
+}
+
+enum lw_field_info lwlibav_video_get_field_info
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    uint32_t                        frame_number
+)
+{
+    return frame_number <= vdhp->frame_count
+         ? vdhp->frame_list[frame_number].field_info
+         : LW_FIELD_INFO_UNKNOWN;
 }
 
 void set_video_basic_settings

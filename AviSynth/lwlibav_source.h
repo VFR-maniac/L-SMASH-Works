@@ -33,20 +33,22 @@ class LWLibavSource : public LSMASHSource
 {
 protected:
     lwlibav_file_handler_t lwh;
+    std::unique_ptr< lwlibav_video_decode_handler_t, decltype( &lwlibav_video_free_decode_handler ) > vdhp;
+    std::unique_ptr< lwlibav_video_output_handler_t, decltype( &lwlibav_video_free_output_handler ) > vohp;
+    inline void free_video_decode_handler( void ) { vdhp.reset( nullptr ); }
+    inline void free_video_output_handler( void ) { vohp.reset( nullptr ); }
+    LWLibavSource()
+      : vdhp{ lwlibav_video_alloc_decode_handler(), lwlibav_video_free_decode_handler },
+        vohp{ lwlibav_video_alloc_output_handler(), lwlibav_video_free_output_handler } {};
+    ~LWLibavSource() = default;
+    LWLibavSource( const LWLibavSource & ) = delete;
+    LWLibavSource & operator= ( const LWLibavSource & ) = delete;
 };
 
 class LWLibavVideoSource : public LWLibavSource
 {
 private:
-    lwlibav_video_decode_handler_t vdh;
-    lwlibav_video_output_handler_t voh;
-    void prepare_video_decoding
-    (
-        int                 direct_rendering,
-        int                 stacked_format,
-        enum AVPixelFormat  pixel_format,
-        IScriptEnvironment *env
-    );
+    LWLibavVideoSource() = default;
 public:
     LWLibavVideoSource
     (
@@ -68,6 +70,7 @@ public:
 class LWLibavAudioSource : public LWLibavSource
 {
 private:
+    LWLibavAudioSource() = default;
     lwlibav_audio_decode_handler_t adh;
     lwlibav_audio_output_handler_t aoh;
     void prepare_audio_decoding

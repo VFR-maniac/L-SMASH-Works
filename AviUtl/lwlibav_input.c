@@ -46,8 +46,8 @@ typedef struct libav_handler_tag
     UINT                           uType;
     lwlibav_file_handler_t         lwh;
     /* Video stuff */
-    lwlibav_video_decode_handler_t vdh;
-    lwlibav_video_output_handler_t voh;
+    lwlibav_video_decode_handler_t *vdhp;
+    lwlibav_video_output_handler_t *vohp;
     /* Audio stuff */
     lwlibav_audio_decode_handler_t adh;
     lwlibav_audio_output_handler_t aoh;
@@ -75,16 +75,54 @@ static void close_indicator( progress_handler_t *php )
     close_progress_dlg( &php->dlg );
 }
 
-static void *open_file( char *file_path, reader_option_t *opt )
+/* Deallocate the handler of this plugin. */
+static void free_handler
+(
+    libav_handler_t **hpp
+)
+{
+    if( !hpp || !*hpp )
+        return;
+    libav_handler_t *hp = *hpp;
+    lwlibav_video_free_decode_handler( hp->vdhp );
+    lwlibav_video_free_output_handler( hp->vohp );
+    lw_freep( hpp );
+}
+
+/* Allocate the handler of this plugin. */
+static libav_handler_t *alloc_handler
+(
+    void
+)
 {
     libav_handler_t *hp = lw_malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
+    hp->vdhp = lwlibav_video_alloc_decode_handler();
+    if( !hp->vdhp )
+    {
+        free_handler( &hp );
+        return NULL;
+    }
+    hp->vohp = lwlibav_video_alloc_output_handler();
+    if( !hp->vohp )
+    {
+        free_handler( &hp );
+        return NULL;
+    }
+    return hp;
+}
+
+static void *open_file( char *file_path, reader_option_t *opt )
+{
+    libav_handler_t *hp = alloc_handler();
+    if( !hp )
+        return NULL;
     /* Set up error handler. */
-    lw_log_handler_t lh = { 0 };
-    lh.level    = LW_LOG_FATAL;
-    lh.priv     = &hp->uType;
-    lh.show_log = NULL;
+    lw_log_handler_t *vlhp = lwlibav_video_get_log_handler( hp->vdhp );
+    vlhp->level    = LW_LOG_FATAL;
+    vlhp->priv     = &hp->uType;
+    vlhp->show_log = NULL;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set options. */
     lwlibav_option_t lwlibav_opt;
@@ -101,7 +139,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     lwlibav_opt.vfr2cfr.active    = opt->video_opt.vfr2cfr.active;
     lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
     lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
-    hp->vdh.preferred_decoder_names = opt->preferred_decoder_names;
+    lwlibav_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
     hp->adh.preferred_decoder_names = opt->preferred_decoder_names;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
@@ -112,9 +150,9 @@ static void *open_file( char *file_path, reader_option_t *opt )
     ph.module_name = "lwinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
     /* Construct index. */
-    if( lwlibav_construct_index( &hp->lwh, &hp->vdh, &hp->voh, &hp->adh, &hp->aoh, &lh, &lwlibav_opt, &indicator, &ph ) < 0 )
+    if( lwlibav_construct_index( &hp->lwh, hp->vdhp, hp->vohp, &hp->adh, &hp->aoh, vlhp, &lwlibav_opt, &indicator, &ph ) < 0 )
     {
-        free( hp );
+        free_handler( &hp );
         return NULL;
     }
     return hp;
@@ -123,9 +161,9 @@ static void *open_file( char *file_path, reader_option_t *opt )
 static int get_video_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( lwlibav_get_desired_video_track( hp->lwh.file_path, &hp->vdh, hp->lwh.threads ) < 0 )
+    if( lwlibav_video_get_desired_track( hp->lwh.file_path, hp->vdhp, hp->lwh.threads ) < 0 )
         return -1;
-    lw_log_handler_t *lhp = &hp->vdh.lh;
+    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( hp->vdhp );
     lhp->level    = LW_LOG_WARNING;
     lhp->priv     = &hp->uType;
     lhp->show_log = au_message_box_desktop;
@@ -147,12 +185,13 @@ static int get_audio_track( lsmash_handler_t *h )
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
-    if( !vdhp->ctx )
+    lwlibav_video_decode_handler_t *vdhp = hp->vdhp;
+    AVCodecContext *ctx = lwlibav_video_get_codec_context( vdhp );
+    if( !ctx )
         return 0;
-    vdhp->seek_mode              = opt->seek_mode;
-    vdhp->forward_seek_threshold = opt->forward_seek_threshold;
-    lwlibav_video_output_handler_t *vohp = &hp->voh;
+    lwlibav_video_set_seek_mode             ( vdhp, opt->seek_mode );
+    lwlibav_video_set_forward_seek_threshold( vdhp, opt->forward_seek_threshold );
+    lwlibav_video_output_handler_t *vohp = hp->vohp;
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
         return -1;
@@ -160,28 +199,30 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     hp->uType = MB_OK;
     int64_t fps_num = 25;
     int64_t fps_den = 1;
-    lwlibav_setup_timestamp_info( &hp->lwh, vdhp, vohp, &fps_num, &fps_den );
+    lwlibav_video_setup_timestamp_info( &hp->lwh, vdhp, vohp, &fps_num, &fps_den );
     h->framerate_num      = (int)fps_num;
     h->framerate_den      = (int)fps_den;
     h->video_sample_count = vohp->frame_count;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set up the initial input format. */
-    vdhp->ctx->width      = vdhp->initial_width;
-    vdhp->ctx->height     = vdhp->initial_height;
-    vdhp->ctx->pix_fmt    = vdhp->initial_pix_fmt;
-    vdhp->ctx->colorspace = vdhp->initial_colorspace;
+    lwlibav_video_set_initial_input_format( vdhp );
     /* Set up video rendering. */
-    vdhp->exh.get_buffer = au_setup_video_rendering( vohp, vdhp->ctx, opt, &h->video_format, vdhp->max_width, vdhp->max_height );
-    if( !vdhp->exh.get_buffer )
+    int max_width  = lwlibav_video_get_max_width ( vdhp );
+    int max_height = lwlibav_video_get_max_height( vdhp );
+    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
+        au_setup_video_rendering( vohp, ctx, opt, &h->video_format, max_width, max_height );
+    if( !get_buffer_func )
         return -1;
+    lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
 #ifndef DEBUG_VIDEO
-    vdhp->lh.level = LW_LOG_FATAL;
+    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( vdhp );
+    lhp->level = LW_LOG_FATAL;
 #endif
     /* Find the first valid video frame. */
-    if( lwlibav_find_first_valid_video_frame( vdhp ) < 0 )
+    if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )
         return -1;
     /* Force seeking at the first reading. */
-    vdhp->last_frame_number = vdhp->frame_count + 1;
+    lwlibav_video_force_seek( vdhp );
     return 0;
 }
 
@@ -218,23 +259,25 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    lwlibav_video_decode_handler_t *vdhp = &hp->vdh;
-    if( vdhp->error )
+    lwlibav_video_decode_handler_t *vdhp = hp->vdhp;
+    if( lwlibav_video_get_error( vdhp ) )
         return 0;
-    lwlibav_video_output_handler_t *vohp = &hp->voh;
+    lwlibav_video_output_handler_t *vohp = hp->vohp;
     ++frame_number;            /* frame_number is 1-origin. */
     if( frame_number == 1 )
     {
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    int ret = lwlibav_get_video_frame( vdhp, vohp, frame_number );
+    int ret = lwlibav_video_get_frame( vdhp, vohp, frame_number );
     if( ret != 0 && !(ret == 1 && frame_number == 1) )
         /* Skip writing frame data into AviUtl's frame buffer.
          * Apparently, AviUtl clears the frame buffer at the first frame.
          * Therefore, don't skip in that case. */
         return 0;
-    return convert_colorspace( vohp, vdhp->ctx, vdhp->frame_buffer, buf );
+    AVCodecContext *ctx      = lwlibav_video_get_codec_context( vdhp );
+    AVFrame        *av_frame = lwlibav_video_get_frame_buffer ( vdhp );
+    return convert_colorspace( vohp, ctx, av_frame, buf );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
@@ -246,7 +289,7 @@ static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *
 static int is_keyframe( lsmash_handler_t *h, int frame_number )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    return lwlibav_is_keyframe( &hp->vdh, &hp->voh, frame_number + 1 );
+    return lwlibav_video_is_keyframe( hp->vdhp, hp->vohp, frame_number + 1 );
 }
 
 static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int audio_delay )
@@ -269,8 +312,9 @@ static void video_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
     if( !hp )
         return;
-    lwlibav_cleanup_video_decode_handler( &hp->vdh );
-    lwlibav_cleanup_video_output_handler( &hp->voh );
+    /* Free and then set nullptr since other functions might reference the pointer later. */
+    lwlibav_video_free_decode_handler_ptr( &hp->vdhp );
+    lwlibav_video_free_output_handler_ptr( &hp->vohp );
 }
 
 static void audio_cleanup( lsmash_handler_t *h )
@@ -287,9 +331,8 @@ static void close_file( void *private_stuff )
     libav_handler_t *hp = (libav_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->lwh.file_path )
-        free( hp->lwh.file_path );
-    free( hp );
+    lw_free( hp->lwh.file_path );
+    lw_free( hp );
 }
 
 lsmash_reader_t libav_reader =
