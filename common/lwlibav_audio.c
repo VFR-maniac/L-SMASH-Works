@@ -41,8 +41,159 @@ extern "C"
 
 #include "lwlibav_dec.h"
 #include "lwlibav_audio.h"
+#include "lwlibav_audio_internal.h"
 
-int lwlibav_get_desired_audio_track
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+lwlibav_audio_decode_handler_t *lwlibav_audio_alloc_decode_handler
+(
+    void
+)
+{
+    lwlibav_audio_decode_handler_t *adhp = (lwlibav_audio_decode_handler_t *)lw_malloc_zero( sizeof(lwlibav_audio_decode_handler_t) );
+    if( !adhp )
+        return NULL;
+    adhp->frame_buffer = av_frame_alloc();
+    if( !adhp->frame_buffer )
+    {
+        lwlibav_audio_free_decode_handler( adhp );
+        return NULL;
+    }
+    return adhp;
+}
+
+lwlibav_audio_output_handler_t *lwlibav_audio_alloc_output_handler
+(
+    void
+)
+{
+    return (lwlibav_audio_output_handler_t *)lw_malloc_zero( sizeof(lwlibav_audio_output_handler_t) );
+}
+
+void lwlibav_audio_free_decode_handler
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    if( !adhp )
+        return;
+    lwlibav_extradata_handler_t *exhp = &adhp->exh;
+    if( exhp->entries )
+    {
+        for( int i = 0; i < exhp->entry_count; i++ )
+            if( exhp->entries[i].extradata )
+                av_free( exhp->entries[i].extradata );
+        lw_free( exhp->entries );
+    }
+    av_packet_unref( &adhp->packet );
+    lw_free( adhp->frame_list );
+    av_free( adhp->index_entries );
+    av_frame_free( &adhp->frame_buffer );
+    if( adhp->ctx )
+    {
+        avcodec_close( adhp->ctx );
+        adhp->ctx = NULL;
+    }
+    if( adhp->format )
+        lavf_close_file( &adhp->format );
+    lw_free( adhp );
+}
+
+void lwlibav_audio_free_output_handler
+(
+    lwlibav_audio_output_handler_t *aohp
+)
+{
+    if( !aohp )
+        return;
+    lw_cleanup_audio_output_handler( aohp );
+    lw_free( aohp );
+}
+
+void lwlibav_audio_free_decode_handler_ptr
+(
+    lwlibav_audio_decode_handler_t **adhpp
+)
+{
+    if( !adhpp || !*adhpp )
+        return;
+    lwlibav_audio_free_decode_handler( *adhpp );
+    *adhpp = NULL;
+}
+
+void lwlibav_audio_free_output_handler_ptr
+(
+    lwlibav_audio_output_handler_t **aohpp
+)
+{
+    if( !aohpp || !*aohpp )
+        return;
+    lwlibav_audio_free_output_handler( *aohpp );
+    *aohpp = NULL;
+}
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void lwlibav_audio_set_preferred_decoder_names
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    const char                    **preferred_decoder_names
+)
+{
+    adhp->preferred_decoder_names = preferred_decoder_names;
+}
+
+void lwlibav_audio_set_log_handler
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    lw_log_handler_t               *lh
+)
+{
+    adhp->lh = *lh;
+}
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+const char **lwlibav_audio_get_preferred_decoder_names
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->preferred_decoder_names : NULL;
+}
+
+lw_log_handler_t *lwlibav_audio_get_log_handler
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? &adhp->lh : NULL;
+}
+
+AVCodecContext *lwlibav_audio_get_codec_context
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->ctx : NULL;
+}
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+void lwlibav_audio_force_seek
+(
+    lwlibav_audio_decode_handler_t *adhp
+)
+{
+    /* Force seek before the next reading. */
+    adhp->next_pcm_sample_number = adhp->pcm_sample_count + 1;
+}
+
+int lwlibav_audio_get_desired_track
 (
     const char                     *file_path,
     lwlibav_audio_decode_handler_t *adhp,
@@ -55,22 +206,17 @@ int lwlibav_get_desired_audio_track
     AVCodecContext *ctx = !error ? adhp->format->streams[ adhp->stream_index ]->codec : NULL;
     if( error || find_and_open_decoder( ctx, adhp->codec_id, adhp->preferred_decoder_names, threads ) )
     {
-        if( adhp->index_entries )
-            av_freep( &adhp->index_entries );
-        if( adhp->frame_list )
-            lw_freep( &adhp->frame_list );
+        av_freep( &adhp->index_entries );
+        lw_freep( &adhp->frame_list );
         if( adhp->format )
-        {
             lavf_close_file( &adhp->format );
-            adhp->format = NULL;
-        }
         return -1;
     }
     adhp->ctx = ctx;
     return 0;
 }
 
-uint64_t lwlibav_count_overall_pcm_samples
+uint64_t lwlibav_audio_count_overall_pcm_samples
 (
     lwlibav_audio_decode_handler_t *adhp,
     int                             output_sample_rate
@@ -101,6 +247,8 @@ uint64_t lwlibav_count_overall_pcm_samples
                         : adhp->ctx->sample_rate;
     if( pcm_sample_count )
         overall_pcm_sample_count += (pcm_sample_count * output_sample_rate - 1) / current_sample_rate + 1;
+    /* Return the number of output PCM audio samples. */
+    adhp->pcm_sample_count = overall_pcm_sample_count;
     return overall_pcm_sample_count;
 }
 
@@ -348,7 +496,7 @@ retry_seek:;
 #undef MAX_ERROR_COUNT
 }
 
-uint64_t lwlibav_get_pcm_audio_samples
+uint64_t lwlibav_audio_get_pcm_samples
 (
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
@@ -490,32 +638,6 @@ audio_out:
     adhp->next_pcm_sample_number = start + output_length;
     adhp->last_frame_number      = frame_number;
     return output_length;
-}
-
-void lwlibav_cleanup_audio_decode_handler( lwlibav_audio_decode_handler_t *adhp )
-{
-    lwlibav_extradata_handler_t *exhp = &adhp->exh;
-    if( exhp->entries )
-    {
-        for( int i = 0; i < exhp->entry_count; i++ )
-            if( exhp->entries[i].extradata )
-                av_free( exhp->entries[i].extradata );
-        free( exhp->entries );
-    }
-    av_packet_unref( &adhp->packet );
-    if( adhp->frame_list )
-        lw_freep( &adhp->frame_list );
-    if( adhp->index_entries )
-        av_freep( &adhp->index_entries );
-    if( adhp->frame_buffer )
-        av_frame_free( &adhp->frame_buffer );
-    if( adhp->ctx )
-    {
-        avcodec_close( adhp->ctx );
-        adhp->ctx = NULL;
-    }
-    if( adhp->format )
-        lavf_close_file( &adhp->format );
 }
 
 void set_audio_basic_settings

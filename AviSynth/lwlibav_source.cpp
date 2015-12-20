@@ -110,11 +110,9 @@ LWLibavVideoSource::LWLibavVideoSource
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    lwlibav_audio_decode_handler_t adh = { 0 };
-    lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( &lwh, vdhp, vohp, &adh, &aoh, lhp, opt, &indicator, NULL );
-    lwlibav_cleanup_audio_decode_handler( &adh );
-    lwlibav_cleanup_audio_output_handler( &aoh );
+    int ret = lwlibav_construct_index( &lwh, vdhp, vohp, adhp.get(), aohp.get(), lhp, opt, &indicator, NULL );
+    free_audio_decode_handler();
+    free_audio_output_handler();
     if( ret < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to construct index." );
     /* Get the desired video track. */
@@ -167,6 +165,36 @@ bool __stdcall LWLibavVideoSource::GetParity( int n )
     return t < b ? true : false;
 }
 
+static void prepare_audio_decoding
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    lwlibav_audio_output_handler_t *aohp,
+    uint64_t                        channel_layout,
+    int                             sample_rate,
+    lwlibav_file_handler_t         &lwh,
+    VideoInfo                      &vi,
+    IScriptEnvironment             *env
+)
+{
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( adhp );
+    lhp->priv = env;
+    /* Import AVIndexEntrys. */
+    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)adhp ) < 0 )
+        env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
+    /* */
+    AVCodecContext *ctx = lwlibav_audio_get_codec_context( adhp );
+    as_setup_audio_rendering( aohp, ctx, &vi, env, "LWLibavAudioSource", channel_layout, sample_rate );
+    /* Count the number of PCM audio samples. */
+    vi.num_audio_samples = lwlibav_audio_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
+    if( vi.num_audio_samples == 0 )
+        env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
+    if( lwh.av_gap && aohp->output_sample_rate != ctx->sample_rate )
+        lwh.av_gap = ((int64_t)lwh.av_gap * aohp->output_sample_rate - 1) / ctx->sample_rate + 1;
+    vi.num_audio_samples += lwh.av_gap;
+    /* Force seeking at the first reading. */
+    lwlibav_audio_force_seek( adhp );
+}
+
 LWLibavAudioSource::LWLibavAudioSource
 (
     lwlibav_option_t   *opt,
@@ -178,63 +206,36 @@ LWLibavAudioSource::LWLibavAudioSource
 {
     memset( &vi,  0, sizeof(VideoInfo) );
     memset( &lwh, 0, sizeof(lwlibav_file_handler_t) );
-    memset( &adh, 0, sizeof(lwlibav_audio_decode_handler_t) );
-    memset( &aoh, 0, sizeof(lwlibav_audio_output_handler_t) );
+    lwlibav_audio_decode_handler_t *adhp = this->adhp.get();
+    lwlibav_audio_output_handler_t *aohp = this->aohp.get();
     set_preferred_decoder_names( preferred_decoder_names );
-    adh.preferred_decoder_names = tokenize_preferred_decoder_names();
+    lwlibav_audio_set_preferred_decoder_names( adhp, tokenize_preferred_decoder_names() );
     /* Set up error handler. */
-    lw_log_handler_t lh;
-    lh.level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
-    lh.priv     = env;
-    lh.show_log = throw_error;
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( adhp );
+    lhp->level    = LW_LOG_FATAL; /* Ignore other than fatal error. */
+    lhp->priv     = env;
+    lhp->show_log = throw_error;
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = NULL;
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    if( lwlibav_construct_index( &lwh, vdhp.get(), vohp.get(), &adh, &aoh, &lh, opt, &indicator, NULL ) < 0 )
+    if( lwlibav_construct_index( &lwh, vdhp.get(), vohp.get(), adhp, aohp, lhp, opt, &indicator, NULL ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get construct index." );
     free_video_decode_handler();
     free_video_output_handler();
     /* Get the desired video track. */
-    if( lwlibav_get_desired_audio_track( lwh.file_path, &adh, lwh.threads ) < 0 )
+    if( lwlibav_audio_get_desired_track( lwh.file_path, adhp, lwh.threads ) < 0 )
         env->ThrowError( "LWLibavAudioSource: failed to get the audio track." );
-    adh.lh = lh;
-    prepare_audio_decoding( channel_layout, sample_rate, env );
+    prepare_audio_decoding( adhp, aohp, channel_layout, sample_rate, lwh, vi, env );
 }
 
 LWLibavAudioSource::~LWLibavAudioSource()
 {
-    lw_freep( &adh.preferred_decoder_names );
-    lwlibav_cleanup_audio_decode_handler( &adh );
-    lwlibav_cleanup_audio_output_handler( &aoh );
-    if( lwh.file_path )
-        free( lwh.file_path );
-}
-
-void LWLibavAudioSource::prepare_audio_decoding
-(
-    uint64_t            channel_layout,
-    int                 sample_rate,
-    IScriptEnvironment *env
-)
-{
-    adh.lh.priv = env;
-    /* Import AVIndexEntrys. */
-    if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)&adh ) < 0 )
-        env->ThrowError( "LWLibavAudioSource: failed to import AVIndexEntrys for audio." );
-    /* */
-    as_setup_audio_rendering( &aoh, adh.ctx, &vi, env, "LWLibavAudioSource", channel_layout, sample_rate );
-    /* Count the number of PCM audio samples. */
-    vi.num_audio_samples = lwlibav_count_overall_pcm_samples( &adh, aoh.output_sample_rate );
-    if( vi.num_audio_samples == 0 )
-        env->ThrowError( "LWLibavAudioSource: no valid audio frame." );
-    if( lwh.av_gap && aoh.output_sample_rate != adh.ctx->sample_rate )
-        lwh.av_gap = ((int64_t)lwh.av_gap * aoh.output_sample_rate - 1) / adh.ctx->sample_rate + 1;
-    vi.num_audio_samples += lwh.av_gap;
-    /* Force seeking at the first reading. */
-    adh.next_pcm_sample_number = vi.num_audio_samples + 1;
+    lwlibav_audio_decode_handler_t *adhp = this->adhp.get();
+    lw_free( lwlibav_audio_get_preferred_decoder_names( adhp ) );
+    lw_free( lwh.file_path );
 }
 
 int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )
@@ -244,7 +245,7 @@ int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )
     int64_t audio_delay = lwh.av_gap;
     if( *start < audio_delay && end <= audio_delay )
     {
-        adh.next_pcm_sample_number = vi.num_audio_samples + 1;  /* Force seeking at the next access for valid audio frame. */
+        lwlibav_audio_force_seek( adhp.get() ); /* Force seeking at the next access for valid audio frame. */
         return 0;
     }
     *start -= audio_delay;
@@ -253,11 +254,14 @@ int LWLibavAudioSource::delay_audio( int64_t *start, int64_t wanted_length )
 
 void __stdcall LWLibavAudioSource::GetAudio( void *buf, __int64 start, __int64 wanted_length, IScriptEnvironment *env )
 {
-    adh.lh.priv = env;
+    lwlibav_audio_decode_handler_t *adhp = this->adhp.get();
+    lwlibav_audio_output_handler_t *aohp = this->aohp.get();
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( adhp );
+    lhp->priv = env;
     if( delay_audio( &start, wanted_length ) )
-        return (void)lwlibav_get_pcm_audio_samples( &adh, &aoh, buf, start, wanted_length );
+        return (void)lwlibav_audio_get_pcm_samples( adhp, aohp, buf, start, wanted_length );
     uint8_t silence = vi.sample_type == SAMPLE_INT8 ? 128 : 0;
-    memset( buf, silence, (size_t)(wanted_length * aoh.output_block_align) );
+    memset( buf, silence, (size_t)(wanted_length * aohp->output_block_align) );
 }
 
 AVSValue __cdecl CreateLWLibavVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env )

@@ -49,8 +49,8 @@ typedef struct libav_handler_tag
     lwlibav_video_decode_handler_t *vdhp;
     lwlibav_video_output_handler_t *vohp;
     /* Audio stuff */
-    lwlibav_audio_decode_handler_t adh;
-    lwlibav_audio_output_handler_t aoh;
+    lwlibav_audio_decode_handler_t *adhp;
+    lwlibav_audio_output_handler_t *aohp;
 } libav_handler_t;
 
 struct progress_handler_tag
@@ -86,6 +86,8 @@ static void free_handler
     libav_handler_t *hp = *hpp;
     lwlibav_video_free_decode_handler( hp->vdhp );
     lwlibav_video_free_output_handler( hp->vohp );
+    lwlibav_audio_free_decode_handler( hp->adhp );
+    lwlibav_audio_free_output_handler( hp->aohp );
     lw_freep( hpp );
 }
 
@@ -98,14 +100,10 @@ static libav_handler_t *alloc_handler
     libav_handler_t *hp = lw_malloc_zero( sizeof(libav_handler_t) );
     if( !hp )
         return NULL;
-    hp->vdhp = lwlibav_video_alloc_decode_handler();
-    if( !hp->vdhp )
-    {
-        free_handler( &hp );
-        return NULL;
-    }
-    hp->vohp = lwlibav_video_alloc_output_handler();
-    if( !hp->vohp )
+    if( !(hp->vdhp = lwlibav_video_alloc_decode_handler())
+     || !(hp->vohp = lwlibav_video_alloc_output_handler())
+     || !(hp->adhp = lwlibav_audio_alloc_decode_handler())
+     || !(hp->aohp = lwlibav_audio_alloc_output_handler()) )
     {
         free_handler( &hp );
         return NULL;
@@ -120,9 +118,11 @@ static void *open_file( char *file_path, reader_option_t *opt )
         return NULL;
     /* Set up error handler. */
     lw_log_handler_t *vlhp = lwlibav_video_get_log_handler( hp->vdhp );
+    lw_log_handler_t *alhp = lwlibav_audio_get_log_handler( hp->adhp );
     vlhp->level    = LW_LOG_FATAL;
     vlhp->priv     = &hp->uType;
     vlhp->show_log = NULL;
+    *alhp = *vlhp;
     hp->uType = MB_ICONERROR | MB_OK;
     /* Set options. */
     lwlibav_option_t lwlibav_opt;
@@ -140,7 +140,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
     lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
     lwlibav_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
-    hp->adh.preferred_decoder_names = opt->preferred_decoder_names;
+    lwlibav_audio_set_preferred_decoder_names( hp->adhp, opt->preferred_decoder_names );
     /* Set up progress indicator. */
     progress_indicator_t indicator;
     indicator.open   = open_indicator;
@@ -150,7 +150,7 @@ static void *open_file( char *file_path, reader_option_t *opt )
     ph.module_name = "lwinput.aui";
     ph.template_id = IDD_PROGRESS_ABORTABLE;
     /* Construct index. */
-    if( lwlibav_construct_index( &hp->lwh, hp->vdhp, hp->vohp, &hp->adh, &hp->aoh, vlhp, &lwlibav_opt, &indicator, &ph ) < 0 )
+    if( lwlibav_construct_index( &hp->lwh, hp->vdhp, hp->vohp, hp->adhp, hp->aohp, vlhp, &lwlibav_opt, &indicator, &ph ) < 0 )
     {
         free_handler( &hp );
         return NULL;
@@ -173,9 +173,9 @@ static int get_video_track( lsmash_handler_t *h )
 static int get_audio_track( lsmash_handler_t *h )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( lwlibav_get_desired_audio_track( hp->lwh.file_path, &hp->adh, hp->lwh.threads ) < 0 )
+    if( lwlibav_audio_get_desired_track( hp->lwh.file_path, hp->adhp, hp->lwh.threads ) < 0 )
         return -1;
-    lw_log_handler_t *lhp = &hp->adh.lh;
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( hp->adhp );
     lhp->level    = LW_LOG_WARNING;
     lhp->priv     = &hp->uType;
     lhp->show_log = au_message_box_desktop;
@@ -229,30 +229,32 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    lwlibav_audio_decode_handler_t *adhp = &hp->adh;
-    if( !adhp->ctx )
+    lwlibav_audio_decode_handler_t *adhp = hp->adhp;
+    AVCodecContext *ctx = lwlibav_audio_get_codec_context( adhp );
+    if( !ctx )
         return 0;
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)adhp ) < 0 )
         return -1;
 #ifndef DEBUG_AUDIO
-    adhp->lh.level = LW_LOG_FATAL;
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( adhp );
+    lhp->level = LW_LOG_FATAL;
 #endif
-    lwlibav_audio_output_handler_t *aohp = &hp->aoh;
-    if( au_setup_audio_rendering( aohp, adhp->ctx, opt, &h->audio_format.Format ) < 0 )
+    lwlibav_audio_output_handler_t *aohp = hp->aohp;
+    if( au_setup_audio_rendering( aohp, ctx, opt, &h->audio_format.Format ) < 0 )
         return -1;
     /* Count the number of PCM audio samples. */
-    h->audio_pcm_sample_count = lwlibav_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
+    h->audio_pcm_sample_count = lwlibav_audio_count_overall_pcm_samples( adhp, aohp->output_sample_rate );
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
         return -1;
     }
-    if( hp->lwh.av_gap && aohp->output_sample_rate != adhp->ctx->sample_rate )
-        hp->lwh.av_gap = ((int64_t)hp->lwh.av_gap * aohp->output_sample_rate - 1) / adhp->ctx->sample_rate + 1;
+    if( hp->lwh.av_gap && aohp->output_sample_rate != ctx->sample_rate )
+        hp->lwh.av_gap = ((int64_t)hp->lwh.av_gap * aohp->output_sample_rate - 1) / ctx->sample_rate + 1;
     h->audio_pcm_sample_count += hp->lwh.av_gap;
     /* Force seeking at the first reading. */
-    adhp->next_pcm_sample_number = h->audio_pcm_sample_count + 1;
+    lwlibav_audio_force_seek( adhp );
     return 0;
 }
 
@@ -283,7 +285,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )
 {
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    return lwlibav_get_pcm_audio_samples( &hp->adh, &hp->aoh, buf, start, wanted_length );
+    return lwlibav_audio_get_pcm_samples( hp->adhp, hp->aohp, buf, start, wanted_length );
 }
 
 static int is_keyframe( lsmash_handler_t *h, int frame_number )
@@ -300,7 +302,7 @@ static int delay_audio( lsmash_handler_t *h, int *start, int wanted_length, int 
     audio_delay += hp->lwh.av_gap;
     if( *start < audio_delay && end <= audio_delay )
     {
-        hp->adh.next_pcm_sample_number = h->audio_pcm_sample_count + 1;   /* Force seeking at the next access for valid audio frame. */
+        lwlibav_audio_force_seek( hp->adhp );   /* Force seeking at the next access for valid audio frame. */
         return 0;
     }
     *start -= audio_delay;
@@ -322,8 +324,9 @@ static void audio_cleanup( lsmash_handler_t *h )
     libav_handler_t *hp = (libav_handler_t *)h->audio_private;
     if( !hp )
         return;
-    lwlibav_cleanup_audio_decode_handler( &hp->adh );
-    lwlibav_cleanup_audio_output_handler( &hp->aoh );
+    /* Free and then set nullptr since other functions might reference the pointer later. */
+    lwlibav_audio_free_decode_handler_ptr( &hp->adhp );
+    lwlibav_audio_free_output_handler_ptr( &hp->aohp );
 }
 
 static void close_file( void *private_stuff )

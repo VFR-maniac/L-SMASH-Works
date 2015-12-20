@@ -81,6 +81,8 @@ typedef struct
     lwlibav_file_handler_t          lwh;
     lwlibav_video_decode_handler_t *vdhp;
     lwlibav_video_output_handler_t *vohp;
+    lwlibav_audio_decode_handler_t *adhp;
+    lwlibav_audio_output_handler_t *aohp;
     char preferred_decoder_names_buf[PREFERRED_DECODER_NAMES_BUFSIZE];
 } lwlibav_handler_t;
 
@@ -96,6 +98,8 @@ static void free_handler
     lw_free( lwlibav_video_get_preferred_decoder_names( hp->vdhp ) );
     lwlibav_video_free_decode_handler( hp->vdhp );
     lwlibav_video_free_output_handler( hp->vohp );
+    lwlibav_audio_free_decode_handler( hp->adhp );
+    lwlibav_audio_free_output_handler( hp->aohp );
     lw_free( hp->lwh.file_path );
     lw_free( hp );
 }
@@ -110,7 +114,9 @@ static lwlibav_handler_t *alloc_handler
     if( !hp )
         return NULL;
     if( !(hp->vdhp = lwlibav_video_alloc_decode_handler())
-     || !(hp->vohp = lwlibav_video_alloc_output_handler()) )
+     || !(hp->vohp = lwlibav_video_alloc_output_handler())
+     || !(hp->adhp = lwlibav_audio_alloc_decode_handler())
+     || !(hp->aohp = lwlibav_audio_alloc_output_handler()) )
     {
         free_handler( &hp );
         return NULL;
@@ -353,11 +359,9 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     indicator.update = NULL;
     indicator.close  = NULL;
     /* Construct index. */
-    lwlibav_audio_decode_handler_t adh = { 0 };
-    lwlibav_audio_output_handler_t aoh = { 0 };
-    int ret = lwlibav_construct_index( lwhp, vdhp, vohp, &adh, &aoh, &lh, &opt, &indicator, NULL );
-    lwlibav_cleanup_audio_decode_handler( &adh );
-    lwlibav_cleanup_audio_output_handler( &aoh );
+    int ret = lwlibav_construct_index( lwhp, vdhp, vohp, hp->adhp, hp->aohp, &lh, &opt, &indicator, NULL );
+    lwlibav_audio_free_decode_handler_ptr( &hp->adhp );
+    lwlibav_audio_free_output_handler_ptr( &hp->aohp );
     if( ret < 0 )
     {
         vs_filter_free( hp, core, vsapi );

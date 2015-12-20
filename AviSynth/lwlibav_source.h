@@ -35,11 +35,17 @@ protected:
     lwlibav_file_handler_t lwh;
     std::unique_ptr< lwlibav_video_decode_handler_t, decltype( &lwlibav_video_free_decode_handler ) > vdhp;
     std::unique_ptr< lwlibav_video_output_handler_t, decltype( &lwlibav_video_free_output_handler ) > vohp;
+    std::unique_ptr< lwlibav_audio_decode_handler_t, decltype( &lwlibav_audio_free_decode_handler ) > adhp;
+    std::unique_ptr< lwlibav_audio_output_handler_t, decltype( &lwlibav_audio_free_output_handler ) > aohp;
     inline void free_video_decode_handler( void ) { vdhp.reset( nullptr ); }
     inline void free_video_output_handler( void ) { vohp.reset( nullptr ); }
+    inline void free_audio_decode_handler( void ) { adhp.reset( nullptr ); }
+    inline void free_audio_output_handler( void ) { aohp.reset( nullptr ); }
     LWLibavSource()
       : vdhp{ lwlibav_video_alloc_decode_handler(), lwlibav_video_free_decode_handler },
-        vohp{ lwlibav_video_alloc_output_handler(), lwlibav_video_free_output_handler } {};
+        vohp{ lwlibav_video_alloc_output_handler(), lwlibav_video_free_output_handler },
+        adhp{ lwlibav_audio_alloc_decode_handler(), lwlibav_audio_free_decode_handler },
+        aohp{ lwlibav_audio_alloc_output_handler(), lwlibav_audio_free_output_handler } {};
     ~LWLibavSource() = default;
     LWLibavSource( const LWLibavSource & ) = delete;
     LWLibavSource & operator= ( const LWLibavSource & ) = delete;
@@ -71,14 +77,6 @@ class LWLibavAudioSource : public LWLibavSource
 {
 private:
     LWLibavAudioSource() = default;
-    lwlibav_audio_decode_handler_t adh;
-    lwlibav_audio_output_handler_t aoh;
-    void prepare_audio_decoding
-    (
-        uint64_t            channel_layout,
-        int                 sample_rate,
-        IScriptEnvironment *env
-    );
     int delay_audio( int64_t *start, int64_t wanted_length );
 public:
     LWLibavAudioSource

@@ -42,6 +42,7 @@ extern "C"
 #include "lwlibav_video.h"
 #include "lwlibav_video_internal.h"
 #include "lwlibav_audio.h"
+#include "lwlibav_audio_internal.h"
 #include "progress.h"
 #include "lwindex.h"
 
@@ -2997,21 +2998,11 @@ int lwlibav_construct_index
     progress_handler_t             *php
 )
 {
-    /* Allocate frame buffer. */
-    adhp->frame_buffer = av_frame_alloc();
-    if( !adhp->frame_buffer )
-    {
-        av_frame_free( &vdhp->frame_buffer );
-        return -1;
-    }
     /* Try to open the index file. */
     int file_path_length = strlen( opt->file_path );
     char *index_file_path = (char *)lw_malloc_zero(file_path_length + 5);
     if( !index_file_path )
-    {
-        av_frame_free( &adhp->frame_buffer );
         return -1;
-    }
     memcpy( index_file_path, opt->file_path, file_path_length );
     const char *ext = file_path_length >= 5 ? &opt->file_path[file_path_length - 4] : NULL;
     int has_lwi_ext = ext && !strncmp( ext, ".lwi", strlen( ".lwi" ) );
@@ -3072,8 +3063,6 @@ int lwlibav_construct_index
     adhp->ctx = NULL;
     return 0;
 fail:
-    if( adhp->frame_buffer )
-        av_frame_free( &adhp->frame_buffer );
     if( lwhp->file_path )
         lw_freep( &lwhp->file_path );
     return -1;

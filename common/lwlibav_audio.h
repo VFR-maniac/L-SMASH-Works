@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libav_audio.h
+ * lwlibav_audio.h
  *****************************************************************************
  * Copyright (C) 2012-2015 L-SMASH Works project
  *
@@ -20,62 +20,101 @@
 
 /* This file is available under an ISC license. */
 
+/*****************************************************************************
+ * Opaque Handlers
+ *****************************************************************************/
 typedef lw_audio_output_handler_t lwlibav_audio_output_handler_t;
 
-typedef struct
-{
-    int64_t  pts;
-    int64_t  dts;
-    int64_t  file_offset;
-    uint32_t sample_number;
-    int      extradata_index;
-    uint8_t  keyframe;
-    int      length;
-    int      sample_rate;
-} audio_frame_info_t;
+typedef struct lwlibav_audio_decode_handler_tag lwlibav_audio_decode_handler_t;
 
-typedef struct
-{
-    /* common */
-    AVFormatContext    *format;
-    int                 stream_index;
-    int                 error;
-    lw_log_handler_t    lh;
-    lwlibav_extradata_handler_t exh;
-    AVCodecContext     *ctx;
-    AVIndexEntry       *index_entries;
-    int                 index_entries_count;
-    int                 lw_seek_flags;
-    int                 av_seek_flags;  /* unused */
-    int                 dv_in_avi;      /* 1 = 'DV in AVI Type-1', 0 = otherwise */
-    enum AVCodecID      codec_id;
-    const char        **preferred_decoder_names;
-    AVRational          time_base;
-    uint32_t            frame_count;
-    AVFrame            *frame_buffer;
-    audio_frame_info_t *frame_list;
-    /* */
-    AVPacket            packet;         /* for getting and freeing */
-    AVPacket            alter_packet;   /* for consumed by the decoder instead of 'packet'. */
-    uint32_t            frame_length;
-    uint32_t            last_frame_number;
-    uint64_t            next_pcm_sample_number;
-} lwlibav_audio_decode_handler_t;
+/*****************************************************************************
+ * Allocators / Deallocators
+ *****************************************************************************/
+lwlibav_audio_decode_handler_t *lwlibav_audio_alloc_decode_handler
+(
+    void
+);
 
-int lwlibav_get_desired_audio_track
+lwlibav_audio_output_handler_t *lwlibav_audio_alloc_output_handler
+(
+    void
+);
+
+void lwlibav_audio_free_decode_handler
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+void lwlibav_audio_free_output_handler
+(
+    lwlibav_audio_output_handler_t *aohp
+);
+
+void lwlibav_audio_free_decode_handler_ptr
+(
+    lwlibav_audio_decode_handler_t **adhpp
+);
+
+void lwlibav_audio_free_output_handler_ptr
+(
+    lwlibav_audio_output_handler_t **aohpp
+);
+
+/*****************************************************************************
+ * Setters
+ *****************************************************************************/
+void lwlibav_audio_set_preferred_decoder_names
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    const char                    **preferred_decoder_names
+);
+
+void lwlibav_audio_set_codec_context
+(
+    lwlibav_audio_decode_handler_t *adhp,
+    AVCodecContext                 *ctx
+);
+
+/*****************************************************************************
+ * Getters
+ *****************************************************************************/
+const char **lwlibav_audio_get_preferred_decoder_names
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+lw_log_handler_t *lwlibav_audio_get_log_handler
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+AVCodecContext *lwlibav_audio_get_codec_context
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+/*****************************************************************************
+ * Others
+ *****************************************************************************/
+void lwlibav_audio_force_seek
+(
+    lwlibav_audio_decode_handler_t *adhp
+);
+
+int lwlibav_audio_get_desired_track
 (
     const char                     *file_path,
     lwlibav_audio_decode_handler_t *adhp,
     int                             threads
 );
 
-uint64_t lwlibav_count_overall_pcm_samples
+uint64_t lwlibav_audio_count_overall_pcm_samples
 (
     lwlibav_audio_decode_handler_t *adhp,
     int                             output_sample_rate
 );
 
-uint64_t lwlibav_get_pcm_audio_samples
+uint64_t lwlibav_audio_get_pcm_samples
 (
     lwlibav_audio_decode_handler_t *adhp,
     lwlibav_audio_output_handler_t *aohp,
@@ -83,16 +122,3 @@ uint64_t lwlibav_get_pcm_audio_samples
     int64_t                         start,
     int64_t                         wanted_length
 );
-
-void lwlibav_cleanup_audio_decode_handler
-(
-    lwlibav_audio_decode_handler_t *adhp
-);
-
-static inline void lwlibav_cleanup_audio_output_handler
-(
-    lwlibav_audio_output_handler_t *aohp
-)
-{
-    lw_cleanup_audio_output_handler( aohp );
-}
