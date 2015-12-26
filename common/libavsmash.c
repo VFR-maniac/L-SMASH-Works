@@ -138,6 +138,79 @@ open_fail:
     return NULL;
 }
 
+uint32_t libavsmash_get_track_by_media_type
+(
+    lsmash_root_t    *root,
+    uint32_t          type,
+    uint32_t          track_number,
+    lw_log_handler_t *lhp
+)
+{
+    char error_string[128] = { 0 };
+    char *media_type_str = type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ? "video" : "audio";
+    uint32_t track_id;
+    lsmash_media_parameters_t media_param;
+    if( track_number == 0 )
+    {
+        /* Get the first track. */
+        lsmash_movie_parameters_t movie_param;
+        if( lsmash_get_movie_parameters( root, &movie_param ) < 0 )
+        {
+            strcpy( error_string, "Failed to get movie paramters.\n" );
+            goto fail;
+        }
+        uint32_t i;
+        for( i = 1; i <= movie_param.number_of_tracks; i++ )
+        {
+            track_id = lsmash_get_track_ID( root, i );
+            if( track_id == 0 )
+            {
+                sprintf( error_string, "Failed to find %s track.\n", media_type_str );
+                goto fail;
+            }
+            lsmash_initialize_media_parameters( &media_param );
+            if( lsmash_get_media_parameters( root, track_id, &media_param ) < 0 )
+            {
+                strcpy( error_string, "Failed to get media parameters.\n" );
+                goto fail;
+            }
+            if( media_param.handler_type == type )
+                break;
+        }
+        if( i > movie_param.number_of_tracks )
+        {
+            sprintf( error_string, "Failed to find the first %s track.\n", media_type_str );
+            goto fail;
+        }
+    }
+    else
+    {
+        /* Get the desired track. */
+        track_id = lsmash_get_track_ID( root, track_number );
+        if( track_id == 0 )
+        {
+            sprintf( error_string, "Failed to find %s track %"PRIu32".\n", media_type_str, track_number );
+            goto fail;
+        }
+        lsmash_initialize_media_parameters( &media_param );
+        if( lsmash_get_media_parameters( root, track_id, &media_param ) < 0 )
+        {
+            strcpy( error_string, "Failed to get media parameters.\n" );
+            goto fail;
+        }
+        if( media_param.handler_type != type )
+        {
+            sprintf( error_string, "the track you specified is not %s track.\n", media_type_str );
+            goto fail;
+        }
+    }
+    return track_id;
+fail:
+    if( lhp && lhp->show_log )
+        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    return 0;
+}
+
 int get_summaries
 (
     lsmash_root_t         *root,

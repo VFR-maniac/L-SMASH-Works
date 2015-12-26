@@ -334,58 +334,10 @@ static int get_video_track
     lw_log_handler_t                  *lhp  = libavsmash_video_get_log_handler( vdhp );
     lsmash_root_t                     *root = libavsmash_video_get_root( vdhp );
     /* L-SMASH */
-    uint32_t i;
-    uint32_t track_id;
-    lsmash_media_parameters_t media_param;
-    if( track_number == 0 )
-    {
-        /* Get the first video track. */
-        for( i = 1; i <= number_of_tracks; i++ )
-        {
-            track_id = lsmash_get_track_ID( root, i );
-            if( track_id == 0 )
-            {
-                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track." );
-                return -1;
-            }
-            libavsmash_video_set_track_id( vdhp, track_id );
-            lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( root, track_id, &media_param ) < 0 )
-            {
-                set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get media parameters." );
-                return -1;
-            }
-            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-                break;
-        }
-        if( i > number_of_tracks )
-        {
-            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track." );
-            return -1;
-        }
-    }
-    else
-    {
-        /* Get the desired video track. */
-        track_id = lsmash_get_track_ID( root, track_number );
-        if( track_id == 0 )
-        {
-            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find video track %"PRIu32".", track_number );
-            return -1;
-        }
-        libavsmash_video_set_track_id( vdhp, track_id );
-        lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( root, track_id, &media_param ) < 0 )
-        {
-            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get media parameters." );
-            return -1;
-        }
-        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-        {
-            set_error( lhp, LW_LOG_FATAL, "lsmas: the track you specified is not a video track." );
-            return -1;
-        }
-    }
+    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK, track_number, lhp );
+    if( track_id == 0 )
+        return -1;
+    libavsmash_video_set_track_id( vdhp, track_id );
     if( lsmash_construct_timeline( root, track_id ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get construct timeline." );
@@ -394,6 +346,7 @@ static int get_video_track
     if( libavsmash_video_get_summaries( vdhp ) < 0 )
         return -1;
     /* libavformat */
+    uint32_t i;
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == hp->format_ctx->nb_streams )
     {
@@ -500,6 +453,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         set_error( &lh, LW_LOG_FATAL, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
         return;
     }
+    libavsmash_video_set_log_handler( vdhp, &lh );
     /* Get video track. */
     threads = threads >= 0 ? threads : 0;
     if( get_video_track( hp, track_number, threads, number_of_tracks ) < 0 )
@@ -508,7 +462,6 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         return;
     }
     /* Set up decoders for this track. */
-    libavsmash_video_set_log_handler( vdhp, &lh );
     if( prepare_video_decoding( hp, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );

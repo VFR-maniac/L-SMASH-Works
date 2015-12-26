@@ -56,6 +56,7 @@ uint32_t LSMASHVideoSource::open_file
     lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
     lhp->name     = func_name_video_source;
     lhp->level    = LW_LOG_FATAL;
+    lhp->priv     = env;
     lhp->show_log = throw_error;
     lsmash_movie_parameters_t movie_param;
     AVFormatContext *format_ctx = nullptr;
@@ -80,46 +81,16 @@ void LSMASHVideoSource::get_video_track
         env->ThrowError( "LSMASHVideoSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
     lsmash_root_t *root = libavsmash_video_get_root( vdhp );
-    uint32_t i;
-    uint32_t track_id;
-    lsmash_media_parameters_t media_param;
-    if( track_number == 0 )
-    {
-        /* Get the first video track. */
-        for( i = 1; i <= number_of_tracks; i++ )
-        {
-            track_id = lsmash_get_track_ID( root, i );
-            if( track_id == 0 )
-                env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-            libavsmash_video_set_track_id( vdhp, track_id );
-            lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( root, track_id, &media_param ) )
-                env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
-            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-                break;
-        }
-        if( i > number_of_tracks )
-            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-    }
-    else
-    {
-        /* Get the desired video track. */
-        track_id = lsmash_get_track_ID( root, track_number );
-        if( track_id == 0 )
-            env->ThrowError( "LSMASHVideoSource: failed to find video track." );
-        libavsmash_video_set_track_id( vdhp, track_id );
-        lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( root, track_id, &media_param ) )
-            env->ThrowError( "LSMASHVideoSource: failed to get media parameters." );
-        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-            env->ThrowError( "LSMASHVideoSource: the track you specified is not a video track." );
-    }
+    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK,
+                                                            track_number, libavsmash_video_get_log_handler( vdhp ) );
+    libavsmash_video_set_track_id( vdhp, track_id );
     if( lsmash_construct_timeline( root, track_id ) )
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
     if( libavsmash_video_get_summaries( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
     /* libavformat */
     AVFormatContext *format_ctx = this->format_ctx.get();
+    uint32_t i;
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
     if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
@@ -147,8 +118,6 @@ static void prepare_video_decoding
 )
 {
     /* Initialize the video decoder configuration. */
-    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
-    lhp->priv = env;
     uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
     uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
     uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
@@ -256,6 +225,7 @@ uint32_t LSMASHAudioSource::open_file( const char *source, IScriptEnvironment *e
     lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
     lhp->name     = func_name_audio_source;
     lhp->level    = LW_LOG_FATAL;
+    lhp->priv     = env;
     lhp->show_log = throw_error;
     lsmash_movie_parameters_t movie_param;
     AVFormatContext *format_ctx = nullptr;
@@ -300,40 +270,9 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
     lsmash_root_t *root = libavsmash_audio_get_root( adhp );
-    uint32_t i;
-    uint32_t track_id;
-    lsmash_media_parameters_t media_param;
-    if( track_number == 0 )
-    {
-        /* Get the first audio track. */
-        for( i = 1; i <= number_of_tracks; i++ )
-        {
-            track_id = lsmash_get_track_ID( root, i );
-            if( track_id == 0 )
-                env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
-            libavsmash_audio_set_track_id( adhp, track_id );
-            lsmash_initialize_media_parameters( &media_param );
-            if( lsmash_get_media_parameters( root, track_id, &media_param ) )
-                env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
-            if( media_param.handler_type == ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
-                break;
-        }
-        if( i > number_of_tracks )
-            env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
-    }
-    else
-    {
-        /* Get the desired audio track. */
-        track_id = lsmash_get_track_ID( root, track_number );
-        if( track_id == 0 )
-            env->ThrowError( "LSMASHAudioSource: failed to find audio track." );
-            libavsmash_audio_set_track_id( adhp, track_id );
-        lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( root, track_id, &media_param ) )
-            env->ThrowError( "LSMASHAudioSource: failed to get media parameters." );
-        if( media_param.handler_type != ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK )
-            env->ThrowError( "LSMASHAudioSource: the track you specified is not an audio track." );
-    }
+    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK,
+                                                            track_number, libavsmash_audio_get_log_handler( adhp ) );
+    libavsmash_audio_set_track_id( adhp, track_id );
     if( lsmash_construct_timeline( root, track_id ) )
         env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
      if( libavsmash_audio_get_summaries( adhp ) < 0 )
@@ -344,7 +283,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     {
         libavsmash_audio_output_handler_t *aohp = this->aohp.get();
         uint32_t itunes_metadata_count = lsmash_count_itunes_metadata( root );
-        for( i = 1; i <= itunes_metadata_count; i++ )
+        for( uint32_t i = 1; i <= itunes_metadata_count; i++ )
         {
             lsmash_itunes_metadata_t metadata;
             if( lsmash_get_itunes_metadata( root, i, &metadata ) < 0 )
@@ -400,6 +339,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     }
     /* libavformat */
     AVFormatContext *format_ctx = this->format_ctx.get();
+    uint32_t i;
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
     if( i == format_ctx->nb_streams )
         env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
@@ -426,8 +366,6 @@ static void prepare_audio_decoding
 )
 {
     /* Initialize the audio decoder configuration. */
-    lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
-    lhp->priv = env;
     if( libavsmash_audio_initialize_decoder_configuration( adhp ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
     aohp->output_channel_layout  = libavsmash_audio_get_best_used_channel_layout ( adhp );
@@ -469,7 +407,7 @@ LSMASHAudioSource::~LSMASHAudioSource()
 {
     libavsmash_audio_decode_handler_t *adhp = this->adhp.get();
     lsmash_root_t *root = libavsmash_audio_get_root( adhp );
-    lw_freep( libavsmash_audio_get_preferred_decoder_names( adhp ) );
+    lw_free( libavsmash_audio_get_preferred_decoder_names( adhp ) );
     lsmash_close_file( &file_param );
     lsmash_destroy_root( root );
 }

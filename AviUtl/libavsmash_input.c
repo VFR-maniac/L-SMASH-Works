@@ -114,60 +114,53 @@ static libavsmash_handler_t *alloc_handler
 
 static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
 {
-    libavsmash_handler_t *hp = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK)
-                             ? (libavsmash_handler_t *)h->video_private
-                             : (libavsmash_handler_t *)h->audio_private;
+    libavsmash_handler_t *hp;
+    lw_log_handler_t     *lhp;
+    if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+    {
+        hp = (libavsmash_handler_t *)h->video_private;
+        lhp = libavsmash_video_get_log_handler( hp->vdhp );
+        libavsmash_video_set_root( hp->vdhp, hp->root );
+#ifdef DEBUG_VIDEO
+    lhp->show_log = au_message_box_desktop;
+#endif
+    }
+    else
+    {
+        hp = (libavsmash_handler_t *)h->audio_private;
+        lhp = libavsmash_audio_get_log_handler( hp->adhp );
+        libavsmash_audio_set_root( hp->adhp, hp->root );
+#ifdef DEBUG_AUDIO
+    lhp->show_log = au_message_box_desktop;
+#endif
+    }
     /* L-SMASH */
-    uint32_t track_ID = 0;
-    uint32_t i;
-    lsmash_media_parameters_t media_param;
-    for( i = 1; i <= hp->number_of_tracks; i++ )
-    {
-        track_ID = lsmash_get_track_ID( hp->root, i );
-        if( track_ID == 0 )
-            return -1;
-        lsmash_initialize_media_parameters( &media_param );
-        if( lsmash_get_media_parameters( hp->root, track_ID, &media_param ) )
-        {
-            DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get media parameters." );
-            return -1;
-        }
-        if( media_param.handler_type == type )
-            break;
-    }
-    if( i > hp->number_of_tracks )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s track.",
-                                   type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK ? "video" : "audio" );
+    uint32_t track_id = libavsmash_get_track_by_media_type( hp->root, type, 0, NULL );
+    if( track_id == 0 )
         return -1;
-    }
-    if( lsmash_construct_timeline( hp->root, track_ID ) )
+    if( lsmash_construct_timeline( hp->root, track_id ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get construct timeline." );
         return -1;
     }
-    lw_log_handler_t *lhp;
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
         libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
-        libavsmash_video_set_root    ( vdhp, hp->root );
-        libavsmash_video_set_track_id( vdhp, track_ID );
+        libavsmash_video_set_track_id( vdhp, track_id );
         if( libavsmash_video_get_summaries( vdhp ) < 0 )
             return -1;
-        lhp = libavsmash_video_get_log_handler( vdhp );
     }
     else
     {
         libavsmash_audio_decode_handler_t *adhp = hp->adhp;
-        libavsmash_audio_set_root    ( adhp, hp->root );
-        libavsmash_audio_set_track_id( adhp, track_ID );
+        libavsmash_audio_set_track_id( adhp, track_id );
         if( libavsmash_audio_get_summaries( adhp ) < 0 )
             return -1;
-        lhp = libavsmash_audio_get_log_handler( adhp );
     }
     lhp->show_log = au_message_box_desktop;
     /* libavformat */
     type = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK) ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
+    uint32_t i;
     for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != type; i++ );
     if( i == hp->format_ctx->nb_streams )
     {
