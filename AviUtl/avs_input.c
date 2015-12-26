@@ -147,51 +147,6 @@ static void close_avisynth_dll( avs_handler_t *hp )
     FreeLibrary( hp->library );
 }
 
-static void *open_file( char *file_name, reader_option_t *opt )
-{
-    /* Check file extension. */
-    if( lw_check_file_extension( file_name, "avs" ) < 0 )
-        return NULL;
-    /* Try to open the file as avisynth script. */
-    avs_handler_t *hp = lw_malloc_zero( sizeof(avs_handler_t) );
-    if( !hp )
-        return NULL;
-    AVS_Value res = initialize_avisynth( hp, file_name );
-    if( !avs_is_clip( res ) )
-    {
-        if( hp->library )
-            close_avisynth_dll( hp );
-        free( hp );
-        return NULL;
-    }
-    hp->func.avs_release_value( res );
-    return hp;
-}
-
-static int get_video_track( lsmash_handler_t *h )
-{
-    avs_handler_t *hp = (avs_handler_t *)h->video_private;
-    if( hp->vi->num_frames <= 0 || hp->vi->width <= 0 || hp->vi->height <= 0 )
-        return -1;
-    hp->ctx = avcodec_alloc_context3( NULL );
-    if( !hp->ctx )
-        return -1;
-    hp->av_frame = av_frame_alloc();
-    if( !hp->av_frame )
-    {
-        avcodec_close( hp->ctx );
-        hp->ctx = NULL;
-        return -1;
-    }
-    return 0;
-}
-
-static int get_audio_track( lsmash_handler_t *h )
-{
-    avs_handler_t *hp = (avs_handler_t *)h->audio_private;
-    return hp->vi->num_audio_samples > 0 ? 0 : -1;
-}
-
 static enum AVPixelFormat as_to_av_input_pixel_format
 (
     int  as_input_pixel_format,
@@ -287,6 +242,53 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     return 0;
 }
 
+static void *open_file( char *file_name, reader_option_t *opt )
+{
+    /* Check file extension. */
+    if( lw_check_file_extension( file_name, "avs" ) < 0 )
+        return NULL;
+    /* Try to open the file as avisynth script. */
+    avs_handler_t *hp = lw_malloc_zero( sizeof(avs_handler_t) );
+    if( !hp )
+        return NULL;
+    AVS_Value res = initialize_avisynth( hp, file_name );
+    if( !avs_is_clip( res ) )
+    {
+        if( hp->library )
+            close_avisynth_dll( hp );
+        lw_free( hp );
+        return NULL;
+    }
+    hp->func.avs_release_value( res );
+    return hp;
+}
+
+static int get_video_track( lsmash_handler_t *h, video_option_t *opt )
+{
+    avs_handler_t *hp = (avs_handler_t *)h->video_private;
+    if( hp->vi->num_frames <= 0 || hp->vi->width <= 0 || hp->vi->height <= 0 )
+        return -1;
+    hp->ctx = avcodec_alloc_context3( NULL );
+    if( !hp->ctx )
+        return -1;
+    hp->av_frame = av_frame_alloc();
+    if( !hp->av_frame )
+    {
+        avcodec_close( hp->ctx );
+        hp->ctx = NULL;
+        return -1;
+    }
+    return prepare_video_decoding( h, opt );
+}
+
+static int get_audio_track( lsmash_handler_t *h, audio_option_t *opt )
+{
+    avs_handler_t *hp = (avs_handler_t *)h->audio_private;
+    if( hp->vi->num_audio_samples <= 0 )
+        return -1;
+    return prepare_audio_decoding( h, opt );
+}
+
 static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
 {
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
@@ -344,8 +346,7 @@ static void video_cleanup
         avcodec_close( hp->ctx );
         hp->ctx = NULL;
     }
-    if( hp->av_frame )
-        av_frame_free( &hp->av_frame );
+    av_frame_free( &hp->av_frame );
     lw_cleanup_video_output_handler( &hp->voh );
 }
 
@@ -356,7 +357,7 @@ static void close_file( void *private_stuff )
         return;
     if( hp->library )
         close_avisynth_dll( hp );
-    free( hp );
+    lw_free( hp );
 }
 
 lsmash_reader_t avs_reader =
@@ -366,8 +367,6 @@ lsmash_reader_t avs_reader =
     get_video_track,
     get_audio_track,
     NULL,
-    prepare_video_decoding,
-    prepare_audio_decoding,
     read_video,
     read_audio,
     NULL,

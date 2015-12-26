@@ -397,7 +397,7 @@ INPUT_HANDLE func_open( LPSTR file )
             {
                 hp->video_private = private_stuff;
                 if( reader.get_video_track
-                 && reader.get_video_track( hp ) == 0 )
+                 && reader.get_video_track( hp, video_opt ) == 0 )
                 {
                     hp->video_reader     = reader.type;
                     hp->read_video       = reader.read_video;
@@ -413,7 +413,7 @@ INPUT_HANDLE func_open( LPSTR file )
             {
                 hp->audio_private = private_stuff;
                 if( reader.get_audio_track
-                 && reader.get_audio_track( hp ) == 0 )
+                 && reader.get_audio_track( hp, audio_opt ) == 0 )
                 {
                     hp->audio_reader     = reader.type;
                     hp->read_audio       = reader.read_audio;
@@ -432,38 +432,8 @@ INPUT_HANDLE func_open( LPSTR file )
                 reader.close_file( private_stuff );
         }
         else
-        {
             if( reader.destroy_disposable )
                 reader.destroy_disposable( private_stuff );
-            if( !video_none
-             && reader.prepare_video_decoding
-             && reader.prepare_video_decoding( hp, video_opt ) )
-            {
-                if( hp->video_cleanup )
-                {
-                    hp->video_cleanup( hp );
-                    hp->video_cleanup = NULL;
-                }
-                hp->video_private = NULL;
-                hp->video_reader  = READER_NONE;
-                video_none = 1;
-            }
-            if( !audio_none
-             && reader.prepare_audio_decoding
-             && reader.prepare_audio_decoding( hp, audio_opt ) )
-            {
-                if( hp->audio_cleanup )
-                {
-                    hp->audio_cleanup( hp );
-                    hp->audio_cleanup = NULL;
-                }
-                hp->audio_private = NULL;
-                hp->audio_reader  = READER_NONE;
-                audio_none = 1;
-            }
-            if( video_none && audio_none && reader.close_file )
-                reader.close_file( private_stuff );
-        }
         /* Found both video and audio reader. */
         if( hp->video_reader != READER_NONE && hp->audio_reader != READER_NONE )
             break;
@@ -503,7 +473,7 @@ BOOL func_close( INPUT_HANDLE ih )
         if( hp->close_audio_file )
             hp->close_audio_file( hp->audio_private );
     }
-    free( hp );
+    lw_free( hp );
     return TRUE;
 }
 

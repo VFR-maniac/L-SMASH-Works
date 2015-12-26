@@ -148,7 +148,6 @@ uint32_t libavsmash_audio_fetch_sample_count
     libavsmash_audio_decode_handler_t *adhp
 );
 
-/* unused currently */
 uint32_t libavsmash_audio_fetch_media_timescale
 (
     libavsmash_audio_decode_handler_t *adhp

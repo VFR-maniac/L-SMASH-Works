@@ -121,57 +121,6 @@ static void close_vsscript_dll
     FreeLibrary( hp->library );
 }
 
-static void *open_file
-(
-    char            *file_name,
-    reader_option_t *opt
-)
-{
-    /* Check file extension. */
-    if( lw_check_file_extension( file_name, "vpy" ) < 0 )
-        return NULL;
-    /* Try to open the file as VapourSynth script. */
-    vpy_handler_t *hp = lw_malloc_zero( sizeof(vpy_handler_t) );
-    if( !hp )
-        return NULL;
-    if( load_vsscript_dll( hp ) < 0 )
-    {
-        free( hp );
-        return NULL;
-    }
-    if( hp->vsscript.func.init() == 0 )
-        goto fail;
-    hp->vsapi = hp->vsscript.func.getVSApi();
-    if( !hp->vsapi || hp->vsscript.func.evaluateFile( &hp->vsscript.handle, file_name, efSetWorkingDir ) )
-        goto fail;
-    hp->node = hp->vsscript.func.getOutput( hp->vsscript.handle, 0 );
-    if( !hp->node )
-        goto fail;
-    hp->vi = hp->vsapi->getVideoInfo( hp->node );
-    /* */
-    hp->ctx = avcodec_alloc_context3( NULL );
-    if( !hp->ctx )
-        goto fail;
-    return hp;
-fail:
-    if( hp->library )
-        close_vsscript_dll( hp );
-    free( hp );
-    return NULL;
-}
-
-static int get_video_track
-(
-    lsmash_handler_t *h
-)
-{
-    vpy_handler_t *hp = (vpy_handler_t *)h->video_private;
-    if( !isConstantFormat( hp->vi ) || hp->vi->numFrames <= 0 )
-        return -1;
-    hp->av_frame = av_frame_alloc();
-    return hp->av_frame ? 0 : -1;
-}
-
 static enum AVPixelFormat vs_to_av_input_pixel_format
 (
     VSPresetFormat vs_input_pixel_format
@@ -288,6 +237,60 @@ static inline void get_interlaced_info
     }
 }
 
+static void *open_file
+(
+    char            *file_name,
+    reader_option_t *opt
+)
+{
+    /* Check file extension. */
+    if( lw_check_file_extension( file_name, "vpy" ) < 0 )
+        return NULL;
+    /* Try to open the file as VapourSynth script. */
+    vpy_handler_t *hp = lw_malloc_zero( sizeof(vpy_handler_t) );
+    if( !hp )
+        return NULL;
+    if( load_vsscript_dll( hp ) < 0 )
+    {
+        lw_free( hp );
+        return NULL;
+    }
+    if( hp->vsscript.func.init() == 0 )
+        goto fail;
+    hp->vsapi = hp->vsscript.func.getVSApi();
+    if( !hp->vsapi || hp->vsscript.func.evaluateFile( &hp->vsscript.handle, file_name, efSetWorkingDir ) )
+        goto fail;
+    hp->node = hp->vsscript.func.getOutput( hp->vsscript.handle, 0 );
+    if( !hp->node )
+        goto fail;
+    hp->vi = hp->vsapi->getVideoInfo( hp->node );
+    /* */
+    hp->ctx = avcodec_alloc_context3( NULL );
+    if( !hp->ctx )
+        goto fail;
+    return hp;
+fail:
+    if( hp->library )
+        close_vsscript_dll( hp );
+    lw_free( hp );
+    return NULL;
+}
+
+static int get_video_track
+(
+    lsmash_handler_t *h,
+    video_option_t   *opt
+)
+{
+    vpy_handler_t *hp = (vpy_handler_t *)h->video_private;
+    if( !isConstantFormat( hp->vi ) || hp->vi->numFrames <= 0 )
+        return -1;
+    hp->av_frame = av_frame_alloc();
+    if( !hp->av_frame )
+        return -1;
+    return prepare_video_decoding( h, opt );
+}
+
 static int read_video
 (
     lsmash_handler_t *h,
@@ -329,8 +332,7 @@ static void video_cleanup
     vpy_handler_t *hp = (vpy_handler_t *)h->video_private;
     if( !hp )
         return;
-    if( hp->av_frame )
-        av_frame_free( &hp->av_frame );
+    av_frame_free( &hp->av_frame );
     lw_cleanup_video_output_handler( &hp->voh );
 }
 
@@ -346,7 +348,7 @@ static void close_file
         avcodec_close( hp->ctx );
     if( hp->library )
         close_vsscript_dll( hp );
-    free( hp );
+    lw_free( hp );
 }
 
 lsmash_reader_t vpy_reader =
@@ -355,8 +357,6 @@ lsmash_reader_t vpy_reader =
     open_file,
     get_video_track,
     NULL,
-    NULL,
-    prepare_video_decoding,
     NULL,
     read_video,
     NULL,

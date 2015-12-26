@@ -111,77 +111,6 @@ static libav_handler_t *alloc_handler
     return hp;
 }
 
-static void *open_file( char *file_path, reader_option_t *opt )
-{
-    libav_handler_t *hp = alloc_handler();
-    if( !hp )
-        return NULL;
-    /* Set up error handler. */
-    lw_log_handler_t *vlhp = lwlibav_video_get_log_handler( hp->vdhp );
-    lw_log_handler_t *alhp = lwlibav_audio_get_log_handler( hp->adhp );
-    vlhp->level    = LW_LOG_FATAL;
-    vlhp->priv     = &hp->uType;
-    vlhp->show_log = NULL;
-    *alhp = *vlhp;
-    hp->uType = MB_ICONERROR | MB_OK;
-    /* Set options. */
-    lwlibav_option_t lwlibav_opt;
-    lwlibav_opt.file_path         = file_path;
-    lwlibav_opt.threads           = opt->threads;
-    lwlibav_opt.av_sync           = opt->av_sync;
-    lwlibav_opt.no_create_index   = opt->no_create_index;
-    lwlibav_opt.force_video       = opt->force_video;
-    lwlibav_opt.force_video_index = opt->force_video_index;
-    lwlibav_opt.force_audio       = opt->force_audio;
-    lwlibav_opt.force_audio_index = opt->force_audio_index;
-    lwlibav_opt.apply_repeat_flag = opt->video_opt.apply_repeat_flag;
-    lwlibav_opt.field_dominance   = opt->video_opt.field_dominance;
-    lwlibav_opt.vfr2cfr.active    = opt->video_opt.vfr2cfr.active;
-    lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
-    lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
-    lwlibav_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
-    lwlibav_audio_set_preferred_decoder_names( hp->adhp, opt->preferred_decoder_names );
-    /* Set up progress indicator. */
-    progress_indicator_t indicator;
-    indicator.open   = open_indicator;
-    indicator.update = update_indicator;
-    indicator.close  = close_indicator;
-    progress_handler_t ph = { { 0 } };
-    ph.module_name = "lwinput.aui";
-    ph.template_id = IDD_PROGRESS_ABORTABLE;
-    /* Construct index. */
-    if( lwlibav_construct_index( &hp->lwh, hp->vdhp, hp->vohp, hp->adhp, hp->aohp, vlhp, &lwlibav_opt, &indicator, &ph ) < 0 )
-    {
-        free_handler( &hp );
-        return NULL;
-    }
-    return hp;
-}
-
-static int get_video_track( lsmash_handler_t *h )
-{
-    libav_handler_t *hp = (libav_handler_t *)h->video_private;
-    if( lwlibav_video_get_desired_track( hp->lwh.file_path, hp->vdhp, hp->lwh.threads ) < 0 )
-        return -1;
-    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( hp->vdhp );
-    lhp->level    = LW_LOG_WARNING;
-    lhp->priv     = &hp->uType;
-    lhp->show_log = au_message_box_desktop;
-    return 0;
-}
-
-static int get_audio_track( lsmash_handler_t *h )
-{
-    libav_handler_t *hp = (libav_handler_t *)h->audio_private;
-    if( lwlibav_audio_get_desired_track( hp->lwh.file_path, hp->adhp, hp->lwh.threads ) < 0 )
-        return -1;
-    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( hp->adhp );
-    lhp->level    = LW_LOG_WARNING;
-    lhp->priv     = &hp->uType;
-    lhp->show_log = au_message_box_desktop;
-    return 0;
-}
-
 static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libav_handler_t *hp = (libav_handler_t *)h->video_private;
@@ -256,6 +185,77 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     /* Force seeking at the first reading. */
     lwlibav_audio_force_seek( adhp );
     return 0;
+}
+
+static void *open_file( char *file_path, reader_option_t *opt )
+{
+    libav_handler_t *hp = alloc_handler();
+    if( !hp )
+        return NULL;
+    /* Set up error handler. */
+    lw_log_handler_t *vlhp = lwlibav_video_get_log_handler( hp->vdhp );
+    lw_log_handler_t *alhp = lwlibav_audio_get_log_handler( hp->adhp );
+    vlhp->level    = LW_LOG_FATAL;
+    vlhp->priv     = &hp->uType;
+    vlhp->show_log = NULL;
+    *alhp = *vlhp;
+    hp->uType = MB_ICONERROR | MB_OK;
+    /* Set options. */
+    lwlibav_option_t lwlibav_opt;
+    lwlibav_opt.file_path         = file_path;
+    lwlibav_opt.threads           = opt->threads;
+    lwlibav_opt.av_sync           = opt->av_sync;
+    lwlibav_opt.no_create_index   = opt->no_create_index;
+    lwlibav_opt.force_video       = opt->force_video;
+    lwlibav_opt.force_video_index = opt->force_video_index;
+    lwlibav_opt.force_audio       = opt->force_audio;
+    lwlibav_opt.force_audio_index = opt->force_audio_index;
+    lwlibav_opt.apply_repeat_flag = opt->video_opt.apply_repeat_flag;
+    lwlibav_opt.field_dominance   = opt->video_opt.field_dominance;
+    lwlibav_opt.vfr2cfr.active    = opt->video_opt.vfr2cfr.active;
+    lwlibav_opt.vfr2cfr.fps_num   = opt->video_opt.vfr2cfr.framerate_num;
+    lwlibav_opt.vfr2cfr.fps_den   = opt->video_opt.vfr2cfr.framerate_den;
+    lwlibav_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
+    lwlibav_audio_set_preferred_decoder_names( hp->adhp, opt->preferred_decoder_names );
+    /* Set up progress indicator. */
+    progress_indicator_t indicator;
+    indicator.open   = open_indicator;
+    indicator.update = update_indicator;
+    indicator.close  = close_indicator;
+    progress_handler_t ph = { { 0 } };
+    ph.module_name = "lwinput.aui";
+    ph.template_id = IDD_PROGRESS_ABORTABLE;
+    /* Construct index. */
+    if( lwlibav_construct_index( &hp->lwh, hp->vdhp, hp->vohp, hp->adhp, hp->aohp, vlhp, &lwlibav_opt, &indicator, &ph ) < 0 )
+    {
+        free_handler( &hp );
+        return NULL;
+    }
+    return hp;
+}
+
+static int get_video_track( lsmash_handler_t *h, video_option_t *opt )
+{
+    libav_handler_t *hp = (libav_handler_t *)h->video_private;
+    if( lwlibav_video_get_desired_track( hp->lwh.file_path, hp->vdhp, hp->lwh.threads ) < 0 )
+        return -1;
+    lw_log_handler_t *lhp = lwlibav_video_get_log_handler( hp->vdhp );
+    lhp->level    = LW_LOG_WARNING;
+    lhp->priv     = &hp->uType;
+    lhp->show_log = au_message_box_desktop;
+    return prepare_video_decoding( h, opt );
+}
+
+static int get_audio_track( lsmash_handler_t *h, audio_option_t *opt )
+{
+    libav_handler_t *hp = (libav_handler_t *)h->audio_private;
+    if( lwlibav_audio_get_desired_track( hp->lwh.file_path, hp->adhp, hp->lwh.threads ) < 0 )
+        return -1;
+    lw_log_handler_t *lhp = lwlibav_audio_get_log_handler( hp->adhp );
+    lhp->level    = LW_LOG_WARNING;
+    lhp->priv     = &hp->uType;
+    lhp->show_log = au_message_box_desktop;
+    return prepare_audio_decoding( h, opt );
 }
 
 static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
@@ -345,8 +345,6 @@ lsmash_reader_t libav_reader =
     get_video_track,
     get_audio_track,
     NULL,
-    prepare_video_decoding,
-    prepare_audio_decoding,
     read_video,
     read_audio,
     is_keyframe,

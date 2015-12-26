@@ -35,12 +35,7 @@ static void *open_file( char *file_name, reader_option_t *opt )
     return lw_malloc_zero( sizeof(dummy_handler_t) );
 }
 
-static int get_first_video_track( lsmash_handler_t *h )
-{
-    return 0;
-}
-
-static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
+static int get_first_video_track( lsmash_handler_t *h, video_option_t *opt )
 {
     if( h->audio_pcm_sample_count == 0 || h->audio_format.Format.nSamplesPerSec == 0 )
         return -1;  /* Only available if audio stream is present. */
@@ -111,9 +106,8 @@ static void close_file( void *private_stuff )
     dummy_handler_t *hp = (dummy_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->dummy_data )
-        free( hp->dummy_data );
-    free( hp );
+    lw_free( hp->dummy_data );
+    lw_free( hp );
 }
 
 lsmash_reader_t dummy_reader =
@@ -122,8 +116,6 @@ lsmash_reader_t dummy_reader =
     open_file,
     get_first_video_track,
     NULL,
-    NULL,
-    prepare_video_decoding,
     NULL,
     read_video,
     NULL,
