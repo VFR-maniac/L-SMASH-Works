@@ -140,8 +140,6 @@ static void prepare_video_decoding
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
     int                                direct_rendering,
-    int                                fps_num,
-    int                                fps_den,
     int                                stacked_format,
     enum AVPixelFormat                 pixel_format,
     VideoInfo                         &vi,
@@ -166,18 +164,9 @@ static void prepare_video_decoding
                                   max_width, max_height );
     libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
     /* Calculate average framerate. */
-    vohp->vfr2cfr = (fps_num > 0 && fps_den > 0);
-    vohp->cfr_num = (uint32_t)fps_num;
-    vohp->cfr_den = (uint32_t)fps_den;
-    if( vohp->vfr2cfr )
-        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
-                                     * ((double)media_duration / media_timescale)
-                                     + 0.5);
-    else
-        vohp->frame_count = sample_count;
-    int64_t src_fps_num = 25;
-    int64_t src_fps_den = 1;
-    libavsmash_video_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
+    int64_t fps_num = 25;
+    int64_t fps_den = 1;
+    libavsmash_video_setup_timestamp_info( vdhp, vohp, &fps_num, &fps_den );
     if( vohp->vfr2cfr )
     {
         if( libavsmash_video_get_error( vdhp ) )
@@ -189,8 +178,8 @@ static void prepare_video_decoding
     if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
     /* Setup filter specific info. */
-    vi.fps_numerator   = (unsigned int)(vohp->vfr2cfr ? fps_num : src_fps_num);
-    vi.fps_denominator = (unsigned int)(vohp->vfr2cfr ? fps_den : src_fps_den);
+    vi.fps_numerator   = (unsigned int)fps_num;
+    vi.fps_denominator = (unsigned int)fps_den;
     vi.num_frames      = vohp->frame_count;
     /* Force seeking at the first reading. */
     libavsmash_video_force_seek( vdhp );
@@ -219,6 +208,9 @@ LSMASHVideoSource::LSMASHVideoSource
     libavsmash_video_set_seek_mode              ( vdhp, seek_mode );
     libavsmash_video_set_forward_seek_threshold ( vdhp, forward_seek_threshold );
     libavsmash_video_set_preferred_decoder_names( vdhp, tokenize_preferred_decoder_names() );
+    vohp->vfr2cfr = (fps_num > 0 && fps_den > 0);
+    vohp->cfr_num = (uint32_t)fps_num;
+    vohp->cfr_den = (uint32_t)fps_den;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_malloc_zero( sizeof(as_video_output_handler_t) );
     if( as_vohp == nullptr )
         env->ThrowError( "LSMASHVideoSource: failed to allocate the AviSynth video output handler." );
@@ -227,7 +219,7 @@ LSMASHVideoSource::LSMASHVideoSource
     vohp->private_handler      = as_vohp;
     vohp->free_private_handler = as_free_video_output_handler;
     get_video_track( source, track_number, threads, env );
-    prepare_video_decoding( vdhp, vohp, direct_rendering, fps_num, fps_den, stacked_format, pixel_format, vi, env );
+    prepare_video_decoding( vdhp, vohp, direct_rendering, stacked_format, pixel_format, vi, env );
     lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
 }
 

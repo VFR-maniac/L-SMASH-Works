@@ -278,26 +278,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     int max_height = libavsmash_video_get_max_height( vdhp );
     if( !au_setup_video_rendering( vohp, ctx, opt, &h->video_format, max_width, max_height ) )
         return -1;
-    /* Set video options.
-     * TODO: Move setting of output frame count into libavsmash_video_setup_timestamp_info(). */
-    libavsmash_video_set_seek_mode             ( vdhp, opt->seek_mode );
-    libavsmash_video_set_forward_seek_threshold( vdhp, opt->forward_seek_threshold );
-    vohp->vfr2cfr = opt->vfr2cfr.active;
-    vohp->cfr_num = opt->vfr2cfr.framerate_num;
-    vohp->cfr_den = opt->vfr2cfr.framerate_den;
-    if( vohp->vfr2cfr )
-    {
-        uint32_t media_timescale = libavsmash_video_get_media_timescale( vdhp );
-        uint64_t media_duration  = libavsmash_video_get_media_duration ( vdhp );
-        vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
-                          * ((double)media_duration / media_timescale)
-                          + 0.5;
-    }
-    else
-        vohp->frame_count = libavsmash_video_get_sample_count( vdhp );
+    /* Set up timestamp info. */
     int64_t fps_num = 25;
     int64_t fps_den = 1;
-    libavsmash_video_setup_timestamp_info( vdhp, &fps_num, &fps_den );  /* TODO: set both output frame count and output framerate here. */
+    libavsmash_video_setup_timestamp_info( vdhp, vohp, &fps_num, &fps_den );
     if( libavsmash_video_get_error( vdhp ) )
     {
         DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of video stream." );
@@ -331,8 +315,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
         hp->vih.skip_duration = ctd_shift + get_start_time( hp->root, track_id );
     }
     hp->vih.media_timescale = media_timescale;
-    h->framerate_num      = (int)(vohp->vfr2cfr ? vohp->cfr_num : fps_num);
-    h->framerate_den      = (int)(vohp->vfr2cfr ? vohp->cfr_den : fps_den);
+    h->framerate_num      = (int)fps_num;
+    h->framerate_den      = (int)fps_den;
     h->video_sample_count = vohp->frame_count;
     /* Force seeking at the first reading. */
     libavsmash_video_force_seek( vdhp );
@@ -448,6 +432,15 @@ static int get_first_video_track( lsmash_handler_t *h, video_option_t *opt )
         libavsmash_video_close_codec_context( hp->vdhp );
         return -1;
     }
+    /* Set video options. */
+    libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
+    libavsmash_video_output_handler_t *vohp = hp->vohp;
+    libavsmash_video_set_seek_mode             ( vdhp, opt->seek_mode );
+    libavsmash_video_set_forward_seek_threshold( vdhp, opt->forward_seek_threshold );
+    vohp->vfr2cfr = opt->vfr2cfr.active;
+    vohp->cfr_num = opt->vfr2cfr.framerate_num;
+    vohp->cfr_den = opt->vfr2cfr.framerate_den;
+    /* TODO: Maybe, the number of output frames should be set up here. */
     return prepare_video_decoding( h, opt );
 }
 

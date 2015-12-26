@@ -454,18 +454,19 @@ void libavsmash_video_close_codec_context
 int libavsmash_video_setup_timestamp_info
 (
     libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
     int64_t                           *framerate_num,
     int64_t                           *framerate_den
 )
 {
     int err = -1;
     uint64_t media_timescale = lsmash_get_media_timescale( vdhp->root, vdhp->track_id );
+    uint64_t media_duration  = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_id );
+    if( media_duration == 0 )
+        media_duration = INT32_MAX;
     if( vdhp->sample_count == 1 )
     {
         /* Calculate average framerate. */
-        uint64_t media_duration = lsmash_get_media_duration_from_media_timeline( vdhp->root, vdhp->track_id );
-        if( media_duration == 0 )
-            media_duration = INT32_MAX;
         reduce_fraction( &media_timescale, &media_duration );
         *framerate_num = (int64_t)media_timescale;
         *framerate_den = (int64_t)media_duration;
@@ -555,6 +556,17 @@ int libavsmash_video_setup_timestamp_info
     }
     err = 0;
 setup_finish:;
+    if( vohp->vfr2cfr )
+    {
+        /* Override average framerate by specified output constant framerate. */
+        *framerate_num = (int64_t)vohp->cfr_num;
+        *framerate_den = (int64_t)vohp->cfr_den;
+        vohp->frame_count = ((double)vohp->cfr_num / vohp->cfr_den)
+                          * ((double)media_duration / media_timescale)
+                          + 0.5;
+    }
+    else
+        vohp->frame_count = libavsmash_video_get_sample_count( vdhp );
     uint32_t min_cts_sample_number = get_decoding_sample_number( vdhp->order_converter, 1 );
     vdhp->config.error = lsmash_get_cts_from_media_timeline( vdhp->root, vdhp->track_id, min_cts_sample_number, &vdhp->min_cts );
     return err;

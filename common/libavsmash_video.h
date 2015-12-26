@@ -263,11 +263,12 @@ void libavsmash_video_close_codec_context
 );
 
 /* Setup average framerate and timestamp list.
- * Set an error if failed to get the minimum composition timestamp.
+ * This function sets an error if failed to get the minimum composition timestamp.
  * The minimum composition timestamp is used for VFR -> CFR conversion. */
 int libavsmash_video_setup_timestamp_info
 (
     libavsmash_video_decode_handler_t *vdhp,
+    libavsmash_video_output_handler_t *vohp,
     int64_t                           *framerate_num,
     int64_t                           *framerate_den
 );

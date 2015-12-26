@@ -193,8 +193,6 @@ static void set_frame_properties
 static int prepare_video_decoding
 (
     lsmas_handler_t *hp,
-    int64_t          fps_num,
-    int64_t          fps_den,
     VSCore          *core,
     const VSAPI     *vsapi
 )
@@ -203,9 +201,9 @@ static int prepare_video_decoding
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     VSVideoInfo                       *vi   = &hp->vi;
     lw_log_handler_t                  *lhp  = libavsmash_video_get_log_handler( vdhp );
-    uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
-    uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
-    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
+    (void)libavsmash_video_fetch_sample_count   ( vdhp );
+    (void)libavsmash_video_fetch_media_duration ( vdhp );
+    (void)libavsmash_video_fetch_media_timescale( vdhp );
     /* Initialize the video decoder configuration. */
     if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
     {
@@ -238,18 +236,9 @@ static int prepare_video_decoding
     }
     libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
     /* Calculate average framerate. */
-    vohp->vfr2cfr = (fps_num > 0 && fps_den > 0);
-    vohp->cfr_num = (uint32_t)fps_num;
-    vohp->cfr_den = (uint32_t)fps_den;
-    if( vohp->vfr2cfr )
-        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
-                                     * ((double)media_duration / media_timescale)
-                                     + 0.5);
-    else
-        vohp->frame_count = sample_count;
-    int64_t src_fps_num = 25;
-    int64_t src_fps_den = 1;
-    libavsmash_video_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
+    int64_t fps_num = 25;
+    int64_t fps_den = 1;
+    libavsmash_video_setup_timestamp_info( vdhp, vohp, &fps_num, &fps_den );
     if( vohp->vfr2cfr )
     {
         if( libavsmash_video_get_error( vdhp ) )
@@ -267,8 +256,8 @@ static int prepare_video_decoding
         return -1;
     }
     /* Setup filter specific info. */
-    hp->vi.fpsNum    = vohp->vfr2cfr ? fps_num : src_fps_num;
-    hp->vi.fpsDen    = vohp->vfr2cfr ? fps_den : src_fps_den;
+    hp->vi.fpsNum    = fps_num;
+    hp->vi.fpsDen    = fps_den;
     hp->vi.numFrames = vohp->frame_count;
     /* Force seeking at the first reading. */
     libavsmash_video_force_seek( vdhp );
@@ -499,6 +488,9 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     libavsmash_video_set_seek_mode              ( vdhp, CLIP_VALUE( seek_mode,      0, 2 ) );
     libavsmash_video_set_forward_seek_threshold ( vdhp, CLIP_VALUE( seek_threshold, 1, 999 ) );
     libavsmash_video_set_preferred_decoder_names( vdhp, tokenize_preferred_decoder_names( hp->preferred_decoder_names_buf ) );
+    vohp->vfr2cfr = (fps_num > 0 && fps_den > 0);
+    vohp->cfr_num = (uint32_t)fps_num;
+    vohp->cfr_den = (uint32_t)fps_den;
     vs_vohp->variable_info               = CLIP_VALUE( variable_info,  0, 1 );
     vs_vohp->direct_rendering            = CLIP_VALUE( direct_rendering,  0, 1 ) && !format;
     vs_vohp->vs_output_pixel_format = vs_vohp->variable_info ? pfNone : get_vs_output_pixel_format( format );
@@ -517,7 +509,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     /* Set up decoders for this track. */
     libavsmash_video_set_log_handler( vdhp, &lh );
-    if( prepare_video_decoding( hp, fps_num, fps_den, core, vsapi ) < 0 )
+    if( prepare_video_decoding( hp, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;
