@@ -58,8 +58,6 @@ private:
         const char                        *source,
         uint32_t                           track_number,
         int                                threads,
-        int                                fps_num,
-        int                                fps_den,
         IScriptEnvironment                *env
     );
 public:

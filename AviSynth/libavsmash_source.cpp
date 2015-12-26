@@ -70,8 +70,6 @@ void LSMASHVideoSource::get_video_track
     const char                        *source,
     uint32_t                           track_number,
     int                                threads,
-    int                                fps_num,
-    int                                fps_den,
     IScriptEnvironment                *env
 )
 {
@@ -120,34 +118,6 @@ void LSMASHVideoSource::get_video_track
         env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
     if( libavsmash_video_get_summaries( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
-    uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
-    uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
-    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
-    /* Calculate average framerate. */
-    int64_t src_fps_num = 25;
-    int64_t src_fps_den = 1;
-    libavsmash_video_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
-    if( fps_num > 0 && fps_den > 0 )
-    {
-        if( libavsmash_video_get_error( vdhp ) )
-            env->ThrowError( "LSMASHVideoSource: failed to get the minimum CTS of video stream." );
-        vi.fps_numerator   = (unsigned int)fps_num;
-        vi.fps_denominator = (unsigned int)fps_den;
-        vohp->vfr2cfr     = 1;
-        vohp->cfr_num     = (uint32_t)fps_num;
-        vohp->cfr_den     = (uint32_t)fps_den;
-        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
-                                     * ((double)media_duration / media_timescale)
-                                     + 0.5);
-    }
-    else
-    {
-        libavsmash_video_clear_error( vdhp );
-        vi.fps_numerator   = (unsigned int)src_fps_num;
-        vi.fps_denominator = (unsigned int)src_fps_den;
-        vohp->frame_count = sample_count;
-    }
-    vi.num_frames = vohp->frame_count;
     /* libavformat */
     AVFormatContext *format_ctx = this->format_ctx.get();
     for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
@@ -170,14 +140,20 @@ static void prepare_video_decoding
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
     int                                direct_rendering,
+    int                                fps_num,
+    int                                fps_den,
     int                                stacked_format,
     enum AVPixelFormat                 pixel_format,
+    VideoInfo                         &vi,
     IScriptEnvironment                *env
 )
 {
     /* Initialize the video decoder configuration. */
     lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
     lhp->priv = env;
+    uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
+    uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
+    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
     if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
@@ -189,9 +165,33 @@ static void prepare_video_decoding
                                   direct_rendering, stacked_format, pixel_format,
                                   max_width, max_height );
     libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
+    /* Calculate average framerate. */
+    vohp->vfr2cfr = (fps_num > 0 && fps_den > 0);
+    vohp->cfr_num = (uint32_t)fps_num;
+    vohp->cfr_den = (uint32_t)fps_den;
+    if( vohp->vfr2cfr )
+        vohp->frame_count = (uint32_t)(((double)vohp->cfr_num / vohp->cfr_den)
+                                     * ((double)media_duration / media_timescale)
+                                     + 0.5);
+    else
+        vohp->frame_count = sample_count;
+    int64_t src_fps_num = 25;
+    int64_t src_fps_den = 1;
+    libavsmash_video_setup_timestamp_info( vdhp, &src_fps_num, &src_fps_den );
+    if( vohp->vfr2cfr )
+    {
+        if( libavsmash_video_get_error( vdhp ) )
+            env->ThrowError( "LSMASHVideoSource: failed to get the minimum CTS of video stream." );
+    }
+    else
+        libavsmash_video_clear_error( vdhp );
     /* Find the first valid video sample. */
     if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to find the first valid video frame." );
+    /* Setup filter specific info. */
+    vi.fps_numerator   = (unsigned int)(vohp->vfr2cfr ? fps_num : src_fps_num);
+    vi.fps_denominator = (unsigned int)(vohp->vfr2cfr ? fps_den : src_fps_den);
+    vi.num_frames      = vohp->frame_count;
     /* Force seeking at the first reading. */
     libavsmash_video_force_seek( vdhp );
 }
@@ -226,9 +226,9 @@ LSMASHVideoSource::LSMASHVideoSource
     as_vohp->env = env;
     vohp->private_handler      = as_vohp;
     vohp->free_private_handler = as_free_video_output_handler;
-    get_video_track( source, track_number, threads, fps_num, fps_den, env );
+    get_video_track( source, track_number, threads, env );
+    prepare_video_decoding( vdhp, vohp, direct_rendering, fps_num, fps_den, stacked_format, pixel_format, vi, env );
     lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
-    prepare_video_decoding( vdhp, vohp, direct_rendering, stacked_format, pixel_format, env );
 }
 
 LSMASHVideoSource::~LSMASHVideoSource()
