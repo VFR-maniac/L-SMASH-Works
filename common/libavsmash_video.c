@@ -359,6 +359,27 @@ uint64_t libavsmash_video_fetch_media_duration
 /*****************************************************************************
  * Others
  *****************************************************************************/
+int libavsmash_video_get_track
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           track_number
+)
+{
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    uint32_t track_id =
+        libavsmash_get_track_by_media_type
+        (
+            libavsmash_video_get_root( vdhp ),
+            ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK,
+            track_number,
+            lhp
+        );
+    if( track_id == 0 )
+        return -1;
+    libavsmash_video_set_track_id( vdhp, track_id );
+    return 0;
+}
+
 int libavsmash_video_initialize_decoder_configuration
 (
     libavsmash_video_decode_handler_t *vdhp,

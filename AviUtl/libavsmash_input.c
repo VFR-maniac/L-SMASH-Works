@@ -114,29 +114,24 @@ static libavsmash_handler_t *alloc_handler
 
 static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
 {
-    libavsmash_handler_t *hp;
-    lw_log_handler_t     *lhp;
+    lw_log_handler_t *lhp;
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
-        hp = (libavsmash_handler_t *)h->video_private;
+        libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
         lhp = libavsmash_video_get_log_handler( hp->vdhp );
         libavsmash_video_set_root( hp->vdhp, hp->root );
+        if( libavsmash_video_get_track( hp->vdhp, 0 ) < 0 )
+            return -1;
     }
     else
     {
-        hp = (libavsmash_handler_t *)h->audio_private;
+        libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
         lhp = libavsmash_audio_get_log_handler( hp->adhp );
         libavsmash_audio_set_root( hp->adhp, hp->root );
+        if( libavsmash_audio_get_track( hp->adhp, 0 ) < 0 )
+            return -1;
     }
-    /* L-SMASH */
-    uint32_t track_id = libavsmash_get_track_by_media_type( hp->root, type, 0, NULL );
-    if( track_id == 0 )
-        return -1;
     lhp->show_log = au_message_box_desktop;
-    if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-        libavsmash_video_set_track_id( hp->vdhp, track_id );
-    else
-        libavsmash_audio_set_track_id( hp->adhp, track_id );
     return 0;
 }
 

@@ -212,6 +212,12 @@ uint64_t libavsmash_video_fetch_media_duration
 /*****************************************************************************
  * Others
  *****************************************************************************/
+int libavsmash_video_get_track
+(
+    libavsmash_video_decode_handler_t *vdhp,
+    uint32_t                           track_number
+);
+
 int libavsmash_video_initialize_decoder_configuration
 (
     libavsmash_video_decode_handler_t *vdhp,

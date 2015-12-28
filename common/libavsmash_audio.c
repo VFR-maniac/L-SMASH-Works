@@ -293,6 +293,27 @@ uint64_t libavsmash_audio_fetch_min_cts
 /*****************************************************************************
  * Others
  *****************************************************************************/
+int libavsmash_audio_get_track
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    uint32_t                           track_number
+)
+{
+    lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
+    uint32_t track_id =
+        libavsmash_get_track_by_media_type
+        (
+            libavsmash_audio_get_root( adhp ),
+            ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK,
+            track_number,
+            lhp
+        );
+    if( track_id == 0 )
+        return -1;
+    libavsmash_audio_set_track_id( adhp, track_id );
+    return 0;
+}
+
 int libavsmash_audio_initialize_decoder_configuration
 (
     libavsmash_audio_decode_handler_t *adhp,

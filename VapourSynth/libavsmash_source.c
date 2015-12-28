@@ -323,23 +323,6 @@ static uint32_t open_file
     return movie_param.number_of_tracks;
 }
 
-static int get_video_track
-(
-    lsmas_handler_t *hp,
-    uint32_t         track_number
-)
-{
-    libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
-    lw_log_handler_t                  *lhp  = libavsmash_video_get_log_handler( vdhp );
-    lsmash_root_t                     *root = libavsmash_video_get_root( vdhp );
-    /* L-SMASH */
-    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK, track_number, lhp );
-    if( track_id == 0 )
-        return -1;
-    libavsmash_video_set_track_id( vdhp, track_id );
-    return 0;
-}
-
 void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi )
 {
     /* Get file name. */
@@ -423,7 +406,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     libavsmash_video_set_log_handler( vdhp, &lh );
     /* Get video track. */
-    if( get_video_track( hp, track_number ) < 0 )
+    if( libavsmash_video_get_track( vdhp, track_number ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

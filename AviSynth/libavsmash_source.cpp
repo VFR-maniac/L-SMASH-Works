@@ -78,11 +78,7 @@ void LSMASHVideoSource::get_video_track
     uint32_t number_of_tracks = open_file( source, env );
     if( track_number && track_number > number_of_tracks )
         env->ThrowError( "LSMASHVideoSource: the number of tracks equals %I32u.", number_of_tracks );
-    /* L-SMASH */
-    lsmash_root_t *root = libavsmash_video_get_root( vdhp );
-    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK,
-                                                            track_number, libavsmash_video_get_log_handler( vdhp ) );
-    libavsmash_video_set_track_id( vdhp, track_id );
+    (void)libavsmash_video_get_track( vdhp, track_number );
 }
 
 static void prepare_video_decoding
@@ -250,11 +246,10 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     if( track_number && track_number > number_of_tracks )
         env->ThrowError( "LSMASHAudioSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
-    lsmash_root_t *root = libavsmash_audio_get_root( adhp );
-    uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK,
-                                                            track_number, libavsmash_audio_get_log_handler( adhp ) );
-    libavsmash_audio_set_track_id( adhp, track_id );
+    (void)libavsmash_audio_get_track( adhp, track_number );
     (void)libavsmash_audio_fetch_sample_count( adhp );
+    lsmash_root_t *root = libavsmash_audio_get_root( adhp );
+    uint32_t track_id = libavsmash_audio_get_track_id( adhp );
     vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( root, track_id );
     if( skip_priming )
     {

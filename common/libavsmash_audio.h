@@ -168,6 +168,12 @@ uint64_t libavsmash_audio_fetch_min_cts
 /*****************************************************************************
  * Others
  *****************************************************************************/
+int libavsmash_audio_get_track
+(
+    libavsmash_audio_decode_handler_t *adhp,
+    uint32_t                           track_number
+);
+
 int libavsmash_audio_initialize_decoder_configuration
 (
     libavsmash_audio_decode_handler_t *adhp,
