@@ -204,6 +204,11 @@ uint32_t libavsmash_get_track_by_media_type
             goto fail;
         }
     }
+    if( lsmash_construct_timeline( root, track_id ) < 0 )
+    {
+        sprintf( error_string, "Failed to get construct timeline of %s track.\n", media_type_str );
+        goto fail;
+    }
     return track_id;
 fail:
     if( lhp && lhp->show_log )

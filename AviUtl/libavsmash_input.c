@@ -121,28 +121,17 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
         hp = (libavsmash_handler_t *)h->video_private;
         lhp = libavsmash_video_get_log_handler( hp->vdhp );
         libavsmash_video_set_root( hp->vdhp, hp->root );
-#ifdef DEBUG_VIDEO
-    lhp->show_log = au_message_box_desktop;
-#endif
     }
     else
     {
         hp = (libavsmash_handler_t *)h->audio_private;
         lhp = libavsmash_audio_get_log_handler( hp->adhp );
         libavsmash_audio_set_root( hp->adhp, hp->root );
-#ifdef DEBUG_AUDIO
-    lhp->show_log = au_message_box_desktop;
-#endif
     }
     /* L-SMASH */
     uint32_t track_id = libavsmash_get_track_by_media_type( hp->root, type, 0, NULL );
     if( track_id == 0 )
         return -1;
-    if( lsmash_construct_timeline( hp->root, track_id ) )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get construct timeline." );
-        return -1;
-    }
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
         libavsmash_video_decode_handler_t *vdhp = hp->vdhp;

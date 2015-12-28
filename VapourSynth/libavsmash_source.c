@@ -338,11 +338,6 @@ static int get_video_track
     if( track_id == 0 )
         return -1;
     libavsmash_video_set_track_id( vdhp, track_id );
-    if( lsmash_construct_timeline( root, track_id ) < 0 )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get construct timeline." );
-        return -1;
-    }
     if( libavsmash_video_get_summaries( vdhp ) < 0 )
         return -1;
     /* libavformat */

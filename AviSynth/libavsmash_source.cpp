@@ -84,8 +84,6 @@ void LSMASHVideoSource::get_video_track
     uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK,
                                                             track_number, libavsmash_video_get_log_handler( vdhp ) );
     libavsmash_video_set_track_id( vdhp, track_id );
-    if( lsmash_construct_timeline( root, track_id ) )
-        env->ThrowError( "LSMASHVideoSource: failed to get construct timeline." );
     if( libavsmash_video_get_summaries( vdhp ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
     /* libavformat */
@@ -273,8 +271,6 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK,
                                                             track_number, libavsmash_audio_get_log_handler( adhp ) );
     libavsmash_audio_set_track_id( adhp, track_id );
-    if( lsmash_construct_timeline( root, track_id ) )
-        env->ThrowError( "LSMASHAudioSource: failed to get construct timeline." );
      if( libavsmash_audio_get_summaries( adhp ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to get summaries." );
     (void)libavsmash_audio_fetch_sample_count( adhp );
