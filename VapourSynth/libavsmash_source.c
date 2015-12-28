@@ -193,6 +193,7 @@ static void set_frame_properties
 static int prepare_video_decoding
 (
     lsmas_handler_t *hp,
+    int              threads,
     VSCore          *core,
     const VSAPI     *vsapi
 )
@@ -205,7 +206,7 @@ static int prepare_video_decoding
     (void)libavsmash_video_fetch_media_duration ( vdhp );
     (void)libavsmash_video_fetch_media_timescale( vdhp );
     /* Initialize the video decoder configuration. */
-    if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
+    if( libavsmash_video_initialize_decoder_configuration( vdhp, hp->format_ctx, threads ) < 0 )
     {
         set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize the decoder configuration." );
         return -1;
@@ -325,9 +326,7 @@ static uint32_t open_file
 static int get_video_track
 (
     lsmas_handler_t *hp,
-    uint32_t         track_number,
-    int              threads,
-    uint32_t         number_of_tracks
+    uint32_t         track_number
 )
 {
     libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
@@ -338,32 +337,6 @@ static int get_video_track
     if( track_id == 0 )
         return -1;
     libavsmash_video_set_track_id( vdhp, track_id );
-    if( libavsmash_video_get_summaries( vdhp ) < 0 )
-        return -1;
-    /* libavformat */
-    uint32_t i;
-    for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
-    if( i == hp->format_ctx->nb_streams )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find stream by libavformat." );
-        return -1;
-    }
-    /* libavcodec */
-    AVStream       *stream = hp->format_ctx->streams[i];
-    AVCodecContext *ctx    = stream->codec;
-    libavsmash_video_set_codec_context( vdhp, ctx );
-    AVCodec *codec = libavsmash_video_find_decoder( vdhp );
-    if( !codec )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to find %s decoder.", codec->name );
-        return -1;
-    }
-    ctx->thread_count = threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to avcodec_open2." );
-        return -1;
-    }
     return 0;
 }
 
@@ -450,14 +423,14 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     libavsmash_video_set_log_handler( vdhp, &lh );
     /* Get video track. */
-    threads = threads >= 0 ? threads : 0;
-    if( get_video_track( hp, track_number, threads, number_of_tracks ) < 0 )
+    if( get_video_track( hp, track_number ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;
     }
     /* Set up decoders for this track. */
-    if( prepare_video_decoding( hp, core, vsapi ) < 0 )
+    threads = threads >= 0 ? threads : 0;
+    if( prepare_video_decoding( hp, threads, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

@@ -170,7 +170,9 @@ uint64_t libavsmash_audio_fetch_min_cts
  *****************************************************************************/
 int libavsmash_audio_initialize_decoder_configuration
 (
-    libavsmash_audio_decode_handler_t *adhp
+    libavsmash_audio_decode_handler_t *adhp,
+    AVFormatContext                   *format_ctx,
+    int                                threads
 );
 
 int libavsmash_audio_get_summaries

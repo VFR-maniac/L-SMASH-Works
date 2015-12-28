@@ -70,7 +70,6 @@ void LSMASHVideoSource::get_video_track
 (
     const char                        *source,
     uint32_t                           track_number,
-    int                                threads,
     IScriptEnvironment                *env
 )
 {
@@ -84,30 +83,14 @@ void LSMASHVideoSource::get_video_track
     uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK,
                                                             track_number, libavsmash_video_get_log_handler( vdhp ) );
     libavsmash_video_set_track_id( vdhp, track_id );
-    if( libavsmash_video_get_summaries( vdhp ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to get summaries." );
-    /* libavformat */
-    AVFormatContext *format_ctx = this->format_ctx.get();
-    uint32_t i;
-    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO; i++ );
-    if( i == format_ctx->nb_streams )
-        env->ThrowError( "LSMASHVideoSource: failed to find stream by libavformat." );
-    /* libavcodec */
-    AVStream       *stream = format_ctx->streams[i];
-    AVCodecContext *ctx    = stream->codec;
-    libavsmash_video_set_codec_context( vdhp, ctx );
-    AVCodec *codec = libavsmash_video_find_decoder( vdhp );
-    if( !codec )
-        env->ThrowError( "LSMASHVideoSource: failed to find %s decoder.", codec->name );
-    ctx->thread_count = threads;
-    if( avcodec_open2( ctx, codec, nullptr ) < 0 )
-        env->ThrowError( "LSMASHVideoSource: failed to avcodec_open2." );
 }
 
 static void prepare_video_decoding
 (
     libavsmash_video_decode_handler_t *vdhp,
     libavsmash_video_output_handler_t *vohp,
+    AVFormatContext                   *format_ctx,
+    int                                threads,
     int                                direct_rendering,
     int                                stacked_format,
     enum AVPixelFormat                 pixel_format,
@@ -119,7 +102,7 @@ static void prepare_video_decoding
     uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
     uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
     uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
-    if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
+    if( libavsmash_video_initialize_decoder_configuration( vdhp, format_ctx, threads ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
     AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
@@ -185,8 +168,8 @@ LSMASHVideoSource::LSMASHVideoSource
     as_vohp->env = env;
     vohp->private_handler      = as_vohp;
     vohp->free_private_handler = as_free_video_output_handler;
-    get_video_track( source, track_number, threads, env );
-    prepare_video_decoding( vdhp, vohp, direct_rendering, stacked_format, pixel_format, vi, env );
+    get_video_track( source, track_number, env );
+    prepare_video_decoding( vdhp, vohp, format_ctx.get(), threads, direct_rendering, stacked_format, pixel_format, vi, env );
     lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
 }
 
@@ -271,8 +254,6 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
     uint32_t track_id = libavsmash_get_track_by_media_type( root, ISOM_MEDIA_HANDLER_TYPE_AUDIO_TRACK,
                                                             track_number, libavsmash_audio_get_log_handler( adhp ) );
     libavsmash_audio_set_track_id( adhp, track_id );
-     if( libavsmash_audio_get_summaries( adhp ) < 0 )
-        env->ThrowError( "LSMASHAudioSource: failed to get summaries." );
     (void)libavsmash_audio_fetch_sample_count( adhp );
     vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( root, track_id );
     if( skip_priming )
@@ -333,28 +314,13 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
             aohp->skip_decoded_samples = ctd_shift + get_start_time( root, track_id );
         }
     }
-    /* libavformat */
-    AVFormatContext *format_ctx = this->format_ctx.get();
-    uint32_t i;
-    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != AVMEDIA_TYPE_AUDIO; i++ );
-    if( i == format_ctx->nb_streams )
-        env->ThrowError( "LSMASHAudioSource: failed to find stream by libavformat." );
-    /* libavcodec */
-    AVStream       *stream = format_ctx->streams[i];
-    AVCodecContext *ctx    = stream->codec;
-    libavsmash_audio_set_codec_context( adhp, ctx );
-    AVCodec *codec = libavsmash_audio_find_decoder( adhp );
-    if( !codec )
-        env->ThrowError( "LSMASHAudioSource: failed to find %s decoder.", codec->name );
-    ctx->thread_count = 0;
-    if( avcodec_open2( ctx, codec, nullptr ) < 0 )
-        env->ThrowError( "LSMASHAudioSource: failed to avcodec_open2." );
 }
 
 static void prepare_audio_decoding
 (
     libavsmash_audio_decode_handler_t *adhp,
     libavsmash_audio_output_handler_t *aohp,
+    AVFormatContext                   *format_ctx,
     uint64_t                           channel_layout,
     int                                sample_rate,
     VideoInfo                         &vi,
@@ -362,7 +328,7 @@ static void prepare_audio_decoding
 )
 {
     /* Initialize the audio decoder configuration. */
-    if( libavsmash_audio_initialize_decoder_configuration( adhp ) < 0 )
+    if( libavsmash_audio_initialize_decoder_configuration( adhp, format_ctx, 0 ) < 0 )
         env->ThrowError( "LSMASHAudioSource: failed to initialize the decoder configuration." );
     aohp->output_channel_layout  = libavsmash_audio_get_best_used_channel_layout ( adhp );
     aohp->output_sample_format   = libavsmash_audio_get_best_used_sample_format  ( adhp );
@@ -395,8 +361,8 @@ LSMASHAudioSource::LSMASHAudioSource
     set_preferred_decoder_names( preferred_decoder_names );
     libavsmash_audio_set_preferred_decoder_names( adhp, tokenize_preferred_decoder_names() );
     get_audio_track( source, track_number, skip_priming, env );
+    prepare_audio_decoding( adhp, aohp, format_ctx.get(), channel_layout, sample_rate, vi, env );
     lsmash_discard_boxes( libavsmash_audio_get_root( adhp ) );
-    prepare_audio_decoding( adhp, aohp, channel_layout, sample_rate, vi, env );
 }
 
 LSMASHAudioSource::~LSMASHAudioSource()

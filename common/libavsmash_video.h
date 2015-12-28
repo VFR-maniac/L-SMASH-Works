@@ -214,7 +214,9 @@ uint64_t libavsmash_video_fetch_media_duration
  *****************************************************************************/
 int libavsmash_video_initialize_decoder_configuration
 (
-    libavsmash_video_decode_handler_t *vdhp
+    libavsmash_video_decode_handler_t *vdhp,
+    AVFormatContext                   *format_ctx,
+    int                                threads
 );
 
 int libavsmash_video_get_summaries

@@ -57,7 +57,6 @@ private:
     (
         const char                        *source,
         uint32_t                           track_number,
-        int                                threads,
         IScriptEnvironment                *env
     );
 public:

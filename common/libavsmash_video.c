@@ -361,10 +361,45 @@ uint64_t libavsmash_video_fetch_media_duration
  *****************************************************************************/
 int libavsmash_video_initialize_decoder_configuration
 (
-    libavsmash_video_decode_handler_t *vdhp
+    libavsmash_video_decode_handler_t *vdhp,
+    AVFormatContext                   *format_ctx,
+    int                                threads
 )
 {
+    char error_string[128] = { 0 };
+    if( libavsmash_video_get_summaries( vdhp ) < 0 )
+        return -1;
+    /* libavformat */
+    uint32_t type = AVMEDIA_TYPE_VIDEO;
+    uint32_t i;
+    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != type; i++ );
+    if( i == format_ctx->nb_streams )
+    {
+        strcpy( error_string, "Failed to find stream by libavformat.\n" );
+        goto fail;
+    }
+    /* libavcodec */
+    AVCodecContext *ctx = format_ctx->streams[i]->codec;
+    AVCodec        *codec;
+    libavsmash_video_set_codec_context( vdhp, ctx );
+    codec = libavsmash_video_find_decoder( vdhp );
+    if( !codec )
+    {
+        sprintf( error_string, "Failed to find %s decoder.\n", codec->name );
+        goto fail;
+    }
+    ctx->thread_count = threads;
+    if( avcodec_open2( ctx, codec, NULL ) < 0 )
+    {
+        strcpy( error_string, "Failed to avcodec_open2.\n" );
+        goto fail;
+    }
     return initialize_decoder_configuration( vdhp->root, vdhp->track_id, &vdhp->config );
+fail:;
+    lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
+    if( lhp && lhp->show_log )
+        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    return -1;
 }
 
 int libavsmash_video_get_summaries

@@ -132,54 +132,11 @@ static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
     uint32_t track_id = libavsmash_get_track_by_media_type( hp->root, type, 0, NULL );
     if( track_id == 0 )
         return -1;
-    if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
-    {
-        libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
-        libavsmash_video_set_track_id( vdhp, track_id );
-        if( libavsmash_video_get_summaries( vdhp ) < 0 )
-            return -1;
-    }
-    else
-    {
-        libavsmash_audio_decode_handler_t *adhp = hp->adhp;
-        libavsmash_audio_set_track_id( adhp, track_id );
-        if( libavsmash_audio_get_summaries( adhp ) < 0 )
-            return -1;
-    }
     lhp->show_log = au_message_box_desktop;
-    /* libavformat */
-    type = (type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK) ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
-    uint32_t i;
-    for( i = 0; i < hp->format_ctx->nb_streams && hp->format_ctx->streams[i]->codec->codec_type != type; i++ );
-    if( i == hp->format_ctx->nb_streams )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find stream by libavformat." );
-        return -1;
-    }
-    /* libavcodec */
-    AVCodecContext *ctx = hp->format_ctx->streams[i]->codec;
-    AVCodec        *codec;
-    if( type == AVMEDIA_TYPE_VIDEO )
-    {
-        libavsmash_video_set_codec_context( hp->vdhp, ctx );
-        codec = libavsmash_video_find_decoder( hp->vdhp );
-    }
+    if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
+        libavsmash_video_set_track_id( hp->vdhp, track_id );
     else
-    {
-        libavsmash_audio_set_codec_context( hp->adhp, ctx );
-        codec = libavsmash_audio_find_decoder( hp->adhp );
-    }
-    if( !codec )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to find %s decoder.", codec->name );
-        return -1;
-    }
-    ctx->thread_count = hp->threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to avcodec_open2." );
-        return -1;
-    }
+        libavsmash_audio_set_track_id( hp->adhp, track_id );
     return 0;
 }
 
@@ -242,18 +199,18 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
-    AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
-    if( !ctx )
-        return 0;
     (void)libavsmash_video_fetch_media_duration( vdhp );
     (void)libavsmash_video_fetch_sample_count  ( vdhp );
     uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
     /* Initialize the video decoder configuration. */
-    if( libavsmash_video_initialize_decoder_configuration( vdhp ) < 0 )
+    if( libavsmash_video_initialize_decoder_configuration( vdhp, hp->format_ctx, hp->threads ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
+    AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
+    if( !ctx )
+        return 0;
     /* Set up video rendering. */
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     int max_width  = libavsmash_video_get_max_width ( vdhp );
@@ -309,16 +266,16 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     libavsmash_audio_decode_handler_t *adhp = hp->adhp;
-    AVCodecContext *ctx = libavsmash_audio_get_codec_context( adhp );
-    if( !ctx )
-        return 0;
     (void)libavsmash_audio_fetch_sample_count( adhp );
     /* Initialize the audio decoder configuration. */
-    if( libavsmash_audio_initialize_decoder_configuration( adhp ) < 0 )
+    if( libavsmash_audio_initialize_decoder_configuration( adhp, hp->format_ctx, hp->threads ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to initialize the decoder configuration." );
         return -1;
     }
+    AVCodecContext *ctx = libavsmash_audio_get_codec_context( adhp );
+    if( !ctx )
+        return 0;
     libavsmash_audio_output_handler_t *aohp = hp->aohp;
     aohp->output_channel_layout  = libavsmash_audio_get_best_used_channel_layout ( adhp );
     aohp->output_sample_format   = libavsmash_audio_get_best_used_sample_format  ( adhp );
