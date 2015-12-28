@@ -319,7 +319,7 @@ uint64_t libavsmash_video_get_min_cts
 /*****************************************************************************
  * Fetchers
  *****************************************************************************/
-uint32_t libavsmash_video_fetch_sample_count
+static uint32_t libavsmash_video_fetch_sample_count
 (
     libavsmash_video_decode_handler_t *vdhp
 )
@@ -330,7 +330,7 @@ uint32_t libavsmash_video_fetch_sample_count
     return vdhp->sample_count;
 }
 
-uint32_t libavsmash_video_fetch_media_timescale
+static uint32_t libavsmash_video_fetch_media_timescale
 (
     libavsmash_video_decode_handler_t *vdhp
 )
@@ -345,7 +345,7 @@ uint32_t libavsmash_video_fetch_media_timescale
     return vdhp->media_timescale;
 }
 
-uint64_t libavsmash_video_fetch_media_duration
+static uint64_t libavsmash_video_fetch_media_duration
 (
     libavsmash_video_decode_handler_t *vdhp
 )
@@ -377,6 +377,9 @@ int libavsmash_video_get_track
     if( track_id == 0 )
         return -1;
     libavsmash_video_set_track_id( vdhp, track_id );
+    (void)libavsmash_video_fetch_sample_count   ( vdhp );
+    (void)libavsmash_video_fetch_media_duration ( vdhp );
+    (void)libavsmash_video_fetch_media_timescale( vdhp );
     return 0;
 }
 

@@ -192,24 +192,6 @@ uint64_t libavsmash_video_get_min_cts
 );
 
 /*****************************************************************************
- * Fetchers
- *****************************************************************************/
-uint32_t libavsmash_video_fetch_sample_count
-(
-    libavsmash_video_decode_handler_t *vdhp
-);
-
-uint32_t libavsmash_video_fetch_media_timescale
-(
-    libavsmash_video_decode_handler_t *vdhp
-);
-
-uint64_t libavsmash_video_fetch_media_duration
-(
-    libavsmash_video_decode_handler_t *vdhp
-);
-
-/*****************************************************************************
  * Others
  *****************************************************************************/
 int libavsmash_video_get_track

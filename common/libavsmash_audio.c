@@ -240,10 +240,42 @@ lw_log_handler_t *libavsmash_audio_get_log_handler
     return adhp ? &adhp->config.lh : NULL;
 }
 
+uint32_t libavsmash_audio_get_sample_count
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->frame_count : 0;
+}
+
+uint32_t libavsmash_audio_get_media_timescale
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->media_timescale : 0;
+}
+
+uint64_t libavsmash_audio_get_media_duration
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->media_duration : 0;
+}
+
+uint64_t libavsmash_audio_get_min_cts
+(
+    libavsmash_audio_decode_handler_t *adhp
+)
+{
+    return adhp ? adhp->min_cts : UINT64_MAX;
+}
+
 /*****************************************************************************
  * Fetchers
  *****************************************************************************/
-uint32_t libavsmash_audio_fetch_sample_count
+static uint32_t libavsmash_audio_fetch_sample_count
 (
     libavsmash_audio_decode_handler_t *adhp
 )
@@ -254,7 +286,7 @@ uint32_t libavsmash_audio_fetch_sample_count
     return adhp->frame_count;
 }
 
-uint32_t libavsmash_audio_fetch_media_timescale
+static uint32_t libavsmash_audio_fetch_media_timescale
 (
     libavsmash_audio_decode_handler_t *adhp
 )
@@ -269,7 +301,7 @@ uint32_t libavsmash_audio_fetch_media_timescale
     return adhp->media_timescale;
 }
 
-uint64_t libavsmash_audio_fetch_media_duration
+static uint64_t libavsmash_audio_fetch_media_duration
 (
     libavsmash_audio_decode_handler_t *adhp
 )
@@ -280,7 +312,8 @@ uint64_t libavsmash_audio_fetch_media_duration
     return adhp->media_duration;
 }
 
-uint64_t libavsmash_audio_fetch_min_cts
+/* This function assume that no audio frame reorderings in composition timeline. */
+static uint64_t libavsmash_audio_fetch_min_cts
 (
     libavsmash_audio_decode_handler_t *adhp
 )
@@ -311,6 +344,10 @@ int libavsmash_audio_get_track
     if( track_id == 0 )
         return -1;
     libavsmash_audio_set_track_id( adhp, track_id );
+    (void)libavsmash_audio_fetch_sample_count   ( adhp );
+    (void)libavsmash_audio_fetch_media_duration ( adhp );
+    (void)libavsmash_audio_fetch_media_timescale( adhp );
+    (void)libavsmash_audio_fetch_min_cts        ( adhp );
     return 0;
 }
 

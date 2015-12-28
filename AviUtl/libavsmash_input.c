@@ -194,9 +194,6 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
     libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
-    (void)libavsmash_video_fetch_media_duration( vdhp );
-    (void)libavsmash_video_fetch_sample_count  ( vdhp );
-    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
     /* Initialize the video decoder configuration. */
     if( libavsmash_video_initialize_decoder_configuration( vdhp, hp->format_ctx, hp->threads ) < 0 )
     {
@@ -236,6 +233,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
         return -1;
     /* Setup the reader specific info. */
+    uint32_t media_timescale = libavsmash_video_get_media_timescale( vdhp );
     if( hp->av_sync )
     {
         uint32_t track_id = libavsmash_video_get_track_id( vdhp );
@@ -261,7 +259,6 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
 {
     libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
     libavsmash_audio_decode_handler_t *adhp = hp->adhp;
-    (void)libavsmash_audio_fetch_sample_count( adhp );
     /* Initialize the audio decoder configuration. */
     if( libavsmash_audio_initialize_decoder_configuration( adhp, hp->format_ctx, hp->threads ) < 0 )
     {
@@ -285,10 +282,10 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         return -1;
     /* Setup the reader specific info.
      * Note that this settings affects with the number of output PCM samples, therefore do before its counting and A/V sync settings. */
-    uint32_t media_timescale = libavsmash_audio_fetch_media_timescale( adhp );
+    uint32_t media_timescale = libavsmash_audio_get_media_timescale( adhp );
     if( hp->av_sync )
     {
-        uint64_t min_cts = libavsmash_audio_fetch_min_cts( adhp );
+        uint64_t min_cts = libavsmash_audio_get_min_cts( adhp );
         if( min_cts == UINT64_MAX )
         {
             DEBUG_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get the minimum CTS of audio stream." );

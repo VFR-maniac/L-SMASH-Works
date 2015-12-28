@@ -140,27 +140,23 @@ lw_log_handler_t *libavsmash_audio_get_log_handler
     libavsmash_audio_decode_handler_t *adhp
 );
 
-/*****************************************************************************
- * Fetchers
- *****************************************************************************/
-uint32_t libavsmash_audio_fetch_sample_count
+uint32_t libavsmash_audio_get_sample_count
 (
     libavsmash_audio_decode_handler_t *adhp
 );
 
-uint32_t libavsmash_audio_fetch_media_timescale
+uint32_t libavsmash_audio_get_media_timescale
 (
     libavsmash_audio_decode_handler_t *adhp
 );
 
-/* unused currently */
-uint64_t libavsmash_audio_fetch_media_duration
+uint64_t libavsmash_audio_get_media_duration
 (
     libavsmash_audio_decode_handler_t *adhp
 );
 
 /* Return UINT64_MAX if failed. */
-uint64_t libavsmash_audio_fetch_min_cts
+uint64_t libavsmash_audio_get_min_cts
 (
     libavsmash_audio_decode_handler_t *adhp
 );

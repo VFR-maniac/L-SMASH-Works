@@ -202,9 +202,6 @@ static int prepare_video_decoding
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     VSVideoInfo                       *vi   = &hp->vi;
     lw_log_handler_t                  *lhp  = libavsmash_video_get_log_handler( vdhp );
-    (void)libavsmash_video_fetch_sample_count   ( vdhp );
-    (void)libavsmash_video_fetch_media_duration ( vdhp );
-    (void)libavsmash_video_fetch_media_timescale( vdhp );
     /* Initialize the video decoder configuration. */
     if( libavsmash_video_initialize_decoder_configuration( vdhp, hp->format_ctx, threads ) < 0 )
     {

@@ -95,9 +95,6 @@ static void prepare_video_decoding
 )
 {
     /* Initialize the video decoder configuration. */
-    uint32_t sample_count    = libavsmash_video_fetch_sample_count   ( vdhp );
-    uint64_t media_duration  = libavsmash_video_fetch_media_duration ( vdhp );
-    uint32_t media_timescale = libavsmash_video_fetch_media_timescale( vdhp );
     if( libavsmash_video_initialize_decoder_configuration( vdhp, format_ctx, threads ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to initialize the decoder configuration." );
     /* Set up output format. */
@@ -247,7 +244,6 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
         env->ThrowError( "LSMASHAudioSource: the number of tracks equals %I32u.", number_of_tracks );
     /* L-SMASH */
     (void)libavsmash_audio_get_track( adhp, track_number );
-    (void)libavsmash_audio_fetch_sample_count( adhp );
     lsmash_root_t *root = libavsmash_audio_get_root( adhp );
     uint32_t track_id = libavsmash_audio_get_track_id( adhp );
     vi.num_audio_samples = lsmash_get_media_duration_from_media_timeline( root, track_id );
