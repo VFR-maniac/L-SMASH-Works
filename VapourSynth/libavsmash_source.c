@@ -194,6 +194,7 @@ static int prepare_video_decoding
 (
     lsmas_handler_t *hp,
     int              threads,
+    VSMap           *out,
     VSCore          *core,
     const VSAPI     *vsapi
 )
@@ -201,23 +202,22 @@ static int prepare_video_decoding
     libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     VSVideoInfo                       *vi   = &hp->vi;
-    lw_log_handler_t                  *lhp  = libavsmash_video_get_log_handler( vdhp );
     /* Initialize the video decoder configuration. */
     if( libavsmash_video_initialize_decoder_configuration( vdhp, hp->format_ctx, threads ) < 0 )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize the decoder configuration." );
+        set_error_on_init( out, vsapi, "lsmas: failed to initialize the decoder configuration." );
         return -1;
     }
     /* Set up output format. */
     AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
     if( determine_colorspace_conversion( vohp, ctx->pix_fmt ) )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
+        set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
         return -1;
     }
     if( initialize_scaler_handler( &vohp->scaler, ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
+        set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -229,7 +229,7 @@ static int prepare_video_decoding
     int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, max_width, max_height );
     if( !get_buffer_func )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
+        set_error_on_init( out, vsapi, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;
     }
     libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
@@ -241,7 +241,7 @@ static int prepare_video_decoding
     {
         if( libavsmash_video_get_error( vdhp ) )
         {
-            set_error( lhp, LW_LOG_FATAL, "lsmas: failed to get the minimum CTS of video stream." );
+            set_error_on_init( out, vsapi, "lsmas: failed to get the minimum CTS of video stream." );
             return -1;
         }
     }
@@ -250,7 +250,7 @@ static int prepare_video_decoding
     /* Find the first valid video sample. */
     if( libavsmash_video_find_first_valid_frame( vdhp ) < 0 )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
+        set_error_on_init( out, vsapi, "lsmas: failed to allocate the first valid video frame." );
         return -1;
     }
     /* Setup filter specific info. */
@@ -398,7 +398,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     if( track_number && track_number > number_of_tracks )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &lh, LW_LOG_FATAL, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
+        set_error_on_init( out, vsapi, "lsmas: the number of tracks equals %"PRIu32".", number_of_tracks );
         return;
     }
     libavsmash_video_set_log_handler( vdhp, &lh );
@@ -410,7 +410,7 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
     }
     /* Set up decoders for this track. */
     threads = threads >= 0 ? threads : 0;
-    if( prepare_video_decoding( hp, threads, core, vsapi ) < 0 )
+    if( prepare_video_decoding( hp, threads, out, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

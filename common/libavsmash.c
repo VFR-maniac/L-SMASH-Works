@@ -133,8 +133,7 @@ open_fail:
         avformat_close_input( p_format_ctx );
     lsmash_close_file( file_param );
     lsmash_destroy_root( root );
-    if( lhp->show_log )
-        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    lw_log_show( lhp, LW_LOG_FATAL, "%s", error_string );
     return NULL;
 }
 
@@ -211,8 +210,7 @@ uint32_t libavsmash_get_track_by_media_type
     }
     return track_id;
 fail:
-    if( lhp && lhp->show_log )
-        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    lw_log_show( lhp, LW_LOG_FATAL, "%s", error_string );
     return 0;
 }
 
@@ -248,8 +246,7 @@ int get_summaries
     return 0;
 fail:
     config->error = 1;
-    if( config->lh.show_log )
-        config->lh.show_log( &config->lh, LW_LOG_FATAL, "%s", error_string );
+    lw_log_show( &config->lh, LW_LOG_FATAL, "%s", error_string );
     return -1;
 }
 
@@ -1046,9 +1043,7 @@ fail:
     config->delay_count       = 0;
     config->queue.delay_count = 0;
     config->error             = 1;
-    if( config->lh.show_log )
-        config->lh.show_log( &config->lh, LW_LOG_FATAL,
-                             "%sIt is recommended you reopen the file.", error_string );
+    lw_log_show( &config->lh, LW_LOG_FATAL, "%sIt is recommended you reopen the file.", error_string );
 }
 
 int initialize_decoder_configuration

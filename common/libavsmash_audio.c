@@ -389,8 +389,7 @@ int libavsmash_audio_initialize_decoder_configuration
     return initialize_decoder_configuration( adhp->root, adhp->track_id, &adhp->config );
 fail:;
     lw_log_handler_t *lhp = libavsmash_audio_get_log_handler( adhp );
-    if( lhp && lhp->show_log )
-        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    lw_log_show( lhp, LW_LOG_FATAL, "%s", error_string );
     return -1;
 }
 
@@ -727,10 +726,9 @@ uint64_t libavsmash_audio_get_pcm_samples
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
             config->error = 1;
-            if( config->lh.show_log )
-                config->lh.show_log( &config->lh, LW_LOG_FATAL,
-                                     "Failed to flush resampler buffers.\n"
-                                     "It is recommended you reopen the file." );
+            lw_log_show( &config->lh, LW_LOG_FATAL,
+                         "Failed to flush resampler buffers.\n"
+                         "It is recommended you reopen the file." );
             return 0;
         }
         libavsmash_flush_buffers( config );
@@ -782,10 +780,9 @@ uint64_t libavsmash_audio_get_pcm_samples
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
             config->error = 1;
-            if( config->lh.show_log )
-                config->lh.show_log( &config->lh, LW_LOG_FATAL,
-                                     "Failed to reconfigure resampler.\n"
-                                     "It is recommended you reopen the file." );
+            lw_log_show( &config->lh, LW_LOG_FATAL,
+                         "Failed to reconfigure resampler.\n"
+                         "It is recommended you reopen the file." );
             goto audio_out;
         }
         if( output_flags & AUDIO_OUTPUT_ENOUGH )

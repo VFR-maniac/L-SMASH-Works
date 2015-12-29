@@ -421,8 +421,7 @@ int libavsmash_video_initialize_decoder_configuration
     return initialize_decoder_configuration( vdhp->root, vdhp->track_id, &vdhp->config );
 fail:;
     lw_log_handler_t *lhp = libavsmash_video_get_log_handler( vdhp );
-    if( lhp && lhp->show_log )
-        lhp->show_log( lhp, LW_LOG_FATAL, "%s", error_string );
+    lw_log_show( lhp, LW_LOG_FATAL, "%s", error_string );
     return -1;
 }
 
@@ -536,22 +535,19 @@ int libavsmash_video_setup_timestamp_info
     lsmash_media_ts_list_t ts_list;
     if( lsmash_get_media_timestamps( vdhp->root, vdhp->track_id, &ts_list ) < 0 )
     {
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to get timestamps." );
+        lw_log_show( lhp, LW_LOG_ERROR, "Failed to get timestamps." );
         goto setup_finish;
     }
     if( ts_list.sample_count != vdhp->sample_count )
     {
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to count number of video samples." );
+        lw_log_show( lhp, LW_LOG_ERROR, "Failed to count number of video samples." );
         goto setup_finish;
     }
     uint32_t composition_sample_delay;
     if( lsmash_get_max_sample_delay( &ts_list, &composition_sample_delay ) < 0 )
     {
         lsmash_delete_media_timestamps( &ts_list );
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to get composition delay." );
+        lw_log_show( lhp, LW_LOG_ERROR, "Failed to get composition delay." );
         goto setup_finish;
     }
     if( composition_sample_delay )
@@ -562,8 +558,7 @@ int libavsmash_video_setup_timestamp_info
         if( !vdhp->order_converter )
         {
             lsmash_delete_media_timestamps( &ts_list );
-            if( lhp->show_log )
-                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to allocate memory." );
+            lw_log_show( lhp, LW_LOG_ERROR, "Failed to allocate memory." );
             goto setup_finish;
         }
         for( uint32_t i = 0; i < ts_list.sample_count; i++ )
@@ -584,8 +579,7 @@ int libavsmash_video_setup_timestamp_info
         if( duration == 0 )
         {
             lsmash_delete_media_timestamps( &ts_list );
-            if( lhp->show_log )
-                lhp->show_log( lhp, LW_LOG_WARNING, "Detected CTS duplication at frame %"PRIu32, i );
+            lw_log_show( lhp, LW_LOG_WARNING, "Detected CTS duplication at frame %"PRIu32, i );
             err = 0;
             goto setup_finish;
         }
@@ -657,8 +651,7 @@ static int decode_video_sample
     picture->pts = cts;
     if( ret < 0 )
     {
-        if( config->lh.show_log )
-            config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
+        lw_log_show( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
         return -1;
     }
     return 0;
@@ -779,8 +772,7 @@ static uint32_t seek_video
             rap_cts = picture->pts;
         if( ret == -1 && (uint64_t)picture->pts >= rap_cts && !error_ignorance )
         {
-            if( config->lh.show_log )
-                config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
+            lw_log_show( &config->lh, LW_LOG_WARNING, "Failed to decode a video frame." );
             return 0;
         }
         else if( ret >= 1 )
@@ -833,8 +825,7 @@ static int get_picture
             av_frame_unref( picture );
             if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
             {
-                if( config->lh.show_log )
-                    config->lh.show_log( &config->lh, LW_LOG_WARNING, "Failed to decode and flush a video frame." );
+                lw_log_show( &config->lh, LW_LOG_WARNING, "Failed to decode and flush a video frame." );
                 return -1;
             }
             ++current;
@@ -939,8 +930,7 @@ return_frame:;
     return 0;
 video_fail:
     /* fatal error of decoding */
-    if( config->lh.show_log )
-        config->lh.show_log( &config->lh, LW_LOG_WARNING, "Couldn't read video frame." );
+    lw_log_show( &config->lh, LW_LOG_WARNING, "Couldn't read video frame." );
     return -1;
 #undef MAX_ERROR_COUNT
 }

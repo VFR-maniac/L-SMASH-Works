@@ -95,14 +95,12 @@ static inline int lavf_open_file
 {
     if( avformat_open_input( format_ctx, file_path, NULL, NULL ) )
     {
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_FATAL, "Failed to avformat_open_input." );
+        lw_log_show( lhp, LW_LOG_FATAL, "Failed to avformat_open_input." );
         return -1;
     }
     if( avformat_find_stream_info( *format_ctx, NULL ) < 0 )
     {
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_FATAL, "Failed to avformat_find_stream_info." );
+        lw_log_show( lhp, LW_LOG_FATAL, "Failed to avformat_find_stream_info." );
         return -1;
     }
     return 0;

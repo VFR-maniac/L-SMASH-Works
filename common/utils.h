@@ -22,7 +22,6 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdarg.h>
 #include <assert.h>
 
 #define MIN( a, b ) ((a) < (b) ? (a) : (b))
@@ -51,7 +50,7 @@ struct lw_log_handler_tag
     const char  *name;
     lw_log_level level;
     void        *priv;
-    void (*show_log)( lw_log_handler_t *, lw_log_level, const char *format, ... );
+    void (*show_log)( lw_log_handler_t *, lw_log_level, const char *message );
 };
 
 void *lw_malloc_zero
@@ -75,13 +74,22 @@ void *lw_memdup
     size_t size
 );
 
-int lw_log_write_message
+const char **lw_tokenize_string
+(
+    char  *str,         /* null-terminated string: separator charactors will be replaced with '\0'. */
+    char   separator,   /* separator */
+    char **bufs         /* If NULL, allocate memory block internally, which can be deallocated by lw_freep(). */
+);
+
+/*****************************************************************************
+ * Non-public functions
+ *****************************************************************************/
+void lw_log_show
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    char             *message,
     const char       *format,
-    va_list           args
+    ...
 );
 
 static inline uint64_t get_gcd
@@ -126,11 +134,4 @@ int lw_try_rational_framerate
     int64_t *framerate_num,
     int64_t *framerate_den,
     uint64_t timebase
-);
-
-const char **lw_tokenize_string
-(
-    char  *str,         /* null-terminated string: separator charactors will be replaced with '\0'. */
-    char   separator,   /* separator */
-    char **bufs         /* If NULL, allocate memory block internally, which can be deallocated by lw_freep(). */
 );

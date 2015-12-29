@@ -57,6 +57,5 @@ void throw_error
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
-    ...
+    const char       *message
 );

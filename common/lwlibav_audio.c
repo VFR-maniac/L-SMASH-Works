@@ -551,10 +551,9 @@ retry_seek:
         if( flush_resampler_buffers( aohp->avr_ctx ) < 0 )
         {
             adhp->error = 1;
-            if( adhp->lh.show_log )
-                adhp->lh.show_log( &adhp->lh, LW_LOG_FATAL,
-                                   "Failed to flush resampler buffers.\n"
-                                   "It is recommended you reopen the file." );
+            lw_log_show( &adhp->lh, LW_LOG_FATAL,
+                         "Failed to flush resampler buffers.\n"
+                         "It is recommended you reopen the file." );
             return 0;
         }
         /* Flush audio decoder buffers. */
@@ -624,10 +623,9 @@ retry_seek:
         if( output_flags & AUDIO_RECONFIG_FAILURE )
         {
             adhp->error = 1;
-            if( adhp->lh.show_log )
-                adhp->lh.show_log( &adhp->lh, LW_LOG_FATAL,
-                                   "Failed to reconfigure resampler.\n"
-                                   "It is recommended you reopen the file." );
+            lw_log_show( &adhp->lh, LW_LOG_FATAL,
+                         "Failed to reconfigure resampler.\n"
+                         "It is recommended you reopen the file." );
             goto audio_out;
         }
         if( output_flags & AUDIO_OUTPUT_ENOUGH )

@@ -23,6 +23,7 @@
 #include "cpp_compat.h"
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <inttypes.h>
 #include <math.h>
@@ -67,7 +68,7 @@ void *lw_memdup
     return dst;
 }
 
-int lw_log_write_message
+static void lw_log_write_message
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
@@ -76,8 +77,6 @@ int lw_log_write_message
     va_list           args
 )
 {
-    if( level < lhp->level )
-        return 0;
     char *prefix;
     switch( level )
     {
@@ -103,7 +102,24 @@ int lw_log_write_message
         sprintf( message, "%s [%s]: %s", lhp->name, prefix, temp );
     else
         sprintf( message, "[%s]: %s", prefix, temp );
-    return 1;
+}
+
+void lw_log_show
+(
+    lw_log_handler_t *lhp,
+    lw_log_level      level,
+    const char       *format,
+    ...
+)
+{
+    if( !lhp || !lhp->priv || !lhp->show_log || level < lhp->level )
+        return;
+    va_list args;
+    va_start( args, format );
+    char message[1024];
+    lw_log_write_message( lhp, level, message, format, args );
+    va_end( args );
+    lhp->show_log( lhp, level, message );
 }
 
 int lw_check_file_extension

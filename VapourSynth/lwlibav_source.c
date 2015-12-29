@@ -177,12 +177,17 @@ static void set_frame_properties
         vsapi->propSetInt( props, "_FieldBased", av_frame->top_field_first ? 2 : 1, paReplace );
 }
 
-static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VSAPI *vsapi )
+static int prepare_video_decoding
+(
+    lwlibav_handler_t *hp,
+    VSMap             *out,
+    VSCore            *core,
+    const VSAPI       *vsapi
+)
 {
     lwlibav_video_decode_handler_t *vdhp = hp->vdhp;
     lwlibav_video_output_handler_t *vohp = hp->vohp;
     VSVideoInfo                    *vi   = &hp->vi;
-    lw_log_handler_t               *lhp  = lwlibav_video_get_log_handler( vdhp );
     /* Import AVIndexEntrys. */
     if( lwlibav_import_av_index_entry( (lwlibav_decode_handler_t *)vdhp ) < 0 )
         return -1;
@@ -191,12 +196,12 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     AVCodecContext *ctx = lwlibav_video_get_codec_context( vdhp );
     if( determine_colorspace_conversion( vohp, ctx->pix_fmt ) )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
+        set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
         return -1;
     }
     if( initialize_scaler_handler( &vohp->scaler, ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to initialize scaler handler." );
+        set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
         return -1;
     }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
@@ -208,14 +213,14 @@ static int prepare_video_decoding( lwlibav_handler_t *hp, VSCore *core, const VS
     int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, max_width, max_height );
     if( !get_buffer_func )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate memory for the background black frame data." );
+        set_error_on_init( out, vsapi, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;
     }
     lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
     /* Find the first valid video frame. */
     if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )
     {
-        set_error( lhp, LW_LOG_FATAL, "lsmas: failed to allocate the first valid video frame." );
+        set_error_on_init( out, vsapi, "lsmas: failed to allocate the first valid video frame." );
         return -1;
     }
     /* Force seeking at the first reading. */
@@ -365,7 +370,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     if( ret < 0 )
     {
         vs_filter_free( hp, core, vsapi );
-        set_error( &lh, LW_LOG_FATAL, "lsmas: failed to construct index." );
+        set_error_on_init( out, vsapi, "lsmas: failed to construct index." );
         return;
     }
     /* Get the desired video track. */
@@ -381,7 +386,7 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
     hp->vi.fpsDen    = 1;
     lwlibav_video_setup_timestamp_info( lwhp, vdhp, vohp, &hp->vi.fpsNum, &hp->vi.fpsDen );
     /* Set up decoders for this stream. */
-    if( prepare_video_decoding( hp, core, vsapi ) < 0 )
+    if( prepare_video_decoding( hp, out, core, vsapi ) < 0 )
     {
         vs_filter_free( hp, core, vsapi );
         return;

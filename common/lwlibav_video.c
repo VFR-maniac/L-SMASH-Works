@@ -499,8 +499,7 @@ static int decode_video_picture
     *pkt_pts = pkt->pts;
     if( ret < 0 )
     {
-        if( vdhp->lh.show_log )
-            vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
+        lw_log_show( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
         return -1;
     }
     return 0;
@@ -676,8 +675,7 @@ static uint32_t seek_video
             rap_pts = pkt_pts;
         if( ret == -1 && (pkt_pts == AV_NOPTS_VALUE || pkt_pts >= rap_pts) && !error_ignorance )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
+            lw_log_show( &vdhp->lh, LW_LOG_ERROR, "Failed to decode a video frame." );
             return 0;
         }
     }
@@ -872,8 +870,7 @@ static int get_frame
             av_frame_unref( frame );
             if( avcodec_decode_video2( vdhp->ctx, frame, &got_picture, &pkt ) < 0 )
             {
-                if( vdhp->lh.show_log )
-                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Failed to decode and flush a video frame." );
+                lw_log_show( &vdhp->lh, LW_LOG_ERROR, "Failed to decode and flush a video frame." );
                 return -1;
             }
             vdhp->last_fed_picture_number = current;
@@ -1012,8 +1009,7 @@ return_frame:;
     return 0;
 video_fail:
     /* fatal error of decoding */
-    if( vdhp->lh.show_log )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_ERROR, "Couldn't get the requested video frame." );
+    lw_log_show( &vdhp->lh, LW_LOG_ERROR, "Couldn't get the requested video frame." );
     return -1;
 #undef MAX_ERROR_COUNT
 }
@@ -1038,8 +1034,7 @@ static inline int copy_frame
     av_frame_unref( dst );
     if( av_frame_ref( dst, src ) < 0 )
     {
-        if( lhp->show_log )
-            lhp->show_log( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
+        lw_log_show( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
         return -1;
     }
     /* Treat this frame as interlaced. */
@@ -1062,14 +1057,12 @@ static inline int copy_field
         av_frame_unref( dst );
         if( av_frame_ref( dst, src ) < 0 )
         {
-            if( lhp->show_log )
-                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
+            lw_log_show( lhp, LW_LOG_ERROR, "Failed to reference a video frame.\n" );
             return -1;
         }
         if( av_frame_make_writable( dst ) < 0 )
         {
-            if( lhp->show_log )
-                lhp->show_log( lhp, LW_LOG_ERROR, "Failed to make a video frame writable.\n" );
+            lw_log_show( lhp, LW_LOG_ERROR, "Failed to make a video frame writable.\n" );
             return -1;
         }
         /* For direct rendering, the destination can not know

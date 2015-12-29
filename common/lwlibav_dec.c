@@ -102,10 +102,9 @@ void lwlibav_flush_buffers
     if( open_decoder( ctx, codec ) < 0 )
     {
         dhp->error = 1;
-        if( dhp->lh.show_log )
-            dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL,
-                              "Failed to flush buffers.\n"
-                              "It is recommended you reopen the file." );
+        lw_log_show( &dhp->lh, LW_LOG_FATAL,
+                     "Failed to flush buffers.\n"
+                     "It is recommended you reopen the file." );
     }
     dhp->exh.delay_count = 0;
 }
@@ -202,9 +201,8 @@ void lwlibav_update_configuration
 fail:
     exhp->delay_count = 0;
     dhp->error = 1;
-    if( dhp->lh.show_log )
-        dhp->lh.show_log( &dhp->lh, LW_LOG_FATAL,
-                          "%sIt is recommended you reopen the file.", error_string );
+    lw_log_show( &dhp->lh, LW_LOG_FATAL,
+                 "%sIt is recommended you reopen the file.", error_string );
 }
 
 int lwlibav_get_av_frame

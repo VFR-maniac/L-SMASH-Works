@@ -29,20 +29,11 @@ void throw_error
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
-    ...
+    const char       *message
 )
 {
-    char message[256];
-    va_list args;
-    va_start( args, format );
-    int written = lw_log_write_message( lhp, level, message, format, args );
-    va_end( args );
-    if( written )
-    {
-        IScriptEnvironment *env = (IScriptEnvironment *)lhp->priv;
-        env->ThrowError( (const char *)message );
-    }
+    IScriptEnvironment *env = (IScriptEnvironment *)lhp->priv;
+    env->ThrowError( message );
 }
 
 extern AVSValue __cdecl CreateLSMASHVideoSource( AVSValue args, void *user_data, IScriptEnvironment *env );

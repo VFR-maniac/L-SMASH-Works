@@ -38,7 +38,14 @@ void set_error
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
+    const char       *message
+);
+
+void set_error_on_init
+(
+          VSMap *out,
+    const VSAPI *vsapi,
+    const char  *format,
     ...
 );
 

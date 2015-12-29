@@ -22,6 +22,7 @@
  * However, when distributing its binary file, it will be under LGPL or GPL. */
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "lsmashsource.h"
@@ -30,25 +31,32 @@ void set_error
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
-    ...
+    const char       *message
 )
 {
     vs_basic_handler_t *eh = (vs_basic_handler_t *)lhp->priv;
     if( !eh || !eh->vsapi )
         return;
+    if( eh->out )
+        eh->vsapi->setError( eh->out, message );
+    else if( eh->frame_ctx )
+        eh->vsapi->setFilterError( message, eh->frame_ctx );
+}
+
+void set_error_on_init
+(
+          VSMap *out,
+    const VSAPI *vsapi,
+    const char  *format,
+    ...
+)
+{
     char message[256];
     va_list args;
     va_start( args, format );
-    int written = lw_log_write_message( lhp, level, message, format, args );
+    vsprintf( message, format, args );
     va_end( args );
-    if( written )
-    {
-        if( eh->out )
-            eh->vsapi->setError( eh->out, (const char *)message );
-        else if( eh->frame_ctx )
-            eh->vsapi->setFilterError( (const char *)message, eh->frame_ctx );
-    }
+    vsapi->setError( out, message );
 }
 
 extern void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi );

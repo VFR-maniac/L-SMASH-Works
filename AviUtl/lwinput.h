@@ -183,6 +183,5 @@ void au_message_box_desktop
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
-    ...
+    const char       *message
 );

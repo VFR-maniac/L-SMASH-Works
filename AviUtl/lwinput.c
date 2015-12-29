@@ -109,20 +109,11 @@ void au_message_box_desktop
 (
     lw_log_handler_t *lhp,
     lw_log_level      level,
-    const char       *format,
-    ...
+    const char       *message
 )
 {
-    char message[256];
-    va_list args;
-    va_start( args, format );
-    int written = lw_log_write_message( lhp, level, message, format, args );
-    va_end( args );
-    if( written )
-    {
-        UINT uType = *(UINT *)lhp->priv;
-        MessageBox( HWND_DESKTOP, message, "lwinput", uType );
-    }
+    UINT uType = *(UINT *)lhp->priv;
+    MessageBox( HWND_DESKTOP, message, "lwinput", uType );
 }
 
 static FILE *open_settings( void )

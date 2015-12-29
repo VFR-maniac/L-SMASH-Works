@@ -533,8 +533,7 @@ static int decide_video_seek_method
         /* Generate PTS. */
         if( poc_genarate_pts( vdhp, vdhp->codec_id == AV_CODEC_ID_H264 ? 32 : 15 ) < 0 )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory for PTS generation." );
+            lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory for PTS generation." );
             return -1;
         }
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
@@ -548,16 +547,14 @@ static int decide_video_seek_method
         vdhp->order_converter = (order_converter_t *)lw_malloc_zero( (sample_count + 1) * sizeof(order_converter_t) );
         if( !vdhp->order_converter )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory." );
+            lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory." );
             return -1;
         }
         sort_info_presentation_order( &info[1], sample_count );
         video_timestamp_t *timestamp = (video_timestamp_t *)lw_malloc_zero( (sample_count + 1) * sizeof(video_timestamp_t) );
         if( !timestamp )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory of video timestamps." );
+            lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory of video timestamps." );
             return -1;
         }
         for( uint32_t i = 1; i <= sample_count; i++ )
@@ -794,10 +791,9 @@ static void compute_stream_duration
             uint64_t duration = info[i].pts - info[i - 1].pts;
             if( duration == 0 )
             {
-                if( vdhp->lh.show_log )
-                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected PTS %"PRId64" duplication at frame %"PRIu32,
-                                       info[i].pts, i );
+                lw_log_show( &vdhp->lh, LW_LOG_WARNING,
+                             "Detected PTS %"PRId64" duplication at frame %"PRIu32,
+                             info[i].pts, i );
                 goto fail;
             }
             if( vdhp->strict_cfr && duration != first_duration )
@@ -847,10 +843,9 @@ static void compute_stream_duration
             uint64_t duration = info[curr].dts - info[prev].dts;
             if( duration == 0 )
             {
-                if( vdhp->lh.show_log )
-                    vdhp->lh.show_log( &vdhp->lh, LW_LOG_WARNING,
-                                       "Detected DTS %"PRId64" duplication at frame %"PRIu32,
-                                       info[curr].dts, curr );
+                lw_log_show( &vdhp->lh, LW_LOG_WARNING,
+                             "Detected DTS %"PRId64" duplication at frame %"PRIu32,
+                             info[curr].dts, curr );
                 goto fail;
             }
             if( vdhp->strict_cfr && duration != first_duration )
@@ -992,8 +987,7 @@ static void create_video_frame_order_list
     lw_video_frame_order_t *order_list = (lw_video_frame_order_t *)lw_malloc_zero( (order_count + 2) * sizeof(lw_video_frame_order_t) );
     if( !order_list )
     {
-        if( vdhp->lh.show_log )
-            vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+        lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
         goto disable_repeat;
     }
     int64_t  correction_ts = 0;
@@ -1072,10 +1066,9 @@ static void create_video_frame_order_list
     vohp->frame_order_count    = order_count;
     vohp->frame_order_list     = order_list;
     vohp->frame_count          = vohp->frame_order_count;
-    if( vdhp->lh.show_log )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO,
-                           "Enable repeat control. frame_count = %u, order_count = %u, t_count = %u, b_count = %u",
-                           frame_count, order_count, t_count, b_count );
+    lw_log_show( &vdhp->lh, LW_LOG_INFO,
+                 "Enable repeat control. frame_count = %u, order_count = %u, t_count = %u, b_count = %u",
+                 frame_count, order_count, t_count, b_count );
     return;
 disable_repeat:
     vohp->repeat_control       = 0;
@@ -1085,8 +1078,8 @@ disable_repeat:
     vohp->frame_count          = vdhp->frame_count;
     if( opt->vfr2cfr.active )
         vfr2cfr_settings( vdhp, vohp, opt );
-    if( vdhp->lh.show_log && opt->apply_repeat_flag )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
+    if( opt->apply_repeat_flag )
+        lw_log_show( &vdhp->lh, LW_LOG_INFO, "Disable repeat control." );
     return;
 }
 
@@ -1122,8 +1115,7 @@ static void create_video_visible_frame_list
         order_list = (lw_video_frame_order_t *)lw_malloc_zero( (vdhp->frame_count + 1) * sizeof(lw_video_frame_order_t) );
         if( !order_list )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+            lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
             goto disable_repeat;
         }
         uint32_t visible_number = 0;
@@ -1142,8 +1134,7 @@ static void create_video_visible_frame_list
         order_list = (lw_video_frame_order_t *)lw_malloc_zero( (visible_count + 1) * sizeof(lw_video_frame_order_t) );
         if( !order_list )
         {
-            if( vdhp->lh.show_log )
-                vdhp->lh.show_log( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
+            lw_log_show( &vdhp->lh, LW_LOG_FATAL, "Failed to allocate memory to the frame order list for video." );
             goto disable_repeat;
         }
         uint32_t order_count = 0;
@@ -1171,8 +1162,7 @@ disable_repeat:
     vohp->frame_order_list     = NULL;
     if( !vohp->vfr2cfr )
         vohp->frame_count = vdhp->frame_count;
-    if( vdhp->lh.show_log )
-        vdhp->lh.show_log( &vdhp->lh, LW_LOG_INFO, "Failed to create invisible frame control." );
+    lw_log_show( &vdhp->lh, LW_LOG_INFO, "Failed to create invisible frame control." );
     return;
 }
 
