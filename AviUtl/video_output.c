@@ -24,10 +24,10 @@
 
 #include "lwinput.h"
 
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
+#include <libavutil/frame.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
+#include <libswscale/swscale.h>
 
 #include "video_output.h"
 

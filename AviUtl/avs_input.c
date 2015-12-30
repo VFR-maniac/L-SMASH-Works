@@ -37,7 +37,7 @@
 
 #define AVS_INTERFACE_25 2
 
-#include <libavcodec/avcodec.h>
+#include <libavutil/frame.h>
 #include <libswscale/swscale.h>
 
 #include "video_output.h"

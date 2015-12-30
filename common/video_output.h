@@ -22,8 +22,6 @@
 
 #define REPEAT_CONTROL_CACHE_NUM 2
 
-typedef int func_get_buffer_t( struct AVCodecContext *, AVFrame *, int );
-
 typedef struct
 {
     int                enabled;
