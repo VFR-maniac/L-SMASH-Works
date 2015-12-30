@@ -72,8 +72,8 @@ typedef struct
     const VSVideoInfo        *vi;
     /* Video stuff */
     AVFrame                  *av_frame;
-    AVCodecContext           *ctx;
     lw_video_output_handler_t voh;
+    enum AVPixelFormat        pix_fmt;
 } vpy_handler_t;
 
 static int load_vsscript_dll
@@ -171,12 +171,9 @@ static int prepare_video_decoding
     h->video_sample_count = hp->vi->numFrames;
     h->framerate_num      = hp->vi->fpsNum;
     h->framerate_den      = hp->vi->fpsDen;
-    /* Set up the initial input format. */
-    hp->ctx->width   = hp->vi->width;
-    hp->ctx->height  = hp->vi->height;
-    hp->ctx->pix_fmt = vs_to_av_input_pixel_format( hp->vi->format->id );
     /* Set up video rendering. */
-    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, hp->ctx->pix_fmt ) )
+    hp->pix_fmt = vs_to_av_input_pixel_format( hp->vi->format->id );
+    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, hp->pix_fmt ) )
         return -1;
     return 0;
 }
@@ -262,10 +259,6 @@ static void *open_file
     if( !hp->node )
         goto fail;
     hp->vi = hp->vsapi->getVideoInfo( hp->node );
-    /* */
-    hp->ctx = avcodec_alloc_context3( NULL );
-    if( !hp->ctx )
-        goto fail;
     return hp;
 fail:
     if( hp->library )
@@ -315,7 +308,7 @@ static int read_video
     const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
     hp->av_frame->width  = hp->vi->width;
     hp->av_frame->height = hp->vi->height;
-    hp->av_frame->format = hp->ctx->pix_fmt;
+    hp->av_frame->format = hp->pix_fmt;
     get_color_range              ( hp, props );
     get_color_matrix_coefficients( hp, props );
     get_interlaced_info          ( hp, props );
@@ -344,8 +337,6 @@ static void close_file
     vpy_handler_t *hp = (vpy_handler_t *)private_stuff;
     if( !hp )
         return;
-    if( hp->ctx )
-        avcodec_close( hp->ctx );
     if( hp->library )
         close_vsscript_dll( hp );
     lw_free( hp );
