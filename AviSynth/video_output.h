@@ -70,7 +70,6 @@ enum AVPixelFormat get_av_output_pixel_format
 int make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
     IScriptEnvironment        *env

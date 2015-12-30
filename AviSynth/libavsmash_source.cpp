@@ -185,10 +185,9 @@ PVideoFrame __stdcall LSMASHVideoSource::GetFrame( int n, IScriptEnvironment *en
     if( libavsmash_video_get_error( vdhp )
      || libavsmash_video_get_frame( vdhp, vohp, sample_number ) < 0 )
         return env->NewVideoFrame( vi );
-    AVCodecContext *ctx      = libavsmash_video_get_codec_context( vdhp );
-    AVFrame        *av_frame = libavsmash_video_get_frame_buffer ( vdhp );
-    PVideoFrame     as_frame;
-    if( make_frame( vohp, ctx, av_frame, as_frame, env ) < 0 )
+    AVFrame    *av_frame = libavsmash_video_get_frame_buffer( vdhp );
+    PVideoFrame as_frame;
+    if( make_frame( vohp, av_frame, as_frame, env ) < 0 )
         env->ThrowError( "LSMASHVideoSource: failed to make a frame." );
     return as_frame;
 }

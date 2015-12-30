@@ -451,7 +451,6 @@ static int determine_colorspace_conversion
 int make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     AVFrame                   *av_frame,
     PVideoFrame               &as_frame,
     IScriptEnvironment        *env
@@ -469,34 +468,34 @@ int make_frame
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
-    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
+    if( av_frame->color_range == AVCOL_RANGE_MPEG || av_frame->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
     if( !vshp->sws_ctx
-     || vshp->input_width        != ctx->width
-     || vshp->input_height       != ctx->height
+     || vshp->input_width        != av_frame->width
+     || vshp->input_height       != av_frame->height
      || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != ctx->colorspace
+     || vshp->input_colorspace   != av_frame->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     ctx->width, ctx->height,
+                                                     av_frame->width, av_frame->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
-                                                     ctx->colorspace, yuv_range );
+                                                     av_frame->colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return -1;
-        vshp->input_width        = ctx->width;
-        vshp->input_height       = ctx->height;
+        vshp->input_width        = av_frame->width;
+        vshp->input_height       = av_frame->height;
         vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = ctx->colorspace;
+        vshp->input_colorspace   = av_frame->colorspace;
         vshp->input_yuv_range    = yuv_range;
     }
     /* Render a video frame through the scaler from the decoder. */
     as_frame = env->NewVideoFrame( *as_vohp->vi, 32 );
-    if( vohp->output_width  != (ctx->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0))
-     || vohp->output_height != (ctx->height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0)) )
+    if( vohp->output_width  != (av_frame->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0))
+     || vohp->output_height != (av_frame->height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0)) )
         as_vohp->make_black_background( as_frame, as_vohp->bitdepth_minus_8 );
-    return as_vohp->make_frame( vohp, ctx->height, av_frame, as_frame );
+    return as_vohp->make_frame( vohp, av_frame->height, av_frame, as_frame );
 }
 
 static int as_check_dr_available
