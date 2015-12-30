@@ -180,11 +180,10 @@ void lwlibav_video_set_log_handler
 
 void lwlibav_video_set_get_buffer_func
 (
-    lwlibav_video_decode_handler_t *vdhp,
-    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int )
+    lwlibav_video_decode_handler_t *vdhp
 )
 {
-    vdhp->exh.get_buffer = get_buffer;
+    vdhp->exh.get_buffer = vdhp->ctx->get_buffer2;
 }
 
 /*****************************************************************************

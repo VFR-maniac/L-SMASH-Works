@@ -105,7 +105,7 @@ static void prepare_video_decoding
         as_setup_video_rendering( vohp, ctx, "LSMASHVideoSource",
                                   direct_rendering, stacked_format, pixel_format,
                                   max_width, max_height );
-    libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
+    libavsmash_video_set_get_buffer_func( vdhp );
     /* Calculate average framerate. */
     int64_t fps_num = 25;
     int64_t fps_den = 1;

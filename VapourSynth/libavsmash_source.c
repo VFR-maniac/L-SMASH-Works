@@ -219,7 +219,7 @@ static int prepare_video_decoding
     int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, out, max_width, max_height );
     if( !get_buffer_func )
         return -1;
-    libavsmash_video_set_get_buffer_func( vdhp, get_buffer_func );
+    libavsmash_video_set_get_buffer_func( vdhp );
     /* Calculate average framerate. */
     int64_t fps_num = 25;
     int64_t fps_den = 1;

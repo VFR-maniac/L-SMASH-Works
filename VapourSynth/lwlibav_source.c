@@ -203,7 +203,7 @@ static int prepare_video_decoding
     int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, out, max_width, max_height );
     if( !get_buffer_func )
         return -1;
-    lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
+    lwlibav_video_set_get_buffer_func( vdhp );
     /* Find the first valid video frame. */
     if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )
     {

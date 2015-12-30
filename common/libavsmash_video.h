@@ -108,8 +108,7 @@ void libavsmash_video_set_codec_context
 
 void libavsmash_video_set_get_buffer_func
 (
-    libavsmash_video_decode_handler_t *vdhp,
-    int (*get_buffer)( struct AVCodecContext *, AVFrame *, int )
+    libavsmash_video_decode_handler_t *vdhp
 );
 
 /*****************************************************************************

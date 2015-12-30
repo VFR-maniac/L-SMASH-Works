@@ -64,7 +64,7 @@ static void prepare_video_decoding
         as_setup_video_rendering( vohp, ctx, "LWLibavVideoSource",
                                   direct_rendering, stacked_format, pixel_format,
                                   max_width, max_height );
-    lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
+    lwlibav_video_set_get_buffer_func( vdhp );
     /* Find the first valid video sample. */
     if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )
         env->ThrowError( "LWLibavVideoSource: failed to find the first valid video frame." );
