@@ -509,27 +509,23 @@ VSFrameRef *new_output_video_frame
     VSFrameRef                *vs_frame;
     if( vs_vohp->variable_info )
     {
-        if( determine_colorspace_conversion( vohp, pixel_format ) )
-        {
-            if( frame_ctx )
-                vsapi->setFilterError( "lsmas: failed to determin colorspace conversion.", frame_ctx );
-            return NULL;
-        }
+        if( determine_colorspace_conversion( vohp, pixel_format ) < 0 )
+            goto fail;
         const VSFormat *vs_format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
         vs_frame = vsapi->newVideoFrame( vs_format, width, height, NULL, core );
     }
     else
     {
         if( pixel_format != vohp->scaler.input_pixel_format
-         && determine_colorspace_conversion( vohp, pixel_format ) )
-        {
-            if( frame_ctx )
-                vsapi->setFilterError( "lsmas: failed to determin colorspace conversion.", frame_ctx );
-            return NULL;
-        }
+         && determine_colorspace_conversion( vohp, pixel_format ) < 0 )
+            goto fail;
         vs_frame = vsapi->copyFrame( vs_vohp->background_frame, core );
     }
     return vs_frame;
+fail:
+    if( frame_ctx )
+        vsapi->setFilterError( "lsmas: failed to determine colorspace conversion.", frame_ctx );
+    return NULL;
 }
 
 typedef struct
