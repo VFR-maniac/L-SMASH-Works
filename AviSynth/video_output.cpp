@@ -668,7 +668,7 @@ void as_free_video_output_handler
     free( as_vohp );
 }
 
-func_get_buffer_t *as_setup_video_rendering
+void as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,
@@ -715,5 +715,4 @@ func_get_buffer_t *as_setup_video_rendering
     }
     vohp->output_width  = vi->width;
     vohp->output_height = vi->height;
-    return ctx->get_buffer2;
 }

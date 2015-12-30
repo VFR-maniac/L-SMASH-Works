@@ -80,7 +80,7 @@ void as_free_video_output_handler
     void *private_handler
 );
 
-func_get_buffer_t *as_setup_video_rendering
+void as_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     AVCodecContext            *ctx,

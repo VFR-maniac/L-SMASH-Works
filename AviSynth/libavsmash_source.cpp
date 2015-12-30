@@ -101,10 +101,9 @@ static void prepare_video_decoding
     AVCodecContext *ctx = libavsmash_video_get_codec_context( vdhp );
     int max_width  = libavsmash_video_get_max_width ( vdhp );
     int max_height = libavsmash_video_get_max_height( vdhp );
-    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
-        as_setup_video_rendering( vohp, ctx, "LSMASHVideoSource",
-                                  direct_rendering, stacked_format, pixel_format,
-                                  max_width, max_height );
+    as_setup_video_rendering( vohp, ctx, "LSMASHVideoSource",
+                              direct_rendering, stacked_format, pixel_format,
+                              max_width, max_height );
     libavsmash_video_set_get_buffer_func( vdhp );
     /* Calculate average framerate. */
     int64_t fps_num = 25;
