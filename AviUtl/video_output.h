@@ -34,7 +34,7 @@ typedef struct
     func_convert_colorspace *convert_colorspace;
 } au_video_output_handler_t;
 
-func_get_buffer_t *au_setup_video_rendering
+int au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     video_option_t            *opt,

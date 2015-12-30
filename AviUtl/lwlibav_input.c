@@ -138,11 +138,8 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Set up video rendering. */
     int max_width  = lwlibav_video_get_max_width ( vdhp );
     int max_height = lwlibav_video_get_max_height( vdhp );
-    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
-        au_setup_video_rendering( vohp, opt, &h->video_format, max_width, max_height, ctx->pix_fmt );
-    if( !get_buffer_func )
+    if( au_setup_video_rendering( vohp, opt, &h->video_format, max_width, max_height, ctx->pix_fmt ) < 0 )
         return -1;
-    lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
 #ifndef DEBUG_VIDEO
     lw_log_handler_t *lhp = lwlibav_video_get_log_handler( vdhp );
     lhp->level = LW_LOG_FATAL;

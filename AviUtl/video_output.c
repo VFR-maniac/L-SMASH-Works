@@ -123,7 +123,7 @@ static void au_free_video_output_handler
     free( au_vohp );
 }
 
-func_get_buffer_t *au_setup_video_rendering
+int au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
     video_option_t            *opt,
@@ -138,7 +138,7 @@ func_get_buffer_t *au_setup_video_rendering
     if( !au_vohp )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the AviUtl video output handler." );
-        return NULL;
+        return -1;
     }
     vohp->private_handler      = au_vohp;
     vohp->free_private_handler = au_free_video_output_handler;
@@ -154,7 +154,7 @@ func_get_buffer_t *au_setup_video_rendering
     if( initialize_scaler_handler( &vohp->scaler, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
-        return NULL;
+        return -1;
     }
     static const struct
     {
@@ -185,7 +185,7 @@ func_get_buffer_t *au_setup_video_rendering
     if( !au_vohp->back_ground )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the back ground frame buffer." );
-        return NULL;
+        return -1;
     }
     if( format->biCompression == OUTPUT_TAG_YC48
      || format->biCompression == OUTPUT_TAG_LW48 )
@@ -194,13 +194,13 @@ func_get_buffer_t *au_setup_video_rendering
         if( !yuv444p16 )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_frame_alloc for YUV444P16 convertion." );
-            return NULL;
+            return -1;
         }
         au_vohp->yuv444p16 = yuv444p16;
         if( av_image_alloc( yuv444p16->data, yuv444p16->linesize, vohp->output_width, vohp->output_height, AV_PIX_FMT_YUV444P16LE, 32 ) < 0 )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_image_alloc for YUV444P16 convertion." );
-            return NULL;
+            return -1;
         }
     }
     if( format->biCompression == OUTPUT_TAG_YUY2 )
@@ -228,7 +228,7 @@ func_get_buffer_t *au_setup_video_rendering
             pic += vohp->output_linesize;
         }
     }
-    return avcodec_default_get_buffer2;
+    return 0;
 }
 
 int convert_colorspace

@@ -172,9 +172,7 @@ static int prepare_video_decoding
     h->framerate_den      = hp->vi->fpsDen;
     /* Set up video rendering. */
     enum AVPixelFormat input_pixel_format = vs_to_av_input_pixel_format( hp->vi->format->id );
-    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format ) )
-        return -1;
-    return 0;
+    return au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format );
 }
 
 static inline int vs_is_rgb_format

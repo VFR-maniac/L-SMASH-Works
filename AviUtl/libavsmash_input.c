@@ -207,7 +207,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     int max_width  = libavsmash_video_get_max_width ( vdhp );
     int max_height = libavsmash_video_get_max_height( vdhp );
-    if( !au_setup_video_rendering( vohp, opt, &h->video_format, max_width, max_height, ctx->pix_fmt ) )
+    if( au_setup_video_rendering( vohp, opt, &h->video_format, max_width, max_height, ctx->pix_fmt ) < 0 )
         return -1;
     /* Set up timestamp info. */
     int64_t fps_num = 25;
