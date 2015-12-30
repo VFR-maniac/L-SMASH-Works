@@ -73,7 +73,6 @@ typedef struct
     /* Video stuff */
     AVFrame                  *av_frame;
     lw_video_output_handler_t voh;
-    enum AVPixelFormat        pix_fmt;
 } vpy_handler_t;
 
 static int load_vsscript_dll
@@ -172,8 +171,8 @@ static int prepare_video_decoding
     h->framerate_num      = hp->vi->fpsNum;
     h->framerate_den      = hp->vi->fpsDen;
     /* Set up video rendering. */
-    hp->pix_fmt = vs_to_av_input_pixel_format( hp->vi->format->id );
-    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, hp->pix_fmt ) )
+    enum AVPixelFormat input_pixel_format = vs_to_av_input_pixel_format( hp->vi->format->id );
+    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format ) )
         return -1;
     return 0;
 }
@@ -274,7 +273,7 @@ static int get_video_track
 )
 {
     vpy_handler_t *hp = (vpy_handler_t *)h->video_private;
-    if( !isConstantFormat( hp->vi ) || hp->vi->numFrames <= 0 )
+    if( hp->vi->numFrames <= 0 )
         return -1;
     hp->av_frame = av_frame_alloc();
     if( !hp->av_frame )
@@ -293,8 +292,17 @@ static int read_video
     const VSFrameRef *vs_frame = hp->vsapi->getFrame( sample_number, hp->node, NULL, 0 );
     if( !vs_frame )
         return 0;
-    int is_rgb = vs_is_rgb_format( hp->vi->format->colorFamily );
-    for( int i = 0; i < hp->vi->format->numPlanes; i++ )
+    const VSFormat *format = hp->vsapi->getFrameFormat( vs_frame );
+    if( !format )
+    {
+        hp->vsapi->freeFrame( vs_frame );
+        return 0;
+    }
+    hp->av_frame->format = vs_to_av_input_pixel_format( format->id );
+    hp->av_frame->width  = hp->vsapi->getFrameWidth ( vs_frame, 0 );
+    hp->av_frame->height = hp->vsapi->getFrameHeight( vs_frame, 0 );
+    int is_rgb = vs_is_rgb_format( format->colorFamily );
+    for( int i = 0; i < format->numPlanes; i++ )
     {
         static const int component_reorder[2][3] =
             {
@@ -303,12 +311,9 @@ static int read_video
             };
         int j = component_reorder[is_rgb][i];
         hp->av_frame->data    [j] = (uint8_t *)hp->vsapi->getReadPtr( vs_frame, i );
-        hp->av_frame->linesize[j] = hp->vsapi->getStride( vs_frame, i );
+        hp->av_frame->linesize[j] =            hp->vsapi->getStride ( vs_frame, i );
     }
     const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
-    hp->av_frame->width  = hp->vi->width;
-    hp->av_frame->height = hp->vi->height;
-    hp->av_frame->format = hp->pix_fmt;
     get_color_range              ( hp, props );
     get_color_matrix_coefficients( hp, props );
     get_interlaced_info          ( hp, props );
