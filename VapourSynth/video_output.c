@@ -695,7 +695,7 @@ static int vs_video_get_buffer
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
-    if( (!vs_vohp->variable_info && lw_vohp->scaler.input_pixel_format != pix_fmt)
+    if( (!vs_vohp->variable_info && lw_vohp->scaler.output_pixel_format != pix_fmt)
      || !vs_check_dr_available( ctx, pix_fmt ) )
     {
         lw_vohp->scaler.enabled = 1;
