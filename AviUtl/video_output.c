@@ -234,40 +234,39 @@ func_get_buffer_t *au_setup_video_rendering
 int convert_colorspace
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
-    AVFrame                   *picture,
+    AVFrame                   *av_frame,
     uint8_t                   *buf
 )
 {
     /* Convert color space. We don't change the presentation resolution. */
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&picture->format;
+    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
     int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
-    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
+    if( av_frame->color_range == AVCOL_RANGE_MPEG || av_frame->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( !vshp->sws_ctx
-     || vshp->input_width        != ctx->width
-     || vshp->input_height       != ctx->height
+     || vshp->input_width        != av_frame->width
+     || vshp->input_height       != av_frame->height
      || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != ctx->colorspace
+     || vshp->input_colorspace   != av_frame->colorspace
      || vshp->input_yuv_range    != yuv_range )
     {
         /* Update scaler. */
         vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     ctx->width, ctx->height,
+                                                     av_frame->width, av_frame->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
-                                                     ctx->colorspace, yuv_range );
+                                                     av_frame->colorspace, yuv_range );
         if( !vshp->sws_ctx )
             return 0;
-        vshp->input_width        = ctx->width;
-        vshp->input_height       = ctx->height;
+        vshp->input_width        = av_frame->width;
+        vshp->input_height       = av_frame->height;
         vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = ctx->colorspace;
+        vshp->input_colorspace   = av_frame->colorspace;
         vshp->input_yuv_range    = yuv_range;
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
     }
-    if( au_vohp->convert_colorspace( vohp, picture, buf ) < 0 )
+    if( au_vohp->convert_colorspace( vohp, av_frame, buf ) < 0 )
         return 0;
     return vohp->output_frame_size;
 }

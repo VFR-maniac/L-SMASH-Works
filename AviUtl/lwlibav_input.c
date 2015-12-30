@@ -277,9 +277,8 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
          * Apparently, AviUtl clears the frame buffer at the first frame.
          * Therefore, don't skip in that case. */
         return 0;
-    AVCodecContext *ctx      = lwlibav_video_get_codec_context( vdhp );
-    AVFrame        *av_frame = lwlibav_video_get_frame_buffer ( vdhp );
-    return convert_colorspace( vohp, ctx, av_frame, buf );
+    AVFrame *av_frame = lwlibav_video_get_frame_buffer( vdhp );
+    return convert_colorspace( vohp, av_frame, buf );
 }
 
 static int read_audio( lsmash_handler_t *h, int start, int wanted_length, void *buf )

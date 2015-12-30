@@ -47,7 +47,6 @@ func_get_buffer_t *au_setup_video_rendering
 int convert_colorspace
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     AVFrame                   *picture,
     uint8_t                   *buf
 );

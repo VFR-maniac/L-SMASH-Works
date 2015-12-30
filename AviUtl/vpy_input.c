@@ -198,11 +198,11 @@ static inline void get_color_range
 )
 {
     if( hp->vsapi->propNumElements( props, "_ColorRange" ) > 0 )
-        hp->ctx->color_range = hp->vsapi->propGetInt( props, "_ColorRange", 0, NULL )
+        hp->av_frame->color_range = hp->vsapi->propGetInt( props, "_ColorRange", 0, NULL )
                              ? AVCOL_RANGE_MPEG
                              : AVCOL_RANGE_JPEG;
     else
-        hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
+        hp->av_frame->color_range = AVCOL_RANGE_UNSPECIFIED;
 }
 
 static inline void get_color_matrix_coefficients
@@ -212,9 +212,9 @@ static inline void get_color_matrix_coefficients
 )
 {
     if( hp->vsapi->propNumElements( props, "_Matrix" ) > 0 )
-        hp->ctx->colorspace = hp->vsapi->propGetInt( props, "_Matrix", 0, NULL );
+        hp->av_frame->colorspace = hp->vsapi->propGetInt( props, "_Matrix", 0, NULL );
     else
-        hp->ctx->colorspace = AVCOL_SPC_UNSPECIFIED;
+        hp->av_frame->colorspace = AVCOL_SPC_UNSPECIFIED;
 }
 
 static inline void get_interlaced_info
@@ -315,11 +315,13 @@ static int read_video
         hp->av_frame->linesize[j] = hp->vsapi->getStride( vs_frame, i );
     }
     const VSMap *props = hp->vsapi->getFramePropsRO( vs_frame );
+    hp->av_frame->width  = hp->vi->width;
+    hp->av_frame->height = hp->vi->height;
+    hp->av_frame->format = hp->ctx->pix_fmt;
     get_color_range              ( hp, props );
     get_color_matrix_coefficients( hp, props );
     get_interlaced_info          ( hp, props );
-    hp->av_frame->format = hp->ctx->pix_fmt;
-    int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
+    int frame_size = convert_colorspace( &hp->voh, hp->av_frame, buf );
     hp->vsapi->freeFrame( vs_frame );
     return frame_size;
 }

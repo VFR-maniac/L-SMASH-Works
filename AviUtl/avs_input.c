@@ -68,6 +68,7 @@ typedef struct {
     AVFrame                  *av_frame;
     AVCodecContext           *ctx;
     lw_video_output_handler_t voh;
+    int                       bit_depth;
 } avs_handler_t;
 
 static int load_avisynth_dll( avs_handler_t *hp )
@@ -221,7 +222,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
     hp->ctx->colorspace  = AVCOL_SPC_UNSPECIFIED;
     /* Set up video rendering. */
-    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->ctx->width, hp->ctx->height ) )
+    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->vi->width, hp->vi->height ) )
         return -1;
     return 0;
 }
@@ -278,6 +279,7 @@ static int get_video_track( lsmash_handler_t *h, video_option_t *opt )
         hp->ctx = NULL;
         return -1;
     }
+    hp->bit_depth = opt->avs.bit_depth;
     return prepare_video_decoding( h, opt );
 }
 
@@ -307,8 +309,12 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
             hp->av_frame->data    [i] = (uint8_t *)avs_get_read_ptr_p( as_frame, as_plane[i] );
             hp->av_frame->linesize[i] = avs_get_pitch_p( as_frame, as_plane[i] );
         }
-    hp->av_frame->format = hp->ctx->pix_fmt;
-    int frame_size = convert_colorspace( &hp->voh, hp->ctx, hp->av_frame, buf );
+    hp->av_frame->width       = hp->vi->width;
+    hp->av_frame->height      = hp->vi->height;
+    hp->av_frame->format      = as_to_av_input_pixel_format( hp->vi->pixel_type, hp->bit_depth, &hp->av_frame->width );
+    hp->av_frame->color_range = AVCOL_RANGE_UNSPECIFIED;
+    hp->av_frame->colorspace  = AVCOL_SPC_UNSPECIFIED;
+    int frame_size = convert_colorspace( &hp->voh, hp->av_frame, buf );
     hp->func.avs_release_video_frame( as_frame );
     return frame_size;
 }
