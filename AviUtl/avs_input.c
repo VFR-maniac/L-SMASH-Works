@@ -66,7 +66,6 @@ typedef struct {
     } func;
     /* Video stuff */
     AVFrame                  *av_frame;
-    AVCodecContext           *ctx;
     lw_video_output_handler_t voh;
     int                       bit_depth;
 } avs_handler_t;
@@ -215,12 +214,10 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->video_sample_count = hp->vi->num_frames;
     h->framerate_num      = hp->vi->fps_numerator;
     h->framerate_den      = hp->vi->fps_denominator;
-    /* Set up the initial input format. */
-    hp->ctx->width   = hp->vi->width;
-    hp->ctx->height  = hp->vi->height;
-    hp->ctx->pix_fmt = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &hp->ctx->width );
     /* Set up video rendering. */
-    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, hp->ctx->pix_fmt ) )
+    int input_width = hp->vi->width;
+    enum AVPixelFormat input_pixel_format = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &input_width );
+    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format ) )
         return -1;
     return 0;
 }
@@ -267,16 +264,9 @@ static int get_video_track( lsmash_handler_t *h, video_option_t *opt )
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
     if( hp->vi->num_frames <= 0 || hp->vi->width <= 0 || hp->vi->height <= 0 )
         return -1;
-    hp->ctx = avcodec_alloc_context3( NULL );
-    if( !hp->ctx )
-        return -1;
     hp->av_frame = av_frame_alloc();
     if( !hp->av_frame )
-    {
-        avcodec_close( hp->ctx );
-        hp->ctx = NULL;
         return -1;
-    }
     hp->bit_depth = opt->avs.bit_depth;
     return prepare_video_decoding( h, opt );
 }
@@ -345,11 +335,6 @@ static void video_cleanup
     avs_handler_t *hp = (avs_handler_t *)h->video_private;
     if( !hp )
         return;
-    if( hp->ctx )
-    {
-        avcodec_close( hp->ctx );
-        hp->ctx = NULL;
-    }
     av_frame_free( &hp->av_frame );
     lw_cleanup_video_output_handler( &hp->voh );
 }
