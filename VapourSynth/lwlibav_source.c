@@ -256,7 +256,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         return NULL;
     /* Output the video frame. */
     AVFrame    *av_frame = lwlibav_video_get_frame_buffer( vdhp );
-    VSFrameRef *vs_frame = make_frame( vohp, lwlibav_video_get_codec_context( vdhp ), av_frame );
+    VSFrameRef *vs_frame = make_frame( vohp, av_frame );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );

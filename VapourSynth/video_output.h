@@ -65,7 +65,6 @@ int determine_colorspace_conversion
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     AVFrame                   *av_frame
 );
 
