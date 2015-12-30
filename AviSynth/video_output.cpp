@@ -582,7 +582,7 @@ static int as_video_get_buffer
     vshp->enabled = 0;
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
-    if( vshp->input_pixel_format != pix_fmt
+    if( vshp->output_pixel_format != pix_fmt
      || !as_check_dr_available( ctx, pix_fmt, as_vohp->stacked_format ) )
         vshp->enabled = 1;
     if( vshp->enabled )
