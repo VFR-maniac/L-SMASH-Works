@@ -216,8 +216,7 @@ static int prepare_video_decoding
     vs_vohp->vsapi     = vsapi;
     int max_width  = libavsmash_video_get_max_width ( vdhp );
     int max_height = libavsmash_video_get_max_height( vdhp );
-    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, out, max_width, max_height );
-    if( !get_buffer_func )
+    if( setup_video_rendering( vohp, ctx, vi, out, max_width, max_height ) < 0 )
         return -1;
     libavsmash_video_set_get_buffer_func( vdhp );
     /* Calculate average framerate. */

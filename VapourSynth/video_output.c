@@ -753,7 +753,7 @@ fail:
     return AVERROR( ENOMEM );
 }
 
-func_get_buffer_t *setup_video_rendering
+int setup_video_rendering
 (
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
@@ -768,12 +768,12 @@ func_get_buffer_t *setup_video_rendering
     if( determine_colorspace_conversion( lw_vohp, ctx->pix_fmt ) )
     {
         set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
-        return NULL;
+        return -1;
     }
     if( initialize_scaler_handler( &lw_vohp->scaler, lw_vohp->scaler.enabled, SWS_FAST_BILINEAR, lw_vohp->scaler.output_pixel_format ) < 0 )
     {
         set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
-        return NULL;
+        return -1;
     }
     vs_vohp->direct_rendering &= vs_check_dr_available( ctx, ctx->pix_fmt );
     if( vs_vohp->variable_info )
@@ -800,7 +800,7 @@ func_get_buffer_t *setup_video_rendering
         if( !vs_vohp->background_frame )
         {
             set_error_on_init( out, vsapi, "lsmas: failed to allocate memory for the background black frame data." );
-            return NULL;
+            return -1;
         }
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
@@ -813,7 +813,7 @@ func_get_buffer_t *setup_video_rendering
         ctx->opaque      = lw_vohp;
         ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
-    return ctx->get_buffer2;
+    return 0;
 }
 
 static void vs_free_video_output_handler
