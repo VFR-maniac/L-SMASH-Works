@@ -28,10 +28,7 @@
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
 
-#include "VapourSynth.h"
-
-#include "../common/utils.h"
-
+#include "lsmashsource.h"
 #include "video_output.h"
 
 typedef struct
@@ -765,11 +762,23 @@ func_get_buffer_t *setup_video_rendering
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
     VSVideoInfo               *vi,
+    VSMap                     *out,
     int                        width,
     int                        height
 )
 {
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
+    const VSAPI *vsapi = vs_vohp->vsapi;
+    if( determine_colorspace_conversion( lw_vohp, ctx->pix_fmt ) )
+    {
+        set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
+        return NULL;
+    }
+    if( initialize_scaler_handler( &lw_vohp->scaler, lw_vohp->scaler.enabled, SWS_FAST_BILINEAR, lw_vohp->scaler.output_pixel_format ) < 0 )
+    {
+        set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
+        return NULL;
+    }
     vs_vohp->direct_rendering &= vs_check_dr_available( ctx, ctx->pix_fmt );
     if( vs_vohp->variable_info )
     {
@@ -779,7 +788,6 @@ func_get_buffer_t *setup_video_rendering
     }
     else
     {
-        const VSAPI *vsapi = vs_vohp->vsapi;
         vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, vs_vohp->core );
         vi->width  = width;
         vi->height = height;
@@ -794,7 +802,10 @@ func_get_buffer_t *setup_video_rendering
         }
         vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, vs_vohp->core );
         if( !vs_vohp->background_frame )
+        {
+            set_error_on_init( out, vsapi, "lsmas: failed to allocate memory for the background black frame data." );
             return NULL;
+        }
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
     }
     lw_vohp->output_width  = vi->width;

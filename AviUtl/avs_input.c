@@ -216,13 +216,11 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     h->framerate_num      = hp->vi->fps_numerator;
     h->framerate_den      = hp->vi->fps_denominator;
     /* Set up the initial input format. */
-    hp->ctx->width       = hp->vi->width;
-    hp->ctx->height      = hp->vi->height;
-    hp->ctx->pix_fmt     = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &hp->ctx->width );
-    hp->ctx->color_range = AVCOL_RANGE_UNSPECIFIED;
-    hp->ctx->colorspace  = AVCOL_SPC_UNSPECIFIED;
+    hp->ctx->width   = hp->vi->width;
+    hp->ctx->height  = hp->vi->height;
+    hp->ctx->pix_fmt = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &hp->ctx->width );
     /* Set up video rendering. */
-    if( !au_setup_video_rendering( &hp->voh, hp->ctx, opt, &h->video_format, hp->vi->width, hp->vi->height ) )
+    if( !au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, hp->ctx->pix_fmt ) )
         return -1;
     return 0;
 }

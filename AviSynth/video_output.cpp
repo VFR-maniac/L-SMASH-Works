@@ -692,7 +692,7 @@ func_get_buffer_t *as_setup_video_rendering
     avoid_yuv_scale_conversion( &input_pixel_format );
     direct_rendering &= as_check_dr_available( ctx, input_pixel_format, as_vohp->stacked_format );
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( initialize_scaler_handler( vshp, ctx, !direct_rendering, SWS_FAST_BILINEAR, vshp->output_pixel_format ) < 0 )
+    if( initialize_scaler_handler( vshp, !direct_rendering, SWS_FAST_BILINEAR, vshp->output_pixel_format ) < 0 )
         env->ThrowError( "%s: failed to initialize scaler handler.", filter_name );
     /* Allocate temporally scaled image if stacked format could be required.*/
     if( as_vohp->stacked_format

@@ -37,11 +37,11 @@ typedef struct
 func_get_buffer_t *au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     video_option_t            *opt,
     BITMAPINFOHEADER          *format,
     int                        output_width,
-    int                        output_height
+    int                        output_height,
+    enum AVPixelFormat         input_pixel_format
 );
 
 int convert_colorspace

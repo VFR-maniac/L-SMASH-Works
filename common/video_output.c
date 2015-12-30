@@ -61,11 +61,9 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format )
     return 0;
 }
 
-/* Note: To get YUV range, must not pass avoid_yuv_scale_conversion( &ctx->pix_fmt ) before this function. */
 int initialize_scaler_handler
 (
     lw_video_scaler_handler_t *vshp,
-    AVCodecContext            *ctx,
     int                        enabled,
     int                        flags,
     enum AVPixelFormat         output_pixel_format
@@ -73,23 +71,14 @@ int initialize_scaler_handler
 {
     if( flags != SWS_FAST_BILINEAR )
         flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND | SWS_BITEXACT;
-    int yuv_range = avoid_yuv_scale_conversion( &ctx->pix_fmt );
-    if( ctx->color_range == AVCOL_RANGE_MPEG || ctx->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (ctx->color_range == AVCOL_RANGE_JPEG);
-    vshp->sws_ctx = update_scaler_configuration( NULL, flags,
-                                                 ctx->width, ctx->height,
-                                                 ctx->pix_fmt, output_pixel_format,
-                                                 ctx->colorspace, yuv_range );
-    if( !vshp->sws_ctx )
-        return -1;
     vshp->enabled             = enabled;
     vshp->flags               = flags;
-    vshp->input_width         = ctx->width;
-    vshp->input_height        = ctx->height;
-    vshp->input_pixel_format  = ctx->pix_fmt;
+    vshp->input_width         = 0;
+    vshp->input_height        = 0;
+    vshp->input_pixel_format  = AV_PIX_FMT_NONE;
     vshp->output_pixel_format = output_pixel_format;
-    vshp->input_colorspace    = ctx->colorspace;
-    vshp->input_yuv_range     = yuv_range;
+    vshp->input_colorspace    = AVCOL_SPC_UNSPECIFIED;
+    vshp->input_yuv_range     = AVCOL_RANGE_UNSPECIFIED;
     return 0;
 }
 
@@ -138,11 +127,9 @@ void lw_cleanup_video_output_handler
     if( vohp->free_private_handler )
         vohp->free_private_handler( vohp->private_handler );
     vohp->private_handler = NULL;
-    if( vohp->frame_order_list )
-        lw_freep( &vohp->frame_order_list );
+    lw_freep( &vohp->frame_order_list );
     for( int i = 0; i < REPEAT_CONTROL_CACHE_NUM; i++ )
-        if( vohp->frame_cache_buffers[i] )
-            av_frame_free( &vohp->frame_cache_buffers[i] );
+        av_frame_free( &vohp->frame_cache_buffers[i] );
     if( vohp->scaler.sws_ctx )
     {
         sws_freeContext( vohp->scaler.sws_ctx );

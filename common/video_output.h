@@ -72,7 +72,6 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format );
 int initialize_scaler_handler
 (
     lw_video_scaler_handler_t *vshp,
-    AVCodecContext            *ctx,
     int                        enabled,
     int                        flags,
     enum AVPixelFormat         output_pixel_format

@@ -194,28 +194,15 @@ static int prepare_video_decoding
     /* Set up output format. */
     lwlibav_video_set_initial_input_format( vdhp );
     AVCodecContext *ctx = lwlibav_video_get_codec_context( vdhp );
-    if( determine_colorspace_conversion( vohp, ctx->pix_fmt ) )
-    {
-        set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
-        return -1;
-    }
-    if( initialize_scaler_handler( &vohp->scaler, ctx, vohp->scaler.enabled, SWS_FAST_BILINEAR, vohp->scaler.output_pixel_format ) < 0 )
-    {
-        set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
-        return -1;
-    }
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     vs_vohp->frame_ctx = NULL;
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     int max_width  = lwlibav_video_get_max_width ( vdhp );
     int max_height = lwlibav_video_get_max_height( vdhp );
-    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, max_width, max_height );
+    int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) = setup_video_rendering( vohp, ctx, vi, out, max_width, max_height );
     if( !get_buffer_func )
-    {
-        set_error_on_init( out, vsapi, "lsmas: failed to allocate memory for the background black frame data." );
         return -1;
-    }
     lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
     /* Find the first valid video frame. */
     if( lwlibav_video_find_first_valid_frame( vdhp ) < 0 )

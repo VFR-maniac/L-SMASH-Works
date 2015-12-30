@@ -73,6 +73,7 @@ func_get_buffer_t *setup_video_rendering
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
     VSVideoInfo               *vi,
+    VSMap                     *out,
     int                        width,
     int                        height
 );

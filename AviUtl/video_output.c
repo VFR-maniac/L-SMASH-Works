@@ -126,11 +126,11 @@ static void au_free_video_output_handler
 func_get_buffer_t *au_setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
-    AVCodecContext            *ctx,
     video_option_t            *opt,
     BITMAPINFOHEADER          *format,
     int                        output_width,
-    int                        output_height
+    int                        output_height,
+    enum AVPixelFormat         input_pixel_format
 )
 {
     /* Set up output format. */
@@ -145,13 +145,13 @@ func_get_buffer_t *au_setup_video_rendering
     enum AVPixelFormat      output_pixel_format;
     output_colorspace_index index;
     if( opt->colorspace == 0 )
-        index = determine_colorspace_conversion( ctx->pix_fmt, &output_pixel_format );
+        index = determine_colorspace_conversion( input_pixel_format, &output_pixel_format );
     else
     {
         output_pixel_format = AV_PIX_FMT_YUV444P16LE;
         index               = OUTPUT_LW48;
     }
-    if( initialize_scaler_handler( &vohp->scaler, ctx, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
+    if( initialize_scaler_handler( &vohp->scaler, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
         return NULL;

@@ -139,7 +139,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     int max_width  = lwlibav_video_get_max_width ( vdhp );
     int max_height = lwlibav_video_get_max_height( vdhp );
     int (*get_buffer_func)( struct AVCodecContext *, AVFrame *, int ) =
-        au_setup_video_rendering( vohp, ctx, opt, &h->video_format, max_width, max_height );
+        au_setup_video_rendering( vohp, opt, &h->video_format, max_width, max_height, ctx->pix_fmt );
     if( !get_buffer_func )
         return -1;
     lwlibav_video_set_get_buffer_func( vdhp, get_buffer_func );
