@@ -313,9 +313,9 @@ enum AVPixelFormat get_av_output_pixel_format
 
 static int determine_colorspace_conversion
 (
-    lw_video_output_handler_t *vohp,
+    as_video_output_handler_t *as_vohp,
     enum AVPixelFormat         input_pixel_format,
-    enum AVPixelFormat         output_pixel_format,
+    enum AVPixelFormat        *output_pixel_format,
     int                       *output_pixel_type
 )
 {
@@ -366,31 +366,28 @@ static int determine_colorspace_conversion
 #endif
             { AV_PIX_FMT_NONE,        AV_PIX_FMT_NONE,        VideoInfo::CS_UNKNOWN, 0, 0, 0 }
         };
-    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
-    as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     as_vohp->bitdepth_minus_8 = 0;
-    vshp->output_pixel_format = output_pixel_format;
     int i = 0;
-    if( vshp->output_pixel_format == AV_PIX_FMT_NONE )
+    if( *output_pixel_format == AV_PIX_FMT_NONE )
     {
         for( i = 0; conversion_table[i].input_pixel_format != AV_PIX_FMT_NONE; i++ )
             if( conversion_table[i].input_pixel_format == input_pixel_format )
             {
-                vshp->output_pixel_format = conversion_table[i].output_pixel_format;
+                *output_pixel_format = conversion_table[i].output_pixel_format;
                 break;
             }
     }
     else
     {
         for( i = 0; conversion_table[i].input_pixel_format != AV_PIX_FMT_NONE; i++ )
-            if( conversion_table[i].output_pixel_format == vshp->output_pixel_format )
+            if( conversion_table[i].output_pixel_format == *output_pixel_format )
                 break;
     }
     *output_pixel_type        = conversion_table[i].output_pixel_type;
     as_vohp->bitdepth_minus_8 = conversion_table[i].output_bitdepth_minus_8;
     as_vohp->sub_width        = conversion_table[i].output_sub_width;
     as_vohp->sub_height       = conversion_table[i].output_sub_height;
-    switch( vshp->output_pixel_format )
+    switch( *output_pixel_format )
     {
         case AV_PIX_FMT_YUV420P     :   /* planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples) */
         case AV_PIX_FMT_YUV422P     :   /* planar YUV 4:2:2, 16bpp, (1 Cr & Cb sample per 2x1 Y samples) */
@@ -456,8 +453,7 @@ int make_frame
     IScriptEnvironment        *env
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( !vshp->enabled && av_frame->opaque )
+    if( av_frame->opaque )
     {
         /* Render a video frame from the decoder directly. */
         as_video_buffer_handler_t *as_vbhp = (as_video_buffer_handler_t *)av_frame->opaque;
@@ -555,13 +551,11 @@ static int as_video_get_buffer
     lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)lw_vohp->private_handler;
     lw_video_scaler_handler_t *vshp    = &lw_vohp->scaler;
-    vshp->enabled = 0;
     enum AVPixelFormat pix_fmt = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &pix_fmt );
+    av_frame->format = pix_fmt; /* Don't use AV_PIX_FMT_YUVJ*. */
     if( vshp->output_pixel_format != pix_fmt
      || !as_check_dr_available( ctx, pix_fmt, as_vohp->stacked_format ) )
-        vshp->enabled = 1;
-    if( vshp->enabled )
         return avcodec_default_get_buffer2( ctx, av_frame, 0 );
     /* New AviSynth video frame buffer. */
     as_video_buffer_handler_t *as_vbhp = new as_video_buffer_handler_t;
@@ -659,22 +653,22 @@ void as_setup_video_rendering
     IScriptEnvironment        *env     = as_vohp->env;
     VideoInfo                 *vi      = as_vohp->vi;
     as_vohp->stacked_format = stacked_format;
-    if( determine_colorspace_conversion( vohp, ctx->pix_fmt, output_pixel_format, &vi->pixel_type ) < 0 )
+    if( determine_colorspace_conversion( as_vohp, ctx->pix_fmt, &output_pixel_format, &vi->pixel_type ) < 0 )
         env->ThrowError( "%s: %s is not supported", filter_name, av_get_pix_fmt_name( ctx->pix_fmt ) );
+    vohp->scaler.output_pixel_format = output_pixel_format;
     int width  = output_width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0);
     int height = output_height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0);
     /* Allocate temporally scaled image if stacked format could be required.*/
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
     if( as_vohp->stacked_format
      && av_image_alloc( as_vohp->scaled.data, as_vohp->scaled.linesize,
-                        width, height, vshp->output_pixel_format, 32 ) < 0 )
+                        width, height, output_pixel_format, 32 ) < 0 )
         env->ThrowError( "%s: failed to allocate temporally scaled image.", filter_name );
     enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &input_pixel_format );
     direct_rendering &= as_check_dr_available( ctx, input_pixel_format, as_vohp->stacked_format );
     int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int ) = direct_rendering ? as_video_get_buffer : NULL;
-    setup_video_rendering( vohp, !direct_rendering, SWS_FAST_BILINEAR,
-                           width, height, vshp->output_pixel_format,
+    setup_video_rendering( vohp, SWS_FAST_BILINEAR,
+                           width, height, output_pixel_format,
                            ctx, dr_get_buffer );
     /* Set the dimensions of AviSynth frame buffer. */
     vi->width  = vohp->output_width;

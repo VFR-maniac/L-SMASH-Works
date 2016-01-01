@@ -401,17 +401,16 @@ static int determine_colorspace_conversion
 (
     vs_video_output_handler_t *vs_vohp,
     enum AVPixelFormat         input_pixel_format,
-    enum AVPixelFormat        *output_pixel_format,
-    int                       *enable_scaler
+    enum AVPixelFormat        *output_pixel_format
 )
 {
-    *enable_scaler = 1;
+    int fmt_conv_required = 1;
     avoid_yuv_scale_conversion( &input_pixel_format );
     static const struct
     {
         enum AVPixelFormat  av_input_pixel_format;
         VSPresetFormat      vs_output_pixel_format;
-        int                 enable_scaler;
+        int                 fmt_conv_required;
     } conversion_table[] =
         {
             { AV_PIX_FMT_YUV420P,     pfYUV420P8,  0 },
@@ -467,7 +466,7 @@ static int determine_colorspace_conversion
             if( input_pixel_format == conversion_table[i].av_input_pixel_format )
             {
                 vs_vohp->vs_output_pixel_format = conversion_table[i].vs_output_pixel_format;
-                *enable_scaler                  = conversion_table[i].enable_scaler;
+                fmt_conv_required               = conversion_table[i].fmt_conv_required;
                 break;
             }
     }
@@ -479,12 +478,12 @@ static int determine_colorspace_conversion
             if( input_pixel_format              == conversion_table[i].av_input_pixel_format
              && vs_vohp->vs_output_pixel_format == conversion_table[i].vs_output_pixel_format )
             {
-                *enable_scaler = conversion_table[i].enable_scaler;
+                fmt_conv_required = conversion_table[i].fmt_conv_required;
                 break;
             }
         }
     }
-    *output_pixel_format = *enable_scaler
+    *output_pixel_format = fmt_conv_required
                          ? vs_to_av_output_pixel_format( vs_vohp->vs_output_pixel_format )
                          : input_pixel_format;
     vs_vohp->component_reorder = get_component_reorder( *output_pixel_format );
@@ -503,7 +502,6 @@ static VSFrameRef *new_output_video_frame
     vs_video_output_handler_t *vs_vohp,
     const AVFrame             *av_frame,
     enum AVPixelFormat        *output_pixel_format,
-    int                       *enable_scaler,
     int                        input_pix_fmt_change,
     VSFrameContext            *frame_ctx,
     VSCore                    *core,
@@ -513,7 +511,7 @@ static VSFrameRef *new_output_video_frame
     if( vs_vohp->variable_info )
     {
         if( !av_frame->opaque
-         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format, enable_scaler ) < 0 )
+         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format ) < 0 )
             goto fail;
         const VSFormat *vs_format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
         return vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
@@ -522,7 +520,7 @@ static VSFrameRef *new_output_video_frame
     {
         if( !av_frame->opaque
          && input_pix_fmt_change
-         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format, enable_scaler ) < 0 )
+         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format ) < 0 )
             goto fail;
         return vsapi->copyFrame( vs_vohp->background_frame, core );
     }
@@ -554,7 +552,7 @@ VSFrameRef *make_frame
     /* Make video frame.
      * Convert pixel format if needed. We don't change the presentation resolution. */
     VSFrameRef *vs_frame = new_output_video_frame( vs_vohp, av_frame,
-                                                  &vshp->output_pixel_format, &vshp->enabled,
+                                                  &vshp->output_pixel_format,
                                                   !!(vshp->frame_prop_change_flags & LW_FRAME_PROP_CHANGE_FLAG_PIXEL_FORMAT),
                                                   frame_ctx, core, vsapi );
     if( vs_frame )
@@ -681,7 +679,7 @@ static int vs_video_get_buffer
     }
     av_frame->opaque = vs_vbhp;
     avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
-    VSFrameRef *vs_frame_buffer = new_output_video_frame( vs_vohp, av_frame, NULL, NULL, 0,
+    VSFrameRef *vs_frame_buffer = new_output_video_frame( vs_vohp, av_frame, NULL, 0,
                                                           vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
     if( !vs_frame_buffer )
     {
@@ -732,15 +730,14 @@ int vs_setup_video_rendering
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
     const VSAPI *vsapi = vs_vohp->vsapi;
     enum AVPixelFormat output_pixel_format;
-    int                enable_scaler;
-    if( determine_colorspace_conversion( vs_vohp, ctx->pix_fmt, &output_pixel_format, &enable_scaler ) )
+    if( determine_colorspace_conversion( vs_vohp, ctx->pix_fmt, &output_pixel_format ) )
     {
         set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
         return -1;
     }
     vs_vohp->direct_rendering &= vs_check_dr_available( ctx, ctx->pix_fmt );
     int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int ) = vs_vohp->direct_rendering ? vs_video_get_buffer : NULL;
-    setup_video_rendering( lw_vohp, enable_scaler, SWS_FAST_BILINEAR,
+    setup_video_rendering( lw_vohp, SWS_FAST_BILINEAR,
                            width, height, output_pixel_format,
                            ctx, dr_get_buffer );
     if( vs_vohp->variable_info )

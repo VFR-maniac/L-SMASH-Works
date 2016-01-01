@@ -30,7 +30,6 @@
 
 typedef struct
 {
-    int                enabled;
     int                scaler_flags;
     int                frame_prop_change_flags;
     int                input_width;
@@ -75,7 +74,6 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format );
 void setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
-    int                        scaler_enabled,
     int                        scaler_flags,
     int                        width,
     int                        height,

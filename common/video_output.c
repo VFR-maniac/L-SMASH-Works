@@ -64,14 +64,12 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format )
 static void initialize_scaler_handler
 (
     lw_video_scaler_handler_t *vshp,
-    int                        enabled,
     int                        flags,
     enum AVPixelFormat         output_pixel_format
 )
 {
     if( flags != SWS_FAST_BILINEAR )
         flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND | SWS_BITEXACT;
-    vshp->enabled             = enabled;
     vshp->scaler_flags        = flags;
     vshp->input_width         = 0;
     vshp->input_height        = 0;
@@ -84,7 +82,6 @@ static void initialize_scaler_handler
 void setup_video_rendering
 (
     lw_video_output_handler_t *vohp,
-    int                        scaler_enabled,
     int                        scaler_flags,
     int                        width,
     int                        height,
@@ -94,7 +91,7 @@ void setup_video_rendering
 )
 {
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    initialize_scaler_handler( vshp, scaler_enabled, scaler_flags, output_pixel_format );
+    initialize_scaler_handler( vshp, scaler_flags, output_pixel_format );
     /* Set up direct rendering if available. */
     if( ctx && dr_get_buffer )
     {

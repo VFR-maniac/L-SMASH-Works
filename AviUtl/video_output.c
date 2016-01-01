@@ -151,7 +151,7 @@ int au_setup_video_rendering
         output_pixel_format = AV_PIX_FMT_YUV444P16LE;
         index               = OUTPUT_LW48;
     }
-    setup_video_rendering( vohp, 1, 1 << opt->scaler,
+    setup_video_rendering( vohp, 1 << opt->scaler,
                            output_width, output_height, output_pixel_format,
                            NULL, NULL );
     static const struct
