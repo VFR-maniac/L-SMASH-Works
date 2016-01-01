@@ -399,7 +399,7 @@ static inline int set_frame_maker
 
 static int determine_colorspace_conversion
 (
-    lw_video_output_handler_t *vohp,
+    vs_video_output_handler_t *vs_vohp,
     enum AVPixelFormat         input_pixel_format,
     enum AVPixelFormat        *output_pixel_format,
     int                       *enable_scaler
@@ -460,7 +460,6 @@ static int determine_colorspace_conversion
             { AV_PIX_FMT_BGR48BE,     pfRGB48,     1 },
             { AV_PIX_FMT_NONE,        pfNone,      1 }
         };
-    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
     if( vs_vohp->variable_info || vs_vohp->vs_output_pixel_format == pfNone )
     {
         /* Determine by input pixel format. */
@@ -501,34 +500,32 @@ typedef struct
 
 static VSFrameRef *new_output_video_frame
 (
-    lw_video_output_handler_t *vohp,
+    vs_video_output_handler_t *vs_vohp,
     const AVFrame             *av_frame,
+    enum AVPixelFormat        *output_pixel_format,
+    int                       *enable_scaler,
+    int                        input_pix_fmt_change,
     VSFrameContext            *frame_ctx,
     VSCore                    *core,
     const VSAPI               *vsapi
 )
 {
-    vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
-    VSFrameRef                *vs_frame;
-    enum AVPixelFormat         output_pixel_format;
-    int                        enable_scaler;
     if( vs_vohp->variable_info )
     {
-        if( determine_colorspace_conversion( vohp, av_frame->format, &output_pixel_format, &enable_scaler ) < 0 )
+        if( !av_frame->opaque
+         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format, enable_scaler ) < 0 )
             goto fail;
         const VSFormat *vs_format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, core );
-        vs_frame = vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
+        return vsapi->newVideoFrame( vs_format, av_frame->width, av_frame->height, NULL, core );
     }
     else
     {
-        if( av_frame->format != vohp->scaler.input_pixel_format
-         && determine_colorspace_conversion( vohp, av_frame->format, &output_pixel_format, &enable_scaler ) < 0 )
+        if( !av_frame->opaque
+         && input_pix_fmt_change
+         && determine_colorspace_conversion( vs_vohp, av_frame->format, output_pixel_format, enable_scaler ) < 0 )
             goto fail;
-        vs_frame = vsapi->copyFrame( vs_vohp->background_frame, core );
+        return vsapi->copyFrame( vs_vohp->background_frame, core );
     }
-    vohp->scaler.enabled             = enable_scaler;
-    vohp->scaler.output_pixel_format = output_pixel_format;
-    return vs_frame;
 fail:
     if( frame_ctx )
         vsapi->setFilterError( "lsmas: failed to determine colorspace conversion.", frame_ctx );
@@ -546,7 +543,7 @@ VSFrameRef *make_frame
     VSFrameContext *frame_ctx = vs_vohp->frame_ctx;
     VSCore         *core      = vs_vohp->core;
     const VSAPI    *vsapi     = vs_vohp->vsapi;
-    if( vs_vohp->direct_rendering && !vshp->enabled && av_frame->opaque )
+    if( av_frame->opaque )
     {
         /* Render from the decoder directly. */
         vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)av_frame->opaque;
@@ -556,7 +553,10 @@ VSFrameRef *make_frame
         return NULL;
     /* Make video frame.
      * Convert pixel format if needed. We don't change the presentation resolution. */
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = new_output_video_frame( vs_vohp, av_frame,
+                                                  &vshp->output_pixel_format, &vshp->enabled,
+                                                  !!(vshp->frame_prop_change_flags & LW_FRAME_PROP_CHANGE_FLAG_PIXEL_FORMAT),
+                                                  frame_ctx, core, vsapi );
     if( vs_frame )
         vs_vohp->make_frame( vshp, av_frame, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
     else if( frame_ctx )
@@ -666,14 +666,12 @@ static int vs_video_get_buffer
     av_frame->opaque = NULL;
     lw_video_output_handler_t *lw_vohp = (lw_video_output_handler_t *)ctx->opaque;
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)lw_vohp->private_handler;
-    enum AVPixelFormat pix_fmt = ctx->pix_fmt;
+    enum AVPixelFormat pix_fmt = av_frame->format;
     avoid_yuv_scale_conversion( &pix_fmt );
+    av_frame->format = pix_fmt; /* Don't use AV_PIX_FMT_YUVJ*. */
     if( (!vs_vohp->variable_info && lw_vohp->scaler.output_pixel_format != pix_fmt)
      || !vs_check_dr_available( ctx, pix_fmt ) )
-    {
-        lw_vohp->scaler.enabled = 1;
-        return avcodec_default_get_buffer2( ctx, av_frame, 0 );
-    }
+        return avcodec_default_get_buffer2( ctx, av_frame, flags );
     /* New VapourSynth video frame buffer. */
     vs_video_buffer_handler_t *vs_vbhp = malloc( sizeof(vs_video_buffer_handler_t) );
     if( !vs_vbhp )
@@ -682,11 +680,8 @@ static int vs_video_get_buffer
         return AVERROR( ENOMEM );
     }
     av_frame->opaque = vs_vbhp;
-    av_frame->width  = ctx->width;
-    av_frame->height = ctx->height;
-    av_frame->format = pix_fmt;
     avcodec_align_dimensions2( ctx, &av_frame->width, &av_frame->height, av_frame->linesize );
-    VSFrameRef *vs_frame_buffer = new_output_video_frame( lw_vohp, av_frame,
+    VSFrameRef *vs_frame_buffer = new_output_video_frame( vs_vohp, av_frame, NULL, NULL, 0,
                                                           vs_vohp->frame_ctx, vs_vohp->core, vs_vohp->vsapi );
     if( !vs_frame_buffer )
     {
@@ -738,7 +733,7 @@ int vs_setup_video_rendering
     const VSAPI *vsapi = vs_vohp->vsapi;
     enum AVPixelFormat output_pixel_format;
     int                enable_scaler;
-    if( determine_colorspace_conversion( lw_vohp, ctx->pix_fmt, &output_pixel_format, &enable_scaler ) )
+    if( determine_colorspace_conversion( vs_vohp, ctx->pix_fmt, &output_pixel_format, &enable_scaler ) )
     {
         set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
         return -1;
