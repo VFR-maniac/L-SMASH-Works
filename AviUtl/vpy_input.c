@@ -122,9 +122,12 @@ static void close_vsscript_dll
 
 static enum AVPixelFormat vs_to_av_input_pixel_format
 (
-    VSPresetFormat vs_input_pixel_format
+    const VSFormat *format
 )
 {
+    if( !format )
+        return AV_PIX_FMT_NONE;
+    VSPresetFormat vs_input_pixel_format = format->id;
     static const struct
     {
         VSPresetFormat     vs_input_pixel_format;
@@ -171,7 +174,7 @@ static int prepare_video_decoding
     h->framerate_num      = hp->vi->fpsNum;
     h->framerate_den      = hp->vi->fpsDen;
     /* Set up video rendering. */
-    enum AVPixelFormat input_pixel_format = vs_to_av_input_pixel_format( hp->vi->format->id );
+    enum AVPixelFormat input_pixel_format = vs_to_av_input_pixel_format( hp->vi->format );
     return au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format );
 }
 
@@ -296,7 +299,7 @@ static int read_video
         hp->vsapi->freeFrame( vs_frame );
         return 0;
     }
-    hp->av_frame->format = vs_to_av_input_pixel_format( format->id );
+    hp->av_frame->format = vs_to_av_input_pixel_format( format );
     hp->av_frame->width  = hp->vsapi->getFrameWidth ( vs_frame, 0 );
     hp->av_frame->height = hp->vsapi->getFrameHeight( vs_frame, 0 );
     int is_rgb = vs_is_rgb_format( format->colorFamily );
