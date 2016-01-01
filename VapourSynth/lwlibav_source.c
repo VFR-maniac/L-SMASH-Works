@@ -200,7 +200,7 @@ static int prepare_video_decoding
     vs_vohp->vsapi     = vsapi;
     int max_width  = lwlibav_video_get_max_width ( vdhp );
     int max_height = lwlibav_video_get_max_height( vdhp );
-    if( setup_video_rendering( vohp, ctx, vi, out, max_width, max_height ) < 0 )
+    if( vs_setup_video_rendering( vohp, ctx, vi, out, max_width, max_height ) < 0 )
         return -1;
     lwlibav_video_set_get_buffer_func( vdhp );
     /* Find the first valid video frame. */

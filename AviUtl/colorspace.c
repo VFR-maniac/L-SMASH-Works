@@ -26,8 +26,8 @@
 
 #include "lwinput.h"
 
-#include <libavutil/frame.h>
 #include <libavutil/mem.h>
+#include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
 #include "../common/lwsimd.h"

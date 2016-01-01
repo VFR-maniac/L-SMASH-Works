@@ -26,7 +26,7 @@
 
 #include "VSHelper.h"
 
-#include <libavutil/frame.h>
+#include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
 #include "video_output.h"

@@ -27,7 +27,7 @@ extern "C"
 {
 #endif  /* __cplusplus */
 #include <libavutil/opt.h>
-#include <libavutil/frame.h>
+#include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #ifdef __cplusplus
 }
@@ -61,7 +61,7 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format )
     return 0;
 }
 
-int initialize_scaler_handler
+static int initialize_scaler_handler
 (
     lw_video_scaler_handler_t *vshp,
     int                        enabled,
@@ -80,6 +80,38 @@ int initialize_scaler_handler
     vshp->input_colorspace    = AVCOL_SPC_UNSPECIFIED;
     vshp->input_yuv_range     = AVCOL_RANGE_UNSPECIFIED;
     return 0;
+}
+
+void setup_video_rendering
+(
+    lw_video_output_handler_t *vohp,
+    int                        scaler_enabled,
+    int                        scaler_flags,
+    int                        width,
+    int                        height,
+    enum AVPixelFormat         output_pixel_format,
+    struct AVCodecContext     *ctx,
+    int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int )
+)
+{
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
+    initialize_scaler_handler( vshp, scaler_enabled, scaler_flags, output_pixel_format );
+    /* Set up direct rendering if available. */
+    if( ctx && dr_get_buffer )
+    {
+        /* Align output width and height for direct rendering. */
+        int linesize_align[AV_NUM_DATA_POINTERS];
+        enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
+        ctx->pix_fmt = output_pixel_format;
+        avcodec_align_dimensions2( ctx, &width, &height, linesize_align );
+        ctx->pix_fmt = input_pixel_format;
+        /* Set up custom get_buffer() for direct rendering if available. */
+        ctx->get_buffer2 = dr_get_buffer;
+        ctx->opaque      = vohp;
+        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
+    }
+    vohp->output_width  = width;
+    vohp->output_height = height;
 }
 
 static struct SwsContext *update_scaler_configuration

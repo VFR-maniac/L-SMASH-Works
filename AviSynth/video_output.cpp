@@ -641,9 +641,8 @@ void as_free_video_output_handler
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)private_handler;
     if( !as_vohp )
         return;
-    if( as_vohp->scaled.data[0] )
-        av_freep( &as_vohp->scaled.data[0] );
-    free( as_vohp );
+    av_freep( &as_vohp->scaled.data[0] );
+    lw_free( as_vohp );
 }
 
 void as_setup_video_rendering
@@ -664,33 +663,22 @@ void as_setup_video_rendering
     as_vohp->stacked_format = stacked_format;
     if( determine_colorspace_conversion( vohp, ctx->pix_fmt, output_pixel_format, &vi->pixel_type ) < 0 )
         env->ThrowError( "%s: %s is not supported", filter_name, av_get_pix_fmt_name( ctx->pix_fmt ) );
-    vi->width  = output_width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0);
-    vi->height = output_height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0);
+    int width  = output_width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0);
+    int height = output_height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0);
+    /* Allocate temporally scaled image if stacked format could be required.*/
+    lw_video_scaler_handler_t *vshp = &vohp->scaler;
+    if( as_vohp->stacked_format
+     && av_image_alloc( as_vohp->scaled.data, as_vohp->scaled.linesize,
+                        width, height, vshp->output_pixel_format, 32 ) < 0 )
+        env->ThrowError( "%s: failed to allocate temporally scaled image.", filter_name );
     enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
     avoid_yuv_scale_conversion( &input_pixel_format );
     direct_rendering &= as_check_dr_available( ctx, input_pixel_format, as_vohp->stacked_format );
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( initialize_scaler_handler( vshp, !direct_rendering, SWS_FAST_BILINEAR, vshp->output_pixel_format ) < 0 )
-        env->ThrowError( "%s: failed to initialize scaler handler.", filter_name );
-    /* Allocate temporally scaled image if stacked format could be required.*/
-    if( as_vohp->stacked_format
-     && av_image_alloc( as_vohp->scaled.data, as_vohp->scaled.linesize,
-                        vi->width, vi->height, vshp->output_pixel_format, 32 ) < 0 )
-        env->ThrowError( "%s: failed to allocate temporally scaled image.", filter_name );
-    /* Set up direct rendering if available. */
-    if( direct_rendering )
-    {
-        /* Align output width and height for direct rendering. */
-        int linesize_align[AV_NUM_DATA_POINTERS];
-        input_pixel_format = ctx->pix_fmt;
-        ctx->pix_fmt = vohp->scaler.output_pixel_format;
-        avcodec_align_dimensions2( ctx, &vi->width, &vi->height, linesize_align );
-        ctx->pix_fmt = input_pixel_format;
-        /* Set up custom get_buffer() for direct rendering if available. */
-        ctx->get_buffer2 = as_video_get_buffer;
-        ctx->opaque      = vohp;
-        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
-    }
-    vohp->output_width  = vi->width;
-    vohp->output_height = vi->height;
+    int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int ) = direct_rendering ? as_video_get_buffer : NULL;
+    setup_video_rendering( vohp, !direct_rendering, SWS_FAST_BILINEAR,
+                           width, height, vshp->output_pixel_format,
+                           ctx, dr_get_buffer );
+    /* Set the dimensions of AviSynth frame buffer. */
+    vi->width  = vohp->output_width;
+    vi->height = vohp->output_height;
 }

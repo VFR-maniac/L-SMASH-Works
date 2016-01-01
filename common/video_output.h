@@ -67,12 +67,16 @@ typedef struct
 
 int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format );
 
-int initialize_scaler_handler
+void setup_video_rendering
 (
-    lw_video_scaler_handler_t *vshp,
-    int                        enabled,
-    int                        flags,
-    enum AVPixelFormat         output_pixel_format
+    lw_video_output_handler_t *vohp,
+    int                        scaler_enabled,
+    int                        scaler_flags,
+    int                        width,
+    int                        height,
+    enum AVPixelFormat         output_pixel_format,
+    struct AVCodecContext     *ctx,
+    int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int )
 );
 
 /* Return 0 if no update.

@@ -731,7 +731,7 @@ fail:
     return AVERROR( ENOMEM );
 }
 
-int setup_video_rendering
+int vs_setup_video_rendering
 (
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
@@ -748,32 +748,25 @@ int setup_video_rendering
         set_error_on_init( out, vsapi, "lsmas: %s is not supported", av_get_pix_fmt_name( ctx->pix_fmt ) );
         return -1;
     }
-    if( initialize_scaler_handler( &lw_vohp->scaler, lw_vohp->scaler.enabled, SWS_FAST_BILINEAR, lw_vohp->scaler.output_pixel_format ) < 0 )
-    {
-        set_error_on_init( out, vsapi, "lsmas: failed to initialize scaler handler." );
-        return -1;
-    }
     vs_vohp->direct_rendering &= vs_check_dr_available( ctx, ctx->pix_fmt );
+    int (*dr_get_buffer)( struct AVCodecContext *, AVFrame *, int ) = vs_vohp->direct_rendering ? vs_video_get_buffer : NULL;
+    setup_video_rendering( lw_vohp, lw_vohp->scaler.enabled, SWS_FAST_BILINEAR,
+                           width, height, lw_vohp->scaler.output_pixel_format,
+                           ctx, dr_get_buffer );
     if( vs_vohp->variable_info )
     {
         vi->format = NULL;
         vi->width  = 0;
         vi->height = 0;
+        /* Unused */
+        //lw_vohp->output_width  = 0;
+        //lw_vohp->output_height = 0;
     }
     else
     {
         vi->format = vsapi->getFormatPreset( vs_vohp->vs_output_pixel_format, vs_vohp->core );
-        vi->width  = width;
-        vi->height = height;
-        if( vs_vohp->direct_rendering )
-        {
-            /* Align output width and height for direct rendering. */
-            int linesize_align[AV_NUM_DATA_POINTERS];
-            enum AVPixelFormat input_pixel_format = ctx->pix_fmt;
-            ctx->pix_fmt = lw_vohp->scaler.output_pixel_format;
-            avcodec_align_dimensions2( ctx, &vi->width, &vi->height, linesize_align );
-            ctx->pix_fmt = input_pixel_format;
-        }
+        vi->width  = lw_vohp->output_width;
+        vi->height = lw_vohp->output_height;
         vs_vohp->background_frame = vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, vs_vohp->core );
         if( !vs_vohp->background_frame )
         {
@@ -781,15 +774,6 @@ int setup_video_rendering
             return -1;
         }
         vs_vohp->make_black_background( vs_vohp->background_frame, vsapi );
-    }
-    lw_vohp->output_width  = vi->width;
-    lw_vohp->output_height = vi->height;
-    /* Set up custom get_buffer() for direct rendering if available. */
-    if( vs_vohp->direct_rendering )
-    {
-        ctx->get_buffer2 = vs_video_get_buffer;
-        ctx->opaque      = lw_vohp;
-        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
     return 0;
 }
@@ -804,7 +788,7 @@ static void vs_free_video_output_handler
         return;
     if( vs_vohp->vsapi && vs_vohp->vsapi->freeFrame && vs_vohp->background_frame )
         vs_vohp->vsapi->freeFrame( vs_vohp->background_frame );
-    free( vs_vohp );
+    lw_free( vs_vohp );
 }
 
 vs_video_output_handler_t *vs_allocate_video_output_handler

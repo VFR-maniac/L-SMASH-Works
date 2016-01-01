@@ -24,9 +24,9 @@
 
 #include "lwinput.h"
 
-#include <libavutil/frame.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mem.h>
+#include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 
 #include "video_output.h"
@@ -117,10 +117,10 @@ static void au_free_video_output_handler
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)private_handler;
     if( !au_vohp )
         return;
-    free( au_vohp->back_ground );
+    lw_free( au_vohp->back_ground );
     av_free( au_vohp->another_chroma );
     av_frame_free( &au_vohp->yuv444p16 );
-    free( au_vohp );
+    lw_free( au_vohp );
 }
 
 int au_setup_video_rendering
@@ -151,11 +151,9 @@ int au_setup_video_rendering
         output_pixel_format = AV_PIX_FMT_YUV444P16LE;
         index               = OUTPUT_LW48;
     }
-    if( initialize_scaler_handler( &vohp->scaler, 1, 1 << opt->scaler, output_pixel_format ) < 0 )
-    {
-        DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to get initialize scaler handler." );
-        return -1;
-    }
+    setup_video_rendering( vohp, 1, 1 << opt->scaler,
+                           output_width, output_height, output_pixel_format,
+                           NULL, NULL );
     static const struct
     {
         func_convert_colorspace *convert_colorspace;
@@ -177,10 +175,8 @@ int au_setup_video_rendering
     format->biBitCount    = colorspace_table[index].pixel_size << 3;
     format->biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
-    vohp->output_width      = format->biWidth;
-    vohp->output_height     = format->biHeight;
-    vohp->output_linesize   = MAKE_AVIUTL_PITCH( vohp->output_width * format->biBitCount );
-    vohp->output_frame_size = vohp->output_linesize * vohp->output_height;
+    vohp->output_linesize   = MAKE_AVIUTL_PITCH( output_width * format->biBitCount );
+    vohp->output_frame_size = vohp->output_linesize * output_height;
     au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )
     {
@@ -197,7 +193,7 @@ int au_setup_video_rendering
             return -1;
         }
         au_vohp->yuv444p16 = yuv444p16;
-        if( av_image_alloc( yuv444p16->data, yuv444p16->linesize, vohp->output_width, vohp->output_height, AV_PIX_FMT_YUV444P16LE, 32 ) < 0 )
+        if( av_image_alloc( yuv444p16->data, yuv444p16->linesize, output_width, output_height, AV_PIX_FMT_YUV444P16LE, 32 ) < 0 )
         {
             DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to av_image_alloc for YUV444P16 convertion." );
             return -1;
@@ -206,7 +202,7 @@ int au_setup_video_rendering
     if( format->biCompression == OUTPUT_TAG_YUY2 )
     {
         uint8_t *pic = au_vohp->back_ground;
-        for( int i = 0; i < vohp->output_height; i++ )
+        for( int i = 0; i < output_height; i++ )
         {
             for( int j = 0; j < vohp->output_linesize; j += YUY2_SIZE )
             {
@@ -220,7 +216,7 @@ int au_setup_video_rendering
     {
         const PIXEL_LW48 black_pix = { 4096, 32768, 32768 };
         uint8_t *pic = au_vohp->back_ground;
-        for( int i = 0; i < vohp->output_height; i++ )
+        for( int i = 0; i < output_height; i++ )
         {
             PIXEL_LW48 *pix = (PIXEL_LW48 *)pic;
             for( int j = 0; j < vohp->output_linesize; j += LW48_SIZE )

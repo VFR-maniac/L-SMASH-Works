@@ -68,7 +68,7 @@ VSFrameRef *make_frame
     AVFrame                   *av_frame
 );
 
-int setup_video_rendering
+int vs_setup_video_rendering
 (
     lw_video_output_handler_t *lw_vohp,
     AVCodecContext            *ctx,
