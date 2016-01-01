@@ -175,9 +175,9 @@ int au_setup_video_rendering
     format->biBitCount    = colorspace_table[index].pixel_size << 3;
     format->biCompression = colorspace_table[index].compression;
     /* Set up a black frame of back ground. */
-    vohp->output_linesize   = MAKE_AVIUTL_PITCH( output_width * format->biBitCount );
-    vohp->output_frame_size = vohp->output_linesize * output_height;
-    au_vohp->back_ground    = vohp->output_frame_size > 0 ? lw_malloc_zero( vohp->output_frame_size ) : NULL;
+    au_vohp->output_linesize   = MAKE_AVIUTL_PITCH( output_width * format->biBitCount );
+    au_vohp->output_frame_size = au_vohp->output_linesize * output_height;
+    au_vohp->back_ground       = au_vohp->output_frame_size > 0 ? lw_malloc_zero( au_vohp->output_frame_size ) : NULL;
     if( !au_vohp->back_ground )
     {
         DEBUG_VIDEO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "Failed to allocate the back ground frame buffer." );
@@ -204,12 +204,12 @@ int au_setup_video_rendering
         uint8_t *pic = au_vohp->back_ground;
         for( int i = 0; i < output_height; i++ )
         {
-            for( int j = 0; j < vohp->output_linesize; j += YUY2_SIZE )
+            for( int j = 0; j < au_vohp->output_linesize; j += YUY2_SIZE )
             {
                 pic[j    ] = 0;
                 pic[j + 1] = 128;
             }
-            pic += vohp->output_linesize;
+            pic += au_vohp->output_linesize;
         }
     }
     else if( format->biCompression == OUTPUT_TAG_LW48 )
@@ -219,9 +219,9 @@ int au_setup_video_rendering
         for( int i = 0; i < output_height; i++ )
         {
             PIXEL_LW48 *pix = (PIXEL_LW48 *)pic;
-            for( int j = 0; j < vohp->output_linesize; j += LW48_SIZE )
+            for( int j = 0; j < au_vohp->output_linesize; j += LW48_SIZE )
                 *(pix++) = black_pix;
-            pic += vohp->output_linesize;
+            pic += au_vohp->output_linesize;
         }
     }
     return 0;
@@ -240,8 +240,8 @@ int convert_colorspace
     if( ret < 0 )
         return 0;
     else if( ret == 1 )
-        memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
+        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
     if( au_vohp->convert_colorspace( vohp, av_frame, buf ) < 0 )
         return 0;
-    return vohp->output_frame_size;
+    return au_vohp->output_frame_size;
 }

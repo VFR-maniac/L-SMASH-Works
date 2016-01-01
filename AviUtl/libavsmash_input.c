@@ -405,7 +405,7 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     if( sample_number == 1 )
     {
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
+        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
     }
     int ret = libavsmash_video_get_frame( vdhp, vohp, sample_number );
     if( ret != 0 && !(ret == 1 && sample_number == 1) )

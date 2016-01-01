@@ -266,7 +266,7 @@ static int read_video( lsmash_handler_t *h, int frame_number, void *buf )
     if( frame_number == 1 )
     {
         au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-        memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
+        memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
     }
     int ret = lwlibav_video_get_frame( vdhp, vohp, frame_number );
     if( ret != 0 && !(ret == 1 && frame_number == 1) )

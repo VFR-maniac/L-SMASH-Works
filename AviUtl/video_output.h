@@ -27,6 +27,8 @@
 
 typedef struct
 {
+    int                      output_linesize;
+    uint32_t                 output_frame_size;
     uint8_t                 *back_ground;
     uint8_t                 *another_chroma;
     uint32_t                 another_chroma_size;

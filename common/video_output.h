@@ -46,8 +46,6 @@ typedef struct
     lw_video_scaler_handler_t scaler;
     int                       output_width;
     int                       output_height;
-    int                       output_linesize;
-    uint32_t                  output_frame_size;
     /* VFR->CFR conversion */
     int                       vfr2cfr;
     uint32_t                  cfr_num;

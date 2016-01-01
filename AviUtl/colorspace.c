@@ -413,7 +413,7 @@ int to_yuv16le_to_lw48
     int output_rowsize = vshp->input_width * LW48_SIZE;
     int output_height  = to_yuv16le( vshp->sws_ctx, picture, yuv444p16, vshp->input_width, vshp->input_height );
     /* Convert planar YUV 4:4:4 48bpp little-endian into LW48. */
-    convert_yuv16le_to_lw48( buf, vohp->output_linesize, yuv444p16, output_rowsize, output_height );
+    convert_yuv16le_to_lw48( buf, au_vohp->output_linesize, yuv444p16, output_rowsize, output_height );
     return MAKE_AVIUTL_PITCH( output_rowsize << 3 ) * output_height;
 }
 
@@ -434,8 +434,8 @@ int to_yuv16le_to_yc48
     if( simd_available == -1 )
         simd_available = lw_check_sse2() + ( lw_check_sse2() && lw_check_sse41() );
     static void (*func_yuv16le_to_yc48[3])( uint8_t *, int, uint8_t **, int *, int, int, int ) = { convert_yuv16le_to_yc48, convert_yuv16le_to_yc48_sse2, convert_yuv16le_to_yc48_sse4_1 };
-    func_yuv16le_to_yc48[simd_available * (((vohp->output_linesize | (size_t)buf) & 15) == 0)]
-        ( buf, vohp->output_linesize, yuv444p16->data, yuv444p16->linesize, output_rowsize, output_height, vshp->input_yuv_range );
+    func_yuv16le_to_yc48[simd_available * (((au_vohp->output_linesize | (size_t)buf) & 15) == 0)]
+        ( buf, au_vohp->output_linesize, yuv444p16->data, yuv444p16->linesize, output_rowsize, output_height, vshp->input_yuv_range );
     return MAKE_AVIUTL_PITCH( output_rowsize << 3 ) * output_height;
 }
 
@@ -446,9 +446,10 @@ int to_rgba
     uint8_t                   *buf
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    uint8_t *dst_data    [4] = { buf + vohp->output_linesize * (vohp->output_height - 1), NULL, NULL, NULL };
-    int      dst_linesize[4] = { -(vohp->output_linesize), 0, 0, 0 };
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+    uint8_t *dst_data    [4] = { buf + au_vohp->output_linesize * (vohp->output_height - 1), NULL, NULL, NULL };
+    int      dst_linesize[4] = { -(au_vohp->output_linesize), 0, 0, 0 };
     int output_height  = sws_scale( vshp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, vshp->input_height, dst_data, dst_linesize );
     int output_rowsize = vshp->input_width * RGBA_SIZE;
     return MAKE_AVIUTL_PITCH( output_rowsize << 3 ) * output_height;
@@ -461,9 +462,10 @@ int to_rgb24
     uint8_t                   *buf
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    uint8_t *dst_data    [4] = { buf + vohp->output_linesize * (vohp->output_height - 1), NULL, NULL, NULL };
-    int      dst_linesize[4] = { -(vohp->output_linesize), 0, 0, 0 };
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
+    uint8_t *dst_data    [4] = { buf + au_vohp->output_linesize * (vohp->output_height - 1), NULL, NULL, NULL };
+    int      dst_linesize[4] = { -(au_vohp->output_linesize), 0, 0, 0 };
     int output_height  = sws_scale( vshp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, vshp->input_height, dst_data, dst_linesize );
     int output_rowsize = vshp->input_width * RGB24_SIZE;
     return MAKE_AVIUTL_PITCH( output_rowsize << 3 ) * output_height;
@@ -476,7 +478,8 @@ int to_yuy2
     uint8_t                   *buf
 )
 {
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
+    au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
     int output_rowsize = 0;
     if( picture->interlaced_frame
      && ((picture->format == AV_PIX_FMT_YUV420P)
@@ -492,7 +495,6 @@ int to_yuy2
         if( (picture->format == AV_PIX_FMT_NV12)
          || (picture->format == AV_PIX_FMT_NV21) )
         {
-            au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
             int      planar_chroma_linesize = ((picture->linesize[1] / 2) + 31) & ~31;      /* 32 byte alignment */
             uint32_t another_chroma_size    = planar_chroma_linesize * vshp->input_height;
             if( !au_vohp->another_chroma || au_vohp->another_chroma_size < another_chroma_size )
@@ -520,12 +522,12 @@ int to_yuy2
         if( ssse3_available == -1 )
             ssse3_available = lw_check_ssse3();
         static void (*func_yv12i_to_yuy2[2])( uint8_t*, int, uint8_t**, int*, int, int ) = { convert_yv12i_to_yuy2, convert_yv12i_to_yuy2_ssse3 };
-        func_yv12i_to_yuy2[ssse3_available]( buf, vohp->output_linesize, au_picture.data, au_picture.linesize, output_rowsize, vshp->input_height );
+        func_yv12i_to_yuy2[ssse3_available]( buf, au_vohp->output_linesize, au_picture.data, au_picture.linesize, output_rowsize, vshp->input_height );
     }
     else
     {
         uint8_t *dst_data    [4] = { buf, NULL, NULL, NULL };
-        int      dst_linesize[4] = { vohp->output_linesize, 0, 0, 0 };
+        int      dst_linesize[4] = { au_vohp->output_linesize, 0, 0, 0 };
         sws_scale( vshp->sws_ctx, (const uint8_t* const*)picture->data, picture->linesize, 0, vshp->input_height, dst_data, dst_linesize );
         output_rowsize = vshp->input_width * YUY2_SIZE;
     }
