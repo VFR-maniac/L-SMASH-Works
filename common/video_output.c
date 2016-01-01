@@ -107,7 +107,6 @@ void setup_video_rendering
         /* Set up custom get_buffer() for direct rendering if available. */
         ctx->get_buffer2 = dr_get_buffer;
         ctx->opaque      = vohp;
-        ctx->flags      |= CODEC_FLAG_EMU_EDGE;
     }
     vohp->output_width  = width;
     vohp->output_height = height;
