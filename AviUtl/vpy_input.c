@@ -318,6 +318,9 @@ static int read_video
     get_color_range              ( hp, props );
     get_color_matrix_coefficients( hp, props );
     get_interlaced_info          ( hp, props );
+    /* Here, update_scaler_configuration_if_needed() is required to activate the scaler. */
+    if( update_scaler_configuration_if_needed( &hp->voh.scaler, NULL, hp->av_frame ) < 0 )
+        return 0;
     int frame_size = convert_colorspace( &hp->voh, hp->av_frame, buf );
     hp->vsapi->freeFrame( vs_frame );
     return frame_size;

@@ -300,6 +300,9 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
     hp->av_frame->format      = as_to_av_input_pixel_format( hp->vi->pixel_type, hp->bit_depth, &hp->av_frame->width );
     hp->av_frame->color_range = AVCOL_RANGE_UNSPECIFIED;
     hp->av_frame->colorspace  = AVCOL_SPC_UNSPECIFIED;
+    /* Here, update_scaler_configuration_if_needed() is required to activate the scaler. */
+    if( update_scaler_configuration_if_needed( &hp->voh.scaler, NULL, hp->av_frame ) < 0 )
+        return 0;
     int frame_size = convert_colorspace( &hp->voh, hp->av_frame, buf );
     hp->func.avs_release_video_frame( as_frame );
     return frame_size;
