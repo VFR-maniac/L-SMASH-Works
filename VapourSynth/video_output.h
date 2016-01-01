@@ -56,12 +56,6 @@ typedef struct
 
 VSPresetFormat get_vs_output_pixel_format( const char *format_name );
 
-int determine_colorspace_conversion
-(
-    lw_video_output_handler_t *vohp,
-    enum AVPixelFormat         input_pixel_format
-);
-
 VSFrameRef *make_frame
 (
     lw_video_output_handler_t *vohp,
