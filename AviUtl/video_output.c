@@ -240,32 +240,11 @@ int convert_colorspace
 {
     /* Convert color space. We don't change the presentation resolution. */
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
-    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
-    if( av_frame->color_range == AVCOL_RANGE_MPEG || av_frame->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
-     || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != av_frame->colorspace
-     || vshp->input_yuv_range    != yuv_range )
-    {
-        /* Update scaler. */
-        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     av_frame->width, av_frame->height,
-                                                     *input_pixel_format, vshp->output_pixel_format,
-                                                     av_frame->colorspace, yuv_range );
-        if( !vshp->sws_ctx )
-            return 0;
-        vshp->input_width        = av_frame->width;
-        vshp->input_height       = av_frame->height;
-        vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = av_frame->colorspace;
-        vshp->input_yuv_range    = yuv_range;
+    int ret = update_scaler_configuration_if_needed( &vohp->scaler, av_frame );
+    if( ret < 0 )
+        return 0;
+    else if( ret == 1 )
         memcpy( buf, au_vohp->back_ground, vohp->output_frame_size );
-    }
     if( au_vohp->convert_colorspace( vohp, av_frame, buf ) < 0 )
         return 0;
     return vohp->output_frame_size;

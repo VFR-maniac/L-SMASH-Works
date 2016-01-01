@@ -75,16 +75,13 @@ int initialize_scaler_handler
     enum AVPixelFormat         output_pixel_format
 );
 
-struct SwsContext *update_scaler_configuration
+/* Return 0 if no update.
+ * Return 1 if any update.
+ * Retunr a negative value otherwise. */
+int update_scaler_configuration_if_needed
 (
-    struct SwsContext *sws_ctx,
-    int                flags,
-    int                width,
-    int                height,
-    enum AVPixelFormat input_pixel_format,
-    enum AVPixelFormat output_pixel_format,
-    enum AVColorSpace  colorspace,
-    int                yuv_range
+    lw_video_scaler_handler_t *vshp,
+    const AVFrame             *av_frame
 );
 
 void lw_cleanup_video_output_handler

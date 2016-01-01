@@ -464,33 +464,11 @@ int make_frame
         as_frame = as_vbhp->as_frame_buffer;
         return 0;
     }
-    /* Convert pixel format. We don't change the presentation resolution. */
+    /* Render a video frame through the scaler from the decoder.
+     * We don't change the presentation resolution. */
+    if( update_scaler_configuration_if_needed( vshp, av_frame ) < 0 )
+        return -1;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
-    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
-    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
-    if( av_frame->color_range == AVCOL_RANGE_MPEG || av_frame->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
-    if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
-     || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != av_frame->colorspace
-     || vshp->input_yuv_range    != yuv_range )
-    {
-        /* Update scaler. */
-        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     av_frame->width, av_frame->height,
-                                                     *input_pixel_format, vshp->output_pixel_format,
-                                                     av_frame->colorspace, yuv_range );
-        if( !vshp->sws_ctx )
-            return -1;
-        vshp->input_width        = av_frame->width;
-        vshp->input_height       = av_frame->height;
-        vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = av_frame->colorspace;
-        vshp->input_yuv_range    = yuv_range;
-    }
-    /* Render a video frame through the scaler from the decoder. */
     as_frame = env->NewVideoFrame( *as_vohp->vi, 32 );
     if( vohp->output_width  != (av_frame->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0))
      || vohp->output_height != (av_frame->height << (as_vohp->bitdepth_minus_8 &&  as_vohp->stacked_format ? 1 : 0)) )

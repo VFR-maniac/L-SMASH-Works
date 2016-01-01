@@ -26,9 +26,9 @@
 extern "C"
 {
 #endif  /* __cplusplus */
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include <libavutil/opt.h>
+#include <libavutil/frame.h>
+#include <libswscale/swscale.h>
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */
@@ -82,7 +82,7 @@ int initialize_scaler_handler
     return 0;
 }
 
-struct SwsContext *update_scaler_configuration
+static struct SwsContext *update_scaler_configuration
 (
     struct SwsContext *sws_ctx,
     int                flags,
@@ -117,6 +117,41 @@ struct SwsContext *update_scaler_configuration
         return NULL;
     }
     return sws_ctx;
+}
+
+int update_scaler_configuration_if_needed
+(
+    lw_video_scaler_handler_t *vshp,
+    const AVFrame             *av_frame
+)
+{
+    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
+    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
+    if( av_frame->color_range == AVCOL_RANGE_MPEG
+     || av_frame->color_range == AVCOL_RANGE_JPEG )
+        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
+    if( !vshp->sws_ctx
+     || vshp->input_width        != av_frame->width
+     || vshp->input_height       != av_frame->height
+     || vshp->input_pixel_format != *input_pixel_format
+     || vshp->input_colorspace   != av_frame->colorspace
+     || vshp->input_yuv_range    != yuv_range )
+    {
+        /* Update scaler. */
+        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
+                                                     av_frame->width, av_frame->height,
+                                                     *input_pixel_format, vshp->output_pixel_format,
+                                                     av_frame->colorspace, yuv_range );
+        if( !vshp->sws_ctx )
+            return -1;
+        vshp->input_width        = av_frame->width;
+        vshp->input_height       = av_frame->height;
+        vshp->input_pixel_format = *input_pixel_format;
+        vshp->input_colorspace   = av_frame->colorspace;
+        vshp->input_yuv_range    = yuv_range;
+        return 1;
+    }
+    return 0;
 }
 
 void lw_cleanup_video_output_handler

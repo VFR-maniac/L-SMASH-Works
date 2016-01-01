@@ -553,37 +553,15 @@ VSFrameRef *make_frame
     if( !vs_vohp->make_frame )
         return NULL;
     /* Convert pixel format if needed. We don't change the presentation resolution. */
-    enum AVPixelFormat *input_pixel_format = (enum AVPixelFormat *)&av_frame->format;
-    int yuv_range = avoid_yuv_scale_conversion( input_pixel_format );
-    if( av_frame->color_range == AVCOL_RANGE_MPEG || av_frame->color_range == AVCOL_RANGE_JPEG )
-        yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
     lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
-     || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != av_frame->colorspace
-     || vshp->input_yuv_range    != yuv_range )
+    if( update_scaler_configuration_if_needed( vshp, av_frame ) < 0 )
     {
-        /* Update scaler. */
-        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
-                                                     av_frame->width, av_frame->height,
-                                                     *input_pixel_format, vshp->output_pixel_format,
-                                                     av_frame->colorspace, yuv_range );
-        if( !vshp->sws_ctx )
-        {
-            if( frame_ctx )
-                vsapi->setFilterError( "lsmas: failed to update scaler settings.", frame_ctx );
-            return NULL;
-        }
-        vshp->input_width        = av_frame->width;
-        vshp->input_height       = av_frame->height;
-        vshp->input_pixel_format = *input_pixel_format;
-        vshp->input_colorspace   = av_frame->colorspace;
-        vshp->input_yuv_range    = yuv_range;
+        if( frame_ctx )
+            vsapi->setFilterError( "lsmas: failed to update scaler configuration.", frame_ctx );
+        return NULL;
     }
     /* Make video frame. */
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, vshp->input_width, vshp->input_height, *input_pixel_format, frame_ctx, core, vsapi );
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, vshp->input_width, vshp->input_height, vshp->input_pixel_format, frame_ctx, core, vsapi );
     if( vs_frame )
         vs_vohp->make_frame( vshp, av_frame, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
     else if( frame_ctx )
