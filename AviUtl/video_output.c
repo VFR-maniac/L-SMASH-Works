@@ -236,10 +236,7 @@ int convert_colorspace
 {
     /* Convert color space. We don't change the presentation resolution. */
     au_video_output_handler_t *au_vohp = (au_video_output_handler_t *)vohp->private_handler;
-    int ret = update_scaler_configuration_if_needed( &vohp->scaler, av_frame );
-    if( ret < 0 )
-        return 0;
-    else if( ret == 1 )
+    if( vohp->scaler.frame_prop_change_flags & (LW_FRAME_PROP_CHANGE_FLAG_WIDTH | LW_FRAME_PROP_CHANGE_FLAG_HEIGHT) )
         memcpy( buf, au_vohp->back_ground, au_vohp->output_frame_size );
     if( au_vohp->convert_colorspace( vohp, av_frame, buf ) < 0 )
         return 0;

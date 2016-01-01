@@ -1297,7 +1297,11 @@ int lwlibav_video_get_frame
         return lwlibav_repeat_control( vdhp, vohp, frame_number );
     if( frame_number == vdhp->last_frame_number )
         return 1;
-    return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
+    int ret;
+    if( (ret = get_requested_picture( vdhp, vdhp->frame_buffer, frame_number )) < 0
+     || (ret = update_scaler_configuration_if_needed( &vohp->scaler, &vdhp->lh, vdhp->frame_buffer )) < 0 )
+        return ret;
+    return 0;
 }
 
 int lwlibav_video_is_keyframe

@@ -541,10 +541,11 @@ VSFrameRef *make_frame
 )
 {
     vs_video_output_handler_t *vs_vohp = (vs_video_output_handler_t *)vohp->private_handler;
+    lw_video_scaler_handler_t *vshp    = &vohp->scaler;
     VSFrameContext *frame_ctx = vs_vohp->frame_ctx;
     VSCore         *core      = vs_vohp->core;
     const VSAPI    *vsapi     = vs_vohp->vsapi;
-    if( vs_vohp->direct_rendering && !vohp->scaler.enabled && av_frame->opaque )
+    if( vs_vohp->direct_rendering && !vshp->enabled && av_frame->opaque )
     {
         /* Render from the decoder directly. */
         vs_video_buffer_handler_t *vs_vbhp = (vs_video_buffer_handler_t *)av_frame->opaque;
@@ -552,16 +553,9 @@ VSFrameRef *make_frame
     }
     if( !vs_vohp->make_frame )
         return NULL;
-    /* Convert pixel format if needed. We don't change the presentation resolution. */
-    lw_video_scaler_handler_t *vshp = &vohp->scaler;
-    if( update_scaler_configuration_if_needed( vshp, av_frame ) < 0 )
-    {
-        if( frame_ctx )
-            vsapi->setFilterError( "lsmas: failed to update scaler configuration.", frame_ctx );
-        return NULL;
-    }
-    /* Make video frame. */
-    VSFrameRef *vs_frame = new_output_video_frame( vohp, vshp->input_width, vshp->input_height, vshp->input_pixel_format, frame_ctx, core, vsapi );
+    /* Make video frame.
+     * Convert pixel format if needed. We don't change the presentation resolution. */
+    VSFrameRef *vs_frame = new_output_video_frame( vohp, av_frame->width, av_frame->height, av_frame->format, frame_ctx, core, vsapi );
     if( vs_frame )
         vs_vohp->make_frame( vshp, av_frame, vs_vohp->component_reorder, vs_frame, frame_ctx, vsapi );
     else if( frame_ctx )

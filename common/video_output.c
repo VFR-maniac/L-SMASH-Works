@@ -61,7 +61,7 @@ int avoid_yuv_scale_conversion( enum AVPixelFormat *pixel_format )
     return 0;
 }
 
-static int initialize_scaler_handler
+static void initialize_scaler_handler
 (
     lw_video_scaler_handler_t *vshp,
     int                        enabled,
@@ -72,14 +72,13 @@ static int initialize_scaler_handler
     if( flags != SWS_FAST_BILINEAR )
         flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND | SWS_BITEXACT;
     vshp->enabled             = enabled;
-    vshp->flags               = flags;
+    vshp->scaler_flags        = flags;
     vshp->input_width         = 0;
     vshp->input_height        = 0;
     vshp->input_pixel_format  = AV_PIX_FMT_NONE;
     vshp->output_pixel_format = output_pixel_format;
     vshp->input_colorspace    = AVCOL_SPC_UNSPECIFIED;
     vshp->input_yuv_range     = AVCOL_RANGE_UNSPECIFIED;
-    return 0;
 }
 
 void setup_video_rendering
@@ -154,6 +153,7 @@ static struct SwsContext *update_scaler_configuration
 int update_scaler_configuration_if_needed
 (
     lw_video_scaler_handler_t *vshp,
+    lw_log_handler_t          *lhp,
     const AVFrame             *av_frame
 )
 {
@@ -162,20 +162,24 @@ int update_scaler_configuration_if_needed
     if( av_frame->color_range == AVCOL_RANGE_MPEG
      || av_frame->color_range == AVCOL_RANGE_JPEG )
         yuv_range = (av_frame->color_range == AVCOL_RANGE_JPEG);
-    if( !vshp->sws_ctx
-     || vshp->input_width        != av_frame->width
-     || vshp->input_height       != av_frame->height
-     || vshp->input_pixel_format != *input_pixel_format
-     || vshp->input_colorspace   != av_frame->colorspace
-     || vshp->input_yuv_range    != yuv_range )
+    vshp->frame_prop_change_flags
+        = (vshp->input_width        != av_frame->width      ? LW_FRAME_PROP_CHANGE_FLAG_WIDTH        : 0)
+        | (vshp->input_height       != av_frame->height     ? LW_FRAME_PROP_CHANGE_FLAG_HEIGHT       : 0)
+        | (vshp->input_pixel_format != *input_pixel_format  ? LW_FRAME_PROP_CHANGE_FLAG_PIXEL_FORMAT : 0)
+        | (vshp->input_colorspace   != av_frame->colorspace ? LW_FRAME_PROP_CHANGE_FLAG_COLORSPACE   : 0)
+        | (vshp->input_yuv_range    != yuv_range            ? LW_FRAME_PROP_CHANGE_FLAG_YUV_RANGE    : 0);
+    if( !vshp->sws_ctx || vshp->frame_prop_change_flags )
     {
         /* Update scaler. */
-        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->flags,
+        vshp->sws_ctx = update_scaler_configuration( vshp->sws_ctx, vshp->scaler_flags,
                                                      av_frame->width, av_frame->height,
                                                      *input_pixel_format, vshp->output_pixel_format,
                                                      av_frame->colorspace, yuv_range );
         if( !vshp->sws_ctx )
+        {
+            lw_log_show( lhp, LW_LOG_WARNING, "Failed to update video scaler configuration." );
             return -1;
+        }
         vshp->input_width        = av_frame->width;
         vshp->input_height       = av_frame->height;
         vshp->input_pixel_format = *input_pixel_format;

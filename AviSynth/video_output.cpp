@@ -466,8 +466,6 @@ int make_frame
     }
     /* Render a video frame through the scaler from the decoder.
      * We don't change the presentation resolution. */
-    if( update_scaler_configuration_if_needed( vshp, av_frame ) < 0 )
-        return -1;
     as_video_output_handler_t *as_vohp = (as_video_output_handler_t *)vohp->private_handler;
     as_frame = env->NewVideoFrame( *as_vohp->vi, 32 );
     if( vohp->output_width  != (av_frame->width  << (as_vohp->bitdepth_minus_8 && !as_vohp->stacked_format ? 1 : 0))

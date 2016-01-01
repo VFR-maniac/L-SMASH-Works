@@ -1015,7 +1015,11 @@ int libavsmash_video_get_frame
     }
     if( sample_number == vdhp->last_sample_number )
         return 1;
-    return get_requested_picture( vdhp, vdhp->frame_buffer, sample_number );
+    int ret;
+    if( (ret = get_requested_picture( vdhp, vdhp->frame_buffer, sample_number )) < 0
+     || (ret = update_scaler_configuration_if_needed( &vohp->scaler, &vdhp->config.lh, vdhp->frame_buffer )) < 0 )
+        return ret;
+    return 0;
 }
 
 int libavsmash_video_find_first_valid_frame

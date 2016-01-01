@@ -22,10 +22,17 @@
 
 #define REPEAT_CONTROL_CACHE_NUM 2
 
+#define LW_FRAME_PROP_CHANGE_FLAG_WIDTH        (1<<0)
+#define LW_FRAME_PROP_CHANGE_FLAG_HEIGHT       (1<<1)
+#define LW_FRAME_PROP_CHANGE_FLAG_PIXEL_FORMAT (1<<2)
+#define LW_FRAME_PROP_CHANGE_FLAG_COLORSPACE   (1<<3)
+#define LW_FRAME_PROP_CHANGE_FLAG_YUV_RANGE    (1<<4)
+
 typedef struct
 {
     int                enabled;
-    int                flags;
+    int                scaler_flags;
+    int                frame_prop_change_flags;
     int                input_width;
     int                input_height;
     enum AVPixelFormat input_pixel_format;
@@ -83,6 +90,7 @@ void setup_video_rendering
 int update_scaler_configuration_if_needed
 (
     lw_video_scaler_handler_t *vshp,
+    lw_log_handler_t          *lhp,
     const AVFrame             *av_frame
 );
 
