@@ -383,6 +383,6 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         vs_filter_free( hp, core, vsapi );
         return;
     }
-    vsapi->createFilter( in, out, "LWLibavSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmSerial, 0, hp, core );
+    vsapi->createFilter( in, out, "LWLibavSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmUnordered, nfMakeLinear, hp, core );
     return;
 }
