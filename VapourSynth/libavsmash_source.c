@@ -258,7 +258,10 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     libavsmash_video_decode_handler_t *vdhp = hp->vdhp;
     libavsmash_video_output_handler_t *vohp = hp->vohp;
     if( libavsmash_video_get_error( vdhp ) )
-        return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+    {
+        vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
+        return NULL;
+    }
     /* Set up VapourSynth error handler. */
     vs_basic_handler_t vsbh = { 0 };
     vsbh.out       = NULL;
@@ -273,14 +276,17 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
     vs_vohp->core      = core;
     vs_vohp->vsapi     = vsapi;
     if( libavsmash_video_get_frame( vdhp, vohp, sample_number ) < 0 )
+    {
+        vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
         return NULL;
+    }
     /* Output video frame. */
     AVFrame    *av_frame = libavsmash_video_get_frame_buffer( vdhp );
     VSFrameRef *vs_frame = make_frame( vohp, av_frame );
     if( !vs_frame )
     {
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
-        return vsapi->newVideoFrame( vi->format, vi->width, vi->height, NULL, core );
+        return NULL;
     }
     set_frame_properties( vdhp, vi, av_frame, vs_frame, sample_number, vsapi );
     return vs_frame;
@@ -402,6 +408,6 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         return;
     }
     lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
-    vsapi->createFilter( in, out, "LibavSMASHSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmSerial, 0, hp, core );
+    vsapi->createFilter( in, out, "LibavSMASHSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmUnordered, nfMakeLinear, hp, core );
     return;
 }
