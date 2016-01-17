@@ -408,6 +408,6 @@ void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_d
         return;
     }
     lsmash_discard_boxes( libavsmash_video_get_root( vdhp ) );
-    vsapi->createFilter( in, out, "LibavSMASHSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmSerial, 0, hp, core );
+    vsapi->createFilter( in, out, "LibavSMASHSource", vs_filter_init, vs_filter_get_frame, vs_filter_free, fmUnordered, nfMakeLinear, hp, core );
     return;
 }
