@@ -163,7 +163,7 @@ static inline int lineup_seek_base_candidates
          : SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_CORRECTION;
 }
 
-static void mpeg12_video_vc1_genarate_pts
+static void mpeg124_video_vc1_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp
 )
@@ -516,6 +516,7 @@ static int decide_video_seek_method
     int no_pts_loss = !!(vdhp->lw_seek_flags & SEEK_PTS_BASED);
     if( (lwhp->raw_demuxer || ((vdhp->lw_seek_flags & SEEK_DTS_BASED) && !(vdhp->lw_seek_flags & SEEK_PTS_BASED)))
      && (vdhp->codec_id == AV_CODEC_ID_MPEG1VIDEO || vdhp->codec_id == AV_CODEC_ID_MPEG2VIDEO
+      || vdhp->codec_id == AV_CODEC_ID_MPEG4    /* MPEG-4 Video (Part2) */
       || vdhp->codec_id == AV_CODEC_ID_VC1        || vdhp->codec_id == AV_CODEC_ID_WMV3
       || vdhp->codec_id == AV_CODEC_ID_VC1IMAGE   || vdhp->codec_id == AV_CODEC_ID_WMV3IMAGE) )
     {
@@ -523,7 +524,7 @@ static int decide_video_seek_method
         if( !(vdhp->lw_seek_flags & SEEK_DTS_BASED) )
             interpolate_dts( &info[1], vdhp->frame_count, vdhp->time_base );
         /* Generate PTS from DTS. */
-        mpeg12_video_vc1_genarate_pts( vdhp );
+        mpeg124_video_vc1_genarate_pts( vdhp );
         vdhp->lw_seek_flags |= SEEK_PTS_GENERATED;
         no_pts_loss = 1;
     }
