@@ -163,6 +163,10 @@ static inline int lineup_seek_base_candidates
          : SEEK_DTS_BASED | SEEK_PTS_BASED | SEEK_POS_CORRECTION;
 }
 
+/* This function generates PTSs from DTSs by picture types.
+ * Note that this function does not work for MPEG-4 Video Part2 with
+ * packed bitstream since P-picture precedes B-pictures whithin packet
+ * and the libavcodec's parser recognizes the packet as a P-picture. */
 static void mpeg124_video_vc1_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp
