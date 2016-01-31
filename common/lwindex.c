@@ -59,6 +59,7 @@ typedef struct
     int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
                                                  * 1: either VC-1 or WMV3
                                                  * 2: either VC-1 or WMV3 encapsulated in ASF */
+    int                         is_allocated_buffer;
     int                         buffer_size;
     uint8_t                    *buffer;
 #if LIBAVCODEC_VERSION_MICRO < 100
@@ -1516,13 +1517,16 @@ static inline uint8_t *make_parsable_format
     }
     /* Convert frame data into parsable bitstream format.
      * Allocated memory block in the buffer which the index helper handles will be freed by free_read_packet(). */
-    if( av_bitstream_filter_filter( helper->bsf, ctx, NULL,
-                                    &helper->buffer, &helper->buffer_size,
-                                    pkt->data, pkt->size, 0 ) < 0 )
+    int ret = av_bitstream_filter_filter( helper->bsf, ctx, NULL,
+                                          &helper->buffer, &helper->buffer_size,
+                                          pkt->data, pkt->size, 0 );
+    if( ret < 0 )
     {
         *size = 0;
         return NULL;
     }
+    else
+        helper->is_allocated_buffer = (ret > 0);
     *size = helper->buffer_size;
     return helper->buffer;
 }
@@ -1777,12 +1781,14 @@ static void free_read_packet
     lwindex_helper_t *helper
 )
 {
-    /* Free buffer in the index helper if the memory block does not overlap with one of the active packet. */
+    /* Free the buffer allocated by the bitstream filter if any. */
     if( helper )
     {
-        if( helper->buffer
-         && (helper->buffer + helper->buffer_size <= pkt->data || helper->buffer >= pkt->data + pkt->size) )
+        if( helper->is_allocated_buffer )
+        {
+            helper->is_allocated_buffer = 0;
             av_freep( &helper->buffer );
+        }
         helper->buffer_size = 0;
     }
     av_packet_unref( pkt );
