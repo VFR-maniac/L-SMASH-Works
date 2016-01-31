@@ -166,7 +166,9 @@ static inline int lineup_seek_base_candidates
 /* This function generates PTSs from DTSs by picture types.
  * Note that this function does not work for MPEG-4 Video Part2 with
  * packed bitstream since P-picture precedes B-pictures whithin packet
- * and the libavcodec's parser recognizes the packet as a P-picture. */
+ * and the libavcodec's parser recognizes the packet as a P-picture.
+ * The bitstream filter mpeg4_unpack_bframes unpacks B-pictures from
+ * packed bitstream and is a solution to this problem. */
 static void mpeg124_video_vc1_genarate_pts
 (
     lwlibav_video_decode_handler_t *vdhp
@@ -1295,6 +1297,9 @@ static lwindex_helper_t *get_index_helper
             }
             else if( ctx->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0 )
                 helper->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
+            else if( ctx->codec_id == AV_CODEC_ID_MPEG4 )
+                /* This is needed to make mpeg124_video_vc1_genarate_pts() work properly for packed bitstream. */
+                helper->bsf = av_bitstream_filter_init( "mpeg4_unpack_bframes" );
         }
         /* For audio, prepare the decoder and the parser to get frame length.
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
@@ -1509,10 +1514,8 @@ static inline uint8_t *make_parsable_format
         *size = pkt->size;
         return pkt->data;
     }
-    /* Convert frame data into parsable bitstream format. */
-    if( helper->buffer )
-        av_freep( &helper->buffer );
-    helper->buffer_size = 0;
+    /* Convert frame data into parsable bitstream format.
+     * Allocated memory block in the buffer which the index helper handles will be freed by free_read_packet(). */
     if( av_bitstream_filter_filter( helper->bsf, ctx, NULL,
                                     &helper->buffer, &helper->buffer_size,
                                     pkt->data, pkt->size, 0 ) < 0 )
@@ -1736,14 +1739,10 @@ static void write_audio_extradata
 
 static void disable_video_stream( lwlibav_video_decode_handler_t *vdhp )
 {
-    if( vdhp->frame_list )
-        lw_freep( &vdhp->frame_list );
-    if( vdhp->keyframe_list )
-        lw_freep( &vdhp->keyframe_list );
-    if( vdhp->order_converter )
-        lw_freep( &vdhp->order_converter );
-    if( vdhp->index_entries )
-        av_freep( &vdhp->index_entries );
+    lw_freep( &vdhp->frame_list );
+    lw_freep( &vdhp->keyframe_list );
+    lw_freep( &vdhp->order_converter );
+    av_freep( &vdhp->index_entries );
     vdhp->stream_index        = -1;
     vdhp->index_entries_count = 0;
     vdhp->frame_count         = 0;
@@ -1756,25 +1755,37 @@ static void cleanup_index_helpers( AVFormatContext *format_ctx )
         lwindex_helper_t *helper = (lwindex_helper_t *)format_ctx->streams[stream_index]->codec->opaque;
         if( !helper )
             continue;
-        if( helper->parser_ctx )
-            av_parser_close( helper->parser_ctx );
-        if( helper->bsf )
-            av_bitstream_filter_close( helper->bsf );
-        if( helper->picture )
-            av_frame_free( &helper->picture );
-        if( helper->buffer )
-            av_free( helper->buffer );
+        av_parser_close( helper->parser_ctx );
+        av_bitstream_filter_close( helper->bsf );
+        av_frame_free( &helper->picture );
+        av_freep( &helper->buffer );
         lwlibav_extradata_handler_t *list = &helper->exh;
         if( list->entries )
         {
             for( int i = 0; i < list->entry_count; i++ )
-                if( list->entries[i].extradata )
-                    av_free( list->entries[i].extradata );
+                av_freep( &list->entries[i].extradata );
             free( list->entries );
         }
         /* Free an index helper. */
         lw_freep( &format_ctx->streams[stream_index]->codec->opaque );
     }
+}
+
+static void free_read_packet
+(
+    AVPacket         *pkt,
+    lwindex_helper_t *helper
+)
+{
+    /* Free buffer in the index helper if the memory block does not overlap with one of the active packet. */
+    if( helper )
+    {
+        if( helper->buffer
+         && (helper->buffer + helper->buffer_size <= pkt->data || helper->buffer >= pkt->data + pkt->size) )
+            av_freep( &helper->buffer );
+        helper->buffer_size = 0;
+    }
+    av_packet_unref( pkt );
 }
 
 static void create_index
@@ -1892,7 +1903,7 @@ static void create_index
         int extradata_index = append_extradata_if_new( helper, pkt_ctx, &pkt );
         if( extradata_index < 0 )
         {
-            av_packet_unref( &pkt );
+            free_read_packet( &pkt, helper );
             goto fail_index;
         }
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
@@ -1942,7 +1953,7 @@ static void create_index
             int pict_type = get_picture_type( helper, pkt_ctx, &pkt );
             if( pict_type < 0 )
             {
-                av_packet_unref( &pkt );
+                free_read_packet( &pkt, helper );
                 goto fail_index;
             }
             /* Get Picture Order Count. */
@@ -2039,7 +2050,7 @@ static void create_index
                     video_frame_info_t *temp = (video_frame_info_t *)realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
                     if( !temp )
                     {
-                        av_packet_unref( &pkt );
+                        free_read_packet( &pkt, helper );
                         goto fail_index;
                     }
                     video_info = temp;
@@ -2126,7 +2137,7 @@ static void create_index
                         audio_frame_info_t *temp = (audio_frame_info_t *)realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
                         if( !temp )
                         {
-                            av_packet_unref( &pkt );
+                            free_read_packet( &pkt, helper );
                             goto fail_index;
                         }
                         audio_info = temp;
@@ -2193,12 +2204,12 @@ static void create_index
                              + 0.5);
             const char *message = index ? "Creating Index file" : "Parsing input file";
             int abort = indicator->update( php, message, percent );
-            av_packet_unref( &pkt );
+            free_read_packet( &pkt, helper );
             if( abort )
                 goto fail_index;
         }
         else
-            av_packet_unref( &pkt );
+            free_read_packet( &pkt, helper );
     }
     /* Handle delay derived from the audio decoder. */
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
