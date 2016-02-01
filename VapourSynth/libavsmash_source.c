@@ -162,15 +162,14 @@ static void set_frame_properties
     vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
     vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
     /* Color format */
-    if( ctx )
-    {
-        if (ctx->color_range != AVCOL_RANGE_UNSPECIFIED)
-            vsapi->propSetInt(props, "_ColorRange", ctx->color_range == AVCOL_RANGE_MPEG, paReplace);
-        vsapi->propSetInt( props, "_Primaries",   ctx->color_primaries,                 paReplace );
-        vsapi->propSetInt( props, "_Transfer",    ctx->color_trc,                       paReplace );
-        vsapi->propSetInt( props, "_Matrix",      ctx->colorspace,                      paReplace );
-        if  ctx->chroma_sample_location > 0 )
-            vsapi->propSetInt(Props, "_ChromaLocation", Frame->ChromaLocation - 1, paReplace);
+    if ( ctx ) {
+        if ( ctx->color_range != AVCOL_RANGE_UNSPECIFIED )
+            vsapi->propSetInt( props, "_ColorRange", ctx->color_range == AVCOL_RANGE_MPEG, paReplace );
+        vsapi->propSetInt( props, "_Primaries", ctx->color_primaries, paReplace );
+        vsapi->propSetInt( props, "_Transfer", ctx->color_trc, paReplace );
+        vsapi->propSetInt( props, "_Matrix", ctx->colorspace, paReplace );
+        if ( ctx->chroma_sample_location > 0 )
+            vsapi->propSetInt( props, "_ChromaLocation", ctx->chroma_sample_location - 1, paReplace );
     }
     /* Picture type */
     char pict_type = av_get_picture_type_char( av_frame->pict_type );
@@ -178,8 +177,8 @@ static void set_frame_properties
     /* BFF or TFF */
     int field_based = 0;
     if ( av_frame->interlaced_frame )
-        field_based = (av_frame->top_field_first ? 2 : 1);
-    vsapi->propSetInt(Props, "_FieldBased", field_based, paReplace);
+        field_based = ( av_frame->top_field_first ? 2 : 1 );
+    vsapi->propSetInt( props, "_FieldBased", field_based, paReplace );
 }
 
 static int prepare_video_decoding
