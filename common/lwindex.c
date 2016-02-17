@@ -800,7 +800,7 @@ static void compute_stream_duration
             if( duration == 0 )
             {
                 lw_log_show( &vdhp->lh, LW_LOG_WARNING,
-                             "Detected PTS %"PRId64" duplication at frame %"PRIu32,
+                             "Detected PTS %" PRId64 " duplication at frame %" PRIu32,
                              info[i].pts, i );
                 goto fail;
             }
@@ -852,7 +852,7 @@ static void compute_stream_duration
             if( duration == 0 )
             {
                 lw_log_show( &vdhp->lh, LW_LOG_WARNING,
-                             "Detected DTS %"PRId64" duplication at frame %"PRIu32,
+                             "Detected DTS %" PRId64 " duplication at frame %" PRIu32,
                              info[curr].dts, curr );
                 goto fail;
             }
@@ -1703,7 +1703,7 @@ static inline void write_av_index_entry
     AVIndexEntry *ie
 )
 {
-    print_index( index, "POS=%"PRId64",TS=%"PRId64",Flags=%x,Size=%d,Distance=%d\n",
+    print_index( index, "POS=%" PRId64 ",TS=%" PRId64 ",Flags=%x,Size=%d,Distance=%d\n",
                  ie->pos, ie->timestamp, ie->flags, ie->size, ie->min_distance );
 }
 
@@ -1732,7 +1732,7 @@ static void write_audio_extradata
 {
     if( !index )
         return;
-    fprintf( index, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Align=%d\n",
+    fprintf( index, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%" PRIx64 ",Rate=%d,Format=%s,BPS=%d,Align=%d\n",
              entry->extradata_size, entry->codec_id, entry->codec_tag, entry->channel_layout, entry->sample_rate,
              av_get_sample_fmt_name( entry->sample_format ) ? av_get_sample_fmt_name( entry->sample_format ) : "none",
              entry->bits_per_sample, entry->block_align );
@@ -2081,7 +2081,7 @@ static void create_index
                     entry->codec_tag = pkt_ctx->codec_tag;
             }
             /* Write a video packet info to the index file. */
-            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%" PRId64 ",PTS=%" PRId64 ",DTS=%" PRId64 ",EDI=%d\n"
                          "Key=%d,Pic=%d,POC=%d,Repeat=%d,Field=%d,Width=%d,Height=%d,Format=%s,ColorSpace=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_VIDEO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
@@ -2184,8 +2184,8 @@ static void create_index
                     entry->codec_tag = pkt_ctx->codec_tag;
             }
             /* Write an audio packet info to the index file. */
-            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"PRId64",PTS=%"PRId64",DTS=%"PRId64",EDI=%d\n"
-                         "Channels=%d:0x%"PRIx64",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
+            print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%" PRId64 ",PTS=%" PRId64 ",DTS=%" PRId64 ",EDI=%d\n"
+                         "Channels=%d:0x%" PRIx64 ",Rate=%d,Format=%s,BPS=%d,Length=%d\n",
                          pkt.stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                          stream->time_base.num, stream->time_base.den,
                          pkt.pos, pkt.pts, pkt.dts, extradata_index,
@@ -2247,7 +2247,7 @@ static void create_index
                      && audio_info[audio_frame_number].length != audio_info[audio_frame_number - 1].length )
                         constant_frame_length = 0;
                 }
-                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=-1,PTS=%"PRId64",DTS=%"PRId64",EDI=-1\n"
+                print_index( index, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=-1,PTS=%" PRId64 ",DTS=%" PRId64 ",EDI=-1\n"
                              "Channels=0:0x0,Rate=0,Format=none,BPS=0,Length=%d\n",
                              stream_index, AVMEDIA_TYPE_AUDIO, pkt_ctx->codec_id,
                              format_ctx->streams[stream_index]->time_base.num,
@@ -2296,7 +2296,7 @@ static void create_index
         AVStream *stream = format_ctx->streams[stream_index];
         if( stream->codec->codec_type == AVMEDIA_TYPE_VIDEO
          || stream->codec->codec_type == AVMEDIA_TYPE_AUDIO )
-            print_index( index, "<StreamDuration=%d,%d>%"PRId64"</StreamDuration>\n",
+            print_index( index, "<StreamDuration=%d,%d>%" PRId64 "</StreamDuration>\n",
                          stream_index, stream->codec->codec_type, stream->duration );
     }
     if( !strcmp( lwhp->format_name, "asf" ) )
@@ -2579,7 +2579,7 @@ static int parse_index
         int64_t pos;
         int64_t pts;
         int64_t dts;
-        if( sscanf( buf, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%"SCNd64",PTS=%"SCNd64",DTS=%"SCNd64",EDI=%d",
+        if( sscanf( buf, "Index=%d,Type=%d,Codec=%d,TimeBase=%d/%d,POS=%" SCNd64 ",PTS=%" SCNd64 ",DTS=%" SCNd64 ",EDI=%d",
                     &stream_index, &codec_type, &codec_id, &time_base.num, &time_base.den, &pos, &pts, &dts, &extradata_index ) != 9 )
             break;
         if( codec_type == AVMEDIA_TYPE_VIDEO )
@@ -2691,7 +2691,7 @@ static int parse_index
                 char     sample_fmt[64];
                 int      bits_per_sample;
                 int      frame_length;
-                if( sscanf( buf, "Channels=%d:0x%"SCNx64",Rate=%d,Format=%[^,],BPS=%d,Length=%d",
+                if( sscanf( buf, "Channels=%d:0x%" SCNx64 ",Rate=%d,Format=%[^,],BPS=%d,Length=%d",
                             &channels, &layout, &sample_rate, sample_fmt, &bits_per_sample, &frame_length ) != 6 )
                     goto fail_parsing;
                 if( adhp->codec_id == AV_CODEC_ID_NONE )
@@ -2770,7 +2770,7 @@ static int parse_index
         int     stream_index;
         int     codec_type;
         int64_t stream_duration;
-        if( sscanf( buf, "<StreamDuration=%d,%d>%"SCNd64"</StreamDuration>", &stream_index, &codec_type, &stream_duration ) != 3 )
+        if( sscanf( buf, "<StreamDuration=%d,%d>%" SCNd64 "</StreamDuration>", &stream_index, &codec_type, &stream_duration ) != 3 )
             goto fail_parsing;
         if( codec_type == AVMEDIA_TYPE_VIDEO && stream_index == vdhp->stream_index )
             vdhp->stream_duration = stream_duration;
@@ -2800,7 +2800,7 @@ static int parse_index
                     AVIndexEntry ie;
                     int size;
                     int flags;
-                    if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
+                    if( sscanf( buf, "POS=%" SCNd64 ",TS=%" SCNd64 ",Flags=%x,Size=%d,Distance=%d",
                                 &ie.pos, &ie.timestamp, (unsigned int *)&flags, &size, &ie.min_distance ) != 5 )
                         break;
                     ie.size  = size;
@@ -2821,7 +2821,7 @@ static int parse_index
                     AVIndexEntry ie;
                     int size;
                     int flags;
-                    if( sscanf( buf, "POS=%"SCNd64",TS=%"SCNd64",Flags=%x,Size=%d,Distance=%d",
+                    if( sscanf( buf, "POS=%" SCNd64 ",TS=%" SCNd64 ",Flags=%x,Size=%d,Distance=%d",
                                 &ie.pos, &ie.timestamp, (unsigned int *)&flags, &size, &ie.min_distance ) != 5 )
                         break;
                     ie.size  = size;
@@ -2880,7 +2880,7 @@ static int parse_index
                     else
                     {
                         char sample_fmt[64];
-                        if( sscanf( buf, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%"SCNx64",Rate=%d,Format=%[^,],BPS=%d,Align=%d",
+                        if( sscanf( buf, "Size=%d,Codec=%d,4CC=0x%x,Layout=0x%" SCNx64 ",Rate=%d,Format=%[^,],BPS=%d,Align=%d",
                                     &entry->extradata_size, &codec_id, &entry->codec_tag,
                                     &entry->channel_layout, &entry->sample_rate,
                                     sample_fmt, &entry->bits_per_sample, &entry->block_align ) != 8 )

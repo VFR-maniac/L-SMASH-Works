@@ -578,7 +578,7 @@ int libavsmash_video_setup_timestamp_info
         if( duration == 0 )
         {
             lsmash_delete_media_timestamps( &ts_list );
-            lw_log_show( lhp, LW_LOG_WARNING, "Detected CTS duplication at frame %"PRIu32, i );
+            lw_log_show( lhp, LW_LOG_WARNING, "Detected CTS duplication at frame %" PRIu32, i );
             err = 0;
             goto setup_finish;
         }

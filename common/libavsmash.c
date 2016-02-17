@@ -188,7 +188,7 @@ uint32_t libavsmash_get_track_by_media_type
         track_id = lsmash_get_track_ID( root, track_number );
         if( track_id == 0 )
         {
-            sprintf( error_string, "Failed to find %s track %"PRIu32".\n", media_type_str, track_number );
+            sprintf( error_string, "Failed to find %s track %" PRIu32 ".\n", media_type_str, track_number );
             goto fail;
         }
         lsmash_initialize_media_parameters( &media_param );
