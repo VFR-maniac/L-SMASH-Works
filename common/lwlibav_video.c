@@ -1277,6 +1277,20 @@ static void handle_decoder_pix_fmt
         ctx->pix_fmt = pix_fmt;
 }
 
+static int get_video_frame
+(
+    lwlibav_video_decode_handler_t *vdhp,
+    lwlibav_video_output_handler_t *vohp,
+    uint32_t                        frame_number
+)
+{
+    if( vohp->repeat_control )
+        return lwlibav_repeat_control( vdhp, vohp, frame_number );
+    if( frame_number == vdhp->last_frame_number )
+        return 1;
+    return get_requested_picture( vdhp, vdhp->frame_buffer, frame_number );
+}
+
 /* Return 0 if successful.
  * Return 1 if the same frame was requested at the last call.
  * Return a negative value otherwise. */
@@ -1293,12 +1307,8 @@ int lwlibav_video_get_frame
         if( frame_number == 0 )
             return -1;
     }
-    if( vohp->repeat_control )
-        return lwlibav_repeat_control( vdhp, vohp, frame_number );
-    if( frame_number == vdhp->last_frame_number )
-        return 1;
     int ret;
-    if( (ret = get_requested_picture( vdhp, vdhp->frame_buffer, frame_number )) < 0
+    if( (ret = get_video_frame( vdhp, vohp, frame_number )) != 0
      || (ret = update_scaler_configuration_if_needed( &vohp->scaler, &vdhp->lh, vdhp->frame_buffer )) < 0 )
         return ret;
     return 0;
