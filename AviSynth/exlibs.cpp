@@ -23,7 +23,7 @@
 
 #pragma comment( lib, "libmingwex.a" )
 #pragma comment( lib, "libgcc.a" )
-#pragma comment( lib, "liblsmash.a" )
+#pragma comment( lib, "lsmash.lib" )
 #pragma comment( lib, "avutil.lib" )
 #pragma comment( lib, "avcodec.lib" )
 #pragma comment( lib, "avformat.lib" )
