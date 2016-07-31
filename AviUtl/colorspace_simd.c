@@ -193,7 +193,7 @@ void LW_FUNC_ALIGN convert_yv12i_to_yuy2_ssse3
     const int background_fill_count = MIN((64 - (output_rowsize & 63)) & 63, buf_linesize - output_rowsize) >> 2;
     if( background_fill_count )
     {
-        static const uint32_t yuy2_background = (128<<24) + (128<<8);
+        static const uint32_t yuy2_background = (128u<<24) + (128<<8);
         /* background_fill are not needed for last 2 lines, since the copying of them won't overwrite. */
         for( int j = 0; j < height - 2; j++ )
         {
