@@ -678,7 +678,7 @@ static uint32_t seek_video
             return 0;
         }
     }
-    exhp->delay_count = MIN( decoder_delay, vdhp->last_fed_picture_number - rap_number );
+    exhp->delay_count = MIN( decoder_delay, current - rap_number );
     if( current <= rap_number )
         vdhp->last_half_frame = 0;
     return current;
