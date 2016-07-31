@@ -84,9 +84,10 @@ void lwlibav_update_configuration
         return;
     }
     char error_string[96] = { 0 };
-    AVCodecParameters *codecpar     = dhp->format->streams[ dhp->stream_index ]->codecpar;
-    void              *app_specific = dhp->ctx->opaque;
-    const int          thread_count = dhp->ctx->thread_count;
+    AVCodecParameters *codecpar          = dhp->format->streams[ dhp->stream_index ]->codecpar;
+    void              *app_specific      = dhp->ctx->opaque;
+    const int          thread_count      = dhp->ctx->thread_count;
+    const int          refcounted_frames = dhp->ctx->refcounted_frames;
     /* Close the decoder here. */
     dhp->ctx->opaque = NULL;
     avcodec_free_context( &dhp->ctx );
@@ -122,7 +123,7 @@ void lwlibav_update_configuration
     codecpar->codec_tag = entry->codec_tag;
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
-    if( open_decoder( &dhp->ctx, codecpar, codec, 1, 1 ) < 0 )
+    if( open_decoder( &dhp->ctx, codecpar, codec, 1, refcounted_frames ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;
