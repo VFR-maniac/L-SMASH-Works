@@ -35,76 +35,7 @@ extern "C"
 #include "utils.h"
 #include "lwlibav_dec.h"
 #include "qsv.h"
-
-static const AVCodec *find_decoder
-(
-    enum AVCodecID  codec_id,
-    const char    **preferred_decoder_names
-)
-{
-    AVCodec *codec = avcodec_find_decoder( codec_id );
-    if( codec && preferred_decoder_names )
-        for( const char **decoder_name = preferred_decoder_names; *decoder_name != NULL; decoder_name++ )
-        {
-            AVCodec *preferred_decoder = avcodec_find_decoder_by_name( *decoder_name );
-            if( preferred_decoder
-             && preferred_decoder->id == codec->id )
-            {
-                codec = preferred_decoder;
-                break;
-            }
-        }
-    return codec;
-}
-
-static int open_decoder
-(
-    AVCodecContext         **ctx,
-    const AVCodecParameters *codecpar,
-    const AVCodec           *codec,
-    const int                thread_count,
-    const int                refcounted_frames
-)
-{
-    AVCodecContext *c = avcodec_alloc_context3( codec );
-    if( !c )
-        return -1;
-    int ret;
-    if( (ret = avcodec_parameters_to_context( c, codecpar )) < 0 )
-        goto fail;
-    c->thread_count = thread_count;
-    c->codec_id     = AV_CODEC_ID_NONE; /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
-                                         * This avoids avcodec_open2() failure by the difference of enum AVCodecID.
-                                         * For instance, when stream is encoded as AC-3,
-                                         * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
-                                         * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( (ret = avcodec_open2( c, codec, NULL )) < 0 )
-        goto fail;
-    if( is_qsv_decoder( c->codec ) )
-        if( (ret = do_qsv_decoder_workaround( c )) < 0 )
-            goto fail;
-    c->refcounted_frames = refcounted_frames;
-    *ctx = c;
-    return ret;
-fail:
-    avcodec_free_context( &c );
-    return ret;
-}
-
-int find_and_open_decoder
-(
-    AVCodecContext         **ctx,
-    const AVCodecParameters *codecpar,
-    const char             **preferred_decoder_names,
-    const int                thread_count,
-    const int                refcounted_frames
-)
-{
-    const AVCodec *codec = find_decoder( codecpar->codec_id, preferred_decoder_names );
-    if( !codec )
-        return -1;
-    return open_decoder( ctx, codecpar, codec, thread_count, refcounted_frames );
-}
+#include "decode.h"
 
 /* Close and open the new decoder to flush buffers in the decoder even if the decoder implements avcodec_flush_buffers().
  * It seems this brings about more stable composition when seeking.

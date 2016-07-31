@@ -40,6 +40,7 @@ extern "C"
 #include "lwlibav_dec.h"
 #include "lwlibav_video.h"
 #include "lwlibav_video_internal.h"
+#include "decode.h"
 
 #define SEEK_MODE_NORMAL     0
 #define SEEK_MODE_UNSAFE     1

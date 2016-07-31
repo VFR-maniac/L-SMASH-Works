@@ -182,7 +182,7 @@ int libavsmash_audio_get_summaries
     libavsmash_audio_decode_handler_t *adhp
 );
 
-AVCodec *libavsmash_audio_find_decoder
+const AVCodec *libavsmash_audio_find_decoder
 (
     libavsmash_audio_decode_handler_t *adhp
 );

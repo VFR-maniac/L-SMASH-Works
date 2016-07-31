@@ -211,7 +211,7 @@ int libavsmash_video_get_summaries
     libavsmash_video_decode_handler_t *vdhp
 );
 
-AVCodec *libavsmash_video_find_decoder
+const AVCodec *libavsmash_video_find_decoder
 (
     libavsmash_video_decode_handler_t *vdhp
 );

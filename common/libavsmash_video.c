@@ -41,6 +41,7 @@ extern "C"
 #include "libavsmash.h"
 #include "libavsmash_video.h"
 #include "libavsmash_video_internal.h"
+#include "decode.h"
 
 /*****************************************************************************
  * Allocators / Deallocators
@@ -403,7 +404,7 @@ int libavsmash_video_initialize_decoder_configuration
     }
     /* libavcodec */
     AVCodecContext *ctx = format_ctx->streams[i]->codec;
-    AVCodec        *codec;
+    const AVCodec  *codec;
     libavsmash_video_set_codec_context( vdhp, ctx );
     codec = libavsmash_video_find_decoder( vdhp );
     if( !codec )
@@ -432,7 +433,7 @@ int libavsmash_video_get_summaries
     return get_summaries( vdhp->root, vdhp->track_id, &vdhp->config );
 }
 
-AVCodec *libavsmash_video_find_decoder
+const AVCodec *libavsmash_video_find_decoder
 (
     libavsmash_video_decode_handler_t *vdhp
 )

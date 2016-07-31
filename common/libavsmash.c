@@ -40,32 +40,12 @@ extern "C"
 #include "utils.h"
 #include "libavsmash.h"
 #include "qsv.h"
+#include "decode.h"
 
 #define BYTE_SWAP_16( x ) ((( x ) << 8 & 0xff00)  | (( x ) >> 8 & 0x00ff))
 #define BYTE_SWAP_32( x ) (BYTE_SWAP_16( x ) << 16 | BYTE_SWAP_16(( x ) >> 16))
 
-static AVCodec *find_decoder
-(
-    enum AVCodecID  codec_id,
-    const char    **preferred_decoder_names
-)
-{
-    AVCodec *codec = avcodec_find_decoder( codec_id );
-    if( codec && preferred_decoder_names )
-        for( const char **decoder_name = preferred_decoder_names; *decoder_name != NULL; decoder_name++ )
-        {
-            AVCodec *preferred_decoder = avcodec_find_decoder_by_name( *decoder_name );
-            if( preferred_decoder
-             && preferred_decoder->id == codec->id )
-            {
-                codec = preferred_decoder;
-                break;
-            }
-        }
-    return codec;
-}
-
-static int open_decoder
+static int libavsmash_open_decoder
 (
     AVCodecContext *ctx,
     const AVCodec  *codec
@@ -468,7 +448,7 @@ static enum AVCodecID get_codec_id_from_description
 #undef ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE
 }
 
-AVCodec *libavsmash_find_decoder
+const AVCodec *libavsmash_find_decoder
 (
     codec_configuration_t *config
 )
@@ -829,7 +809,7 @@ void libavsmash_flush_buffers
                                          * For instance, when stream is encoded as AC-3,
                                          * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
                                          * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( open_decoder( ctx, codec ) < 0 )
+    if( libavsmash_open_decoder( ctx, codec ) < 0 )
     {
         config->error = 1;
         if( config->lh.show_log )
@@ -934,7 +914,7 @@ void update_configuration
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
     ctx->thread_count = 1;
-    if( open_decoder( ctx, codec ) < 0 )
+    if( libavsmash_open_decoder( ctx, codec ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;

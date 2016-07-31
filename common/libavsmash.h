@@ -70,14 +70,6 @@ typedef struct
     } queue;
 } codec_configuration_t;
 
-static inline uint32_t get_decoder_delay
-(
-    AVCodecContext *ctx
-)
-{
-    return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
-}
-
 lsmash_root_t *libavsmash_open_file
 (
     AVFormatContext          **p_format_ctx,
@@ -102,7 +94,7 @@ int get_summaries
     codec_configuration_t *config
 );
 
-AVCodec *libavsmash_find_decoder
+const AVCodec *libavsmash_find_decoder
 (
     codec_configuration_t *config
 );

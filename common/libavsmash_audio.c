@@ -372,7 +372,7 @@ int libavsmash_audio_initialize_decoder_configuration
     }
     /* libavcodec */
     AVCodecContext *ctx = format_ctx->streams[i]->codec;
-    AVCodec        *codec;
+    const AVCodec  *codec;
     libavsmash_audio_set_codec_context( adhp, ctx );
     codec = libavsmash_audio_find_decoder( adhp );
     if( !codec )
@@ -401,7 +401,7 @@ int libavsmash_audio_get_summaries
     return get_summaries( adhp->root, adhp->track_id, &adhp->config );
 }
 
-AVCodec *libavsmash_audio_find_decoder
+const AVCodec *libavsmash_audio_find_decoder
 (
     libavsmash_audio_decode_handler_t *adhp
 )

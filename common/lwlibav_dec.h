@@ -111,11 +111,6 @@ static inline void lavf_close_file( AVFormatContext **format_ctx )
     avformat_close_input( format_ctx );
 }
 
-static inline uint32_t get_decoder_delay( AVCodecContext *ctx )
-{
-    return ctx->has_b_frames + ((ctx->active_thread_type & FF_THREAD_FRAME) ? ctx->thread_count - 1 : 0);
-}
-
 static inline int read_av_frame
 (
     AVFormatContext *format_ctx,
