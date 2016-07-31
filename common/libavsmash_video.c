@@ -479,8 +479,7 @@ void libavsmash_video_close_codec_context
 {
     if( !vdhp || !vdhp->config.ctx )
         return;
-    avcodec_close( vdhp->config.ctx );
-    vdhp->config.ctx = NULL;
+    avcodec_free_context( &vdhp->config.ctx );
 }
 
 int libavsmash_video_setup_timestamp_info

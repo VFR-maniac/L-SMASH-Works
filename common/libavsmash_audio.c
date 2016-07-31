@@ -407,8 +407,7 @@ void libavsmash_audio_close_codec_context
 {
     if( !adhp || !adhp->config.ctx )
         return;
-    avcodec_close( adhp->config.ctx );
-    adhp->config.ctx = NULL;
+    avcodec_free_context( &adhp->config.ctx );
 }
 
 void libavsmash_audio_apply_delay
