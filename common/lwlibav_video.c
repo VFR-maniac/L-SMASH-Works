@@ -264,11 +264,12 @@ int lwlibav_video_get_desired_track
     int                             threads
 )
 {
-    int error = vdhp->stream_index < 0
-             || vdhp->frame_count == 0
-             || lavf_open_file( &vdhp->format, file_path, &vdhp->lh );
-    AVCodecContext *ctx = !error ? vdhp->format->streams[ vdhp->stream_index ]->codec : NULL;
-    if( error || find_and_open_decoder( ctx, vdhp->codec_id, vdhp->preferred_decoder_names, threads ) )
+    AVCodecContext *ctx = NULL;
+    if( vdhp->stream_index < 0
+     || vdhp->frame_count == 0
+     || lavf_open_file( &vdhp->format, file_path, &vdhp->lh ) < 0
+     || find_and_open_decoder( &ctx, vdhp->format->streams[ vdhp->stream_index ]->codecpar,
+                               vdhp->preferred_decoder_names, threads, 1 ) < 0 )
     {
         av_freep( &vdhp->index_entries );
         lw_freep( &vdhp->frame_list );
@@ -279,7 +280,6 @@ int lwlibav_video_get_desired_track
         return -1;
     }
     vdhp->ctx = ctx;
-    ctx->refcounted_frames = 1;
     return 0;
 }
 
@@ -1266,15 +1266,16 @@ static uint32_t lwlibav_vfr2cfr
  * This selects the best pixel format from supported pixel formats with best effort. */
 static void handle_decoder_pix_fmt
 (
-    AVCodecContext    *ctx,
+    AVCodecParameters *codecpar,
+    const AVCodec     *codec,
     enum AVPixelFormat pix_fmt
 )
 {
-    assert( ctx && ctx->codec );
-    if( ctx->codec->pix_fmts )
-        ctx->pix_fmt = avcodec_find_best_pix_fmt_of_list( ctx->codec->pix_fmts, pix_fmt, 1, NULL );
+    assert( codecpar && codec );
+    if( codec->pix_fmts )
+        codecpar->format = (int)avcodec_find_best_pix_fmt_of_list( codec->pix_fmts, pix_fmt, 1, NULL );
     else
-        ctx->pix_fmt = pix_fmt;
+        codecpar->format = (int)pix_fmt;
 }
 
 static int get_video_frame
@@ -1342,7 +1343,9 @@ int lwlibav_video_find_first_valid_frame
     vdhp->movable_frame_buffer = av_frame_alloc();
     if( !vdhp->movable_frame_buffer )
         return -1;
-    handle_decoder_pix_fmt( vdhp->ctx, vdhp->ctx->pix_fmt );
+    const AVCodec       *codec    = vdhp->ctx->codec;
+    AVCodecParameters   *codecpar = vdhp->format->streams[ vdhp->stream_index ]->codecpar;
+    handle_decoder_pix_fmt( codecpar, codec, (enum AVPixelFormat)codecpar->format );
     vdhp->last_ts_frame_number = vdhp->frame_count;
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
                         : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
@@ -1424,12 +1427,13 @@ void set_video_basic_settings
 )
 {
     lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)dhp;
-    AVCodecContext *ctx = vdhp->format->streams[ vdhp->stream_index ]->codec;
-    lwlibav_extradata_t *entry = &vdhp->exh.entries[ vdhp->frame_list[frame_number].extradata_index ];
-    ctx->width                 = entry->width;
-    ctx->height                = entry->height;
-    ctx->bits_per_coded_sample = entry->bits_per_sample;
-    handle_decoder_pix_fmt( ctx, entry->pixel_format );
+    const AVCodec       *codec    = vdhp->ctx->codec;
+    AVCodecParameters   *codecpar = vdhp->format->streams[ vdhp->stream_index ]->codecpar;
+    lwlibav_extradata_t *entry    = &vdhp->exh.entries[ vdhp->frame_list[frame_number].extradata_index ];
+    codecpar->width                 = entry->width;
+    codecpar->height                = entry->height;
+    codecpar->bits_per_coded_sample = entry->bits_per_sample;
+    handle_decoder_pix_fmt( codecpar, codec, entry->pixel_format );
 }
 
 int try_decode_video_frame
@@ -1449,8 +1453,7 @@ int try_decode_video_frame
     lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)dhp;
     AVFormatContext *format_ctx   = vdhp->format;
     int              stream_index = vdhp->stream_index;
-    AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
-    ctx->refcounted_frames = 1;
+    AVCodecContext  *ctx          = vdhp->ctx;
     if( av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->av_seek_flags ) < 0 )
         av_seek_frame( format_ctx, stream_index, rap_pos, vdhp->av_seek_flags | AVSEEK_FLAG_ANY );
     do

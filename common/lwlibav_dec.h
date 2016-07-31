@@ -108,9 +108,6 @@ static inline int lavf_open_file
 
 static inline void lavf_close_file( AVFormatContext **format_ctx )
 {
-    for( unsigned int index = 0; index < (*format_ctx)->nb_streams; index++ )
-        if( avcodec_is_open( (*format_ctx)->streams[index]->codec ) )
-            avcodec_close( (*format_ctx)->streams[index]->codec );
     avformat_close_input( format_ctx );
 }
 
@@ -136,10 +133,11 @@ static inline int read_av_frame
 
 int find_and_open_decoder
 (
-    AVCodecContext *ctx,
-    enum AVCodecID  codec_id,
-    const char    **preferred_decoder_names,
-    int             threads
+    AVCodecContext         **ctx,
+    const AVCodecParameters *codecpar,
+    const char             **preferred_decoder_names,
+    const int                thread_count,
+    const int                refcounted_frames
 );
 
 void lwlibav_flush_buffers

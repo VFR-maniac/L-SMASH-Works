@@ -200,11 +200,12 @@ int lwlibav_audio_get_desired_track
     int                             threads
 )
 {
-    int error = adhp->stream_index < 0
-             || adhp->frame_count == 0
-             || lavf_open_file( &adhp->format, file_path, &adhp->lh );
-    AVCodecContext *ctx = !error ? adhp->format->streams[ adhp->stream_index ]->codec : NULL;
-    if( error || find_and_open_decoder( ctx, adhp->codec_id, adhp->preferred_decoder_names, threads ) )
+    AVCodecContext *ctx = NULL;
+    if( adhp->stream_index < 0
+     || adhp->frame_count == 0
+     || lavf_open_file( &adhp->format, file_path, &adhp->lh ) < 0
+     || find_and_open_decoder( &ctx, adhp->format->streams[ adhp->stream_index ]->codecpar,
+                               adhp->preferred_decoder_names, threads, 0 ) < 0 )
     {
         av_freep( &adhp->index_entries );
         lw_freep( &adhp->frame_list );
@@ -645,14 +646,14 @@ void set_audio_basic_settings
 )
 {
     lwlibav_audio_decode_handler_t *adhp = (lwlibav_audio_decode_handler_t *)dhp;
-    AVCodecContext *ctx = adhp->format->streams[ adhp->stream_index ]->codec;
-    lwlibav_extradata_t *entry = &adhp->exh.entries[ adhp->frame_list[frame_number].extradata_index ];
-    ctx->sample_rate           = entry->sample_rate;
-    ctx->channel_layout        = entry->channel_layout;
-    ctx->sample_fmt            = entry->sample_format;
-    ctx->bits_per_coded_sample = entry->bits_per_sample;
-    ctx->block_align           = entry->block_align;
-    ctx->channels              = av_get_channel_layout_nb_channels( ctx->channel_layout );
+    AVCodecParameters   *codecpar = adhp->format->streams[ adhp->stream_index ]->codecpar;
+    lwlibav_extradata_t *entry    = &adhp->exh.entries[ adhp->frame_list[frame_number].extradata_index ];
+    codecpar->sample_rate           = entry->sample_rate;
+    codecpar->channel_layout        = entry->channel_layout;
+    codecpar->format                = (int)entry->sample_format;
+    codecpar->bits_per_coded_sample = entry->bits_per_sample;
+    codecpar->block_align           = entry->block_align;
+    codecpar->channels              = av_get_channel_layout_nb_channels( codecpar->channel_layout );
 }
 
 int try_decode_audio_frame
@@ -673,7 +674,7 @@ int try_decode_audio_frame
     int              stream_index = adhp->stream_index;
     AVPacket        *pkt          = &adhp->packet;
     AVPacket        *alter_pkt    = &adhp->alter_packet;
-    AVCodecContext  *ctx          = format_ctx->streams[stream_index]->codec;
+    AVCodecContext  *ctx          = adhp->ctx;
     uint32_t         start_frame  = frame_number;
     int              err          = 0;
     do

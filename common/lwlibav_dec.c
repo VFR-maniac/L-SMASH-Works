@@ -36,7 +36,7 @@ extern "C"
 #include "lwlibav_dec.h"
 #include "qsv.h"
 
-static AVCodec *find_decoder
+static const AVCodec *find_decoder
 (
     enum AVCodecID  codec_id,
     const char    **preferred_decoder_names
@@ -59,52 +59,79 @@ static AVCodec *find_decoder
 
 static int open_decoder
 (
-    AVCodecContext *ctx,
-    const AVCodec  *codec
+    AVCodecContext         **ctx,
+    const AVCodecParameters *codecpar,
+    const AVCodec           *codec,
+    const int                thread_count,
+    const int                refcounted_frames
 )
 {
-    int ret = avcodec_open2( ctx, codec, NULL );
-    if( is_qsv_decoder( ctx->codec ) )
-        ret = do_qsv_decoder_workaround( ctx );
+    AVCodecContext *c = avcodec_alloc_context3( codec );
+    if( !c )
+        return -1;
+    int ret;
+    if( (ret = avcodec_parameters_to_context( c, codecpar )) < 0 )
+        goto fail;
+    c->thread_count = thread_count;
+    c->codec_id     = AV_CODEC_ID_NONE; /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
+                                         * This avoids avcodec_open2() failure by the difference of enum AVCodecID.
+                                         * For instance, when stream is encoded as AC-3,
+                                         * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
+                                         * while AVCodec.id is set to AV_CODEC_ID_AC3. */
+    if( (ret = avcodec_open2( c, codec, NULL )) < 0 )
+        goto fail;
+    if( is_qsv_decoder( c->codec ) )
+        if( (ret = do_qsv_decoder_workaround( c )) < 0 )
+            goto fail;
+    c->refcounted_frames = refcounted_frames;
+    *ctx = c;
+    return ret;
+fail:
+    avcodec_free_context( &c );
     return ret;
 }
 
 int find_and_open_decoder
 (
-    AVCodecContext *ctx,
-    enum AVCodecID  codec_id,
-    const char    **preferred_decoder_names,
-    int             threads
+    AVCodecContext         **ctx,
+    const AVCodecParameters *codecpar,
+    const char             **preferred_decoder_names,
+    const int                thread_count,
+    const int                refcounted_frames
 )
 {
-    AVCodec *codec = find_decoder( codec_id, preferred_decoder_names );
+    const AVCodec *codec = find_decoder( codecpar->codec_id, preferred_decoder_names );
     if( !codec )
         return -1;
-    ctx->thread_count = threads;
-    return (open_decoder( ctx, codec ) < 0) ? -1 : 0;
+    return open_decoder( ctx, codecpar, codec, thread_count, refcounted_frames );
 }
 
+/* Close and open the new decoder to flush buffers in the decoder even if the decoder implements avcodec_flush_buffers().
+ * It seems this brings about more stable composition when seeking.
+ * Note that this function could reallocate AVCodecContext. */
 void lwlibav_flush_buffers
 (
     lwlibav_decode_handler_t *dhp
 )
 {
-    /* Close and reopen the decoder even if the decoder implements avcodec_flush_buffers().
-     * It seems this brings about more stable composition when seeking. */
-    AVCodecContext *ctx   = dhp->format->streams[ dhp->stream_index ]->codec;
-    const AVCodec  *codec = ctx->codec;
-    avcodec_close( ctx );
-    ctx->codec_id = AV_CODEC_ID_NONE;   /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
-                                         * This avoids avcodec_open2() failure by the difference of enum AVCodecID.
-                                         * For instance, when stream is encoded as AC-3,
-                                         * AVCodecContext.codec_id might have been set to AV_CODEC_ID_EAC3
-                                         * while AVCodec.id is set to AV_CODEC_ID_AC3. */
-    if( open_decoder( ctx, codec ) < 0 )
+    const AVCodecParameters *codecpar     = dhp->format->streams[ dhp->stream_index ]->codecpar;
+    const AVCodec           *codec        = dhp->ctx->codec;
+    void                    *app_specific = dhp->ctx->opaque;
+    AVCodecContext *ctx = NULL;
+    if( open_decoder( &ctx, codecpar, codec, dhp->ctx->thread_count, dhp->ctx->refcounted_frames ) < 0 )
     {
+        avcodec_flush_buffers( dhp->ctx );
         dhp->error = 1;
         lw_log_show( &dhp->lh, LW_LOG_FATAL,
-                     "Failed to flush buffers.\n"
+                     "Failed to flush buffers by a reliable way.\n"
                      "It is recommended you reopen the file." );
+    }
+    else
+    {
+        dhp->ctx->opaque = NULL;
+        avcodec_free_context( &dhp->ctx );
+        dhp->ctx = ctx;
+        dhp->ctx->opaque = app_specific;
     }
     dhp->exh.delay_count = 0;
 }
@@ -125,57 +152,46 @@ void lwlibav_update_configuration
         lwlibav_flush_buffers( dhp );
         return;
     }
-    AVCodecContext *ctx = dhp->format->streams[ dhp->stream_index ]->codec;
-    void *app_specific = ctx->opaque;
-    avcodec_close( ctx );
-    if( ctx->extradata )
-    {
-        av_freep( &ctx->extradata );
-        ctx->extradata_size = 0;
-    }
-    /* Find an appropriate decoder. */
     char error_string[96] = { 0 };
-    lwlibav_extradata_t *entry = &exhp->entries[extradata_index];
+    AVCodecParameters *codecpar     = dhp->format->streams[ dhp->stream_index ]->codecpar;
+    void              *app_specific = dhp->ctx->opaque;
+    const int          thread_count = dhp->ctx->thread_count;
+    /* Close the decoder here. */
+    dhp->ctx->opaque = NULL;
+    avcodec_free_context( &dhp->ctx );
+    /* Find an appropriate decoder. */
+    const lwlibav_extradata_t *entry = &exhp->entries[extradata_index];
     const AVCodec *codec = find_decoder( entry->codec_id, dhp->preferred_decoder_names );
     if( !codec )
     {
         strcpy( error_string, "Failed to find the decoder.\n" );
         goto fail;
     }
-    /* Get decoder default settings. */
-    int thread_count = ctx->thread_count;
-    if( avcodec_get_context_defaults3( ctx, codec ) < 0 )
-    {
-        strcpy( error_string, "Failed to get CODEC default.\n" );
-        goto fail;
-    }
     /* Set up decoder basic settings. */
-    if( ctx->codec_type == AVMEDIA_TYPE_VIDEO )
+    if( codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
         set_video_basic_settings( dhp, frame_number );
     else
         set_audio_basic_settings( dhp, frame_number );
     /* Update extradata. */
+    av_freep( &codecpar->extradata );
+    codecpar->extradata_size = 0;
     if( entry->extradata_size > 0 )
     {
-        ctx->extradata = (uint8_t *)av_malloc( entry->extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
-        if( !ctx->extradata )
+        codecpar->extradata = (uint8_t *)av_malloc( entry->extradata_size + FF_INPUT_BUFFER_PADDING_SIZE );
+        if( !codecpar->extradata )
         {
             strcpy( error_string, "Failed to allocate extradata.\n" );
             goto fail;
         }
-        ctx->extradata_size = entry->extradata_size;
-        memcpy( ctx->extradata, entry->extradata, ctx->extradata_size );
-        memset( ctx->extradata + ctx->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
+        codecpar->extradata_size = entry->extradata_size;
+        memcpy( codecpar->extradata, entry->extradata, codecpar->extradata_size );
+        memset( codecpar->extradata + codecpar->extradata_size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
     }
-    /* AVCodecContext.codec_id is supposed to be set properly in avcodec_open2().
-     * See lwlibav_flush_buffers(), why this is needed. */
-    ctx->codec_id  = AV_CODEC_ID_NONE;
     /* This is needed by some CODECs such as UtVideo and raw video. */
-    ctx->codec_tag = entry->codec_tag;
+    codecpar->codec_tag = entry->codec_tag;
     /* Open an appropriate decoder.
      * Here, we force single threaded decoding since some decoder doesn't do its proper initialization with multi-threaded decoding. */
-    ctx->thread_count = 1;
-    if( open_decoder( ctx, codec ) < 0 )
+    if( open_decoder( &dhp->ctx, codecpar, codec, 1, 1 ) < 0 )
     {
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;
@@ -183,20 +199,20 @@ void lwlibav_update_configuration
     exhp->current_index = extradata_index;
     exhp->delay_count   = 0;
     /* Set up decoder basic settings by actual decoding. */
-    if( ctx->codec_type == AVMEDIA_TYPE_VIDEO
+    if( dhp->ctx->codec_type == AVMEDIA_TYPE_VIDEO
       ? try_decode_video_frame( dhp, frame_number, rap_pos, error_string ) < 0
       : try_decode_audio_frame( dhp, frame_number, error_string ) < 0 )
         goto fail;
     /* Reopen/flush with the requested number of threads. */
-    ctx->thread_count = thread_count;
-    int width  = ctx->width;
-    int height = ctx->height;
-    lwlibav_flush_buffers( dhp );
-    ctx->get_buffer2 = exhp->get_buffer ? exhp->get_buffer : avcodec_default_get_buffer2;
-    ctx->opaque      = app_specific;
+    dhp->ctx->thread_count = thread_count;
+    int width  = dhp->ctx->width;
+    int height = dhp->ctx->height;
+    lwlibav_flush_buffers( dhp );   /* Note that dhp->ctx could change here. */
+    dhp->ctx->get_buffer2 = exhp->get_buffer ? exhp->get_buffer : avcodec_default_get_buffer2;
+    dhp->ctx->opaque      = app_specific;
     /* avcodec_open2() may have changed resolution unexpectedly. */
-    ctx->width       = width;
-    ctx->height      = height;
+    dhp->ctx->width       = width;
+    dhp->ctx->height      = height;
     return;
 fail:
     exhp->delay_count = 0;
