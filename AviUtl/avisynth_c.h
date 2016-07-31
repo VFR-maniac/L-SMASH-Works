@@ -108,7 +108,7 @@ enum {AVS_PLANAR_Y=1<<0,
 enum {AVS_CS_BGR = 1<<28,
       AVS_CS_YUV = 1<<29,
       AVS_CS_INTERLEAVED = 1<<30,
-      AVS_CS_PLANAR = 1<<31,
+      AVS_CS_PLANAR = (int)(1u<<31),
     
       AVS_CS_SHIFT_SUB_WIDTH   = 0,
       AVS_CS_SHIFT_SUB_HEIGHT  = 1 << 3,
