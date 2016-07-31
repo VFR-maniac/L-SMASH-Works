@@ -90,11 +90,7 @@ void lwlibav_audio_free_decode_handler
     lw_free( adhp->frame_list );
     av_free( adhp->index_entries );
     av_frame_free( &adhp->frame_buffer );
-    if( adhp->ctx )
-    {
-        avcodec_close( adhp->ctx );
-        adhp->ctx = NULL;
-    }
+    avcodec_free_context( &adhp->ctx );
     if( adhp->format )
         lavf_close_file( &adhp->format );
     lw_free( adhp );

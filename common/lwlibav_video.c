@@ -97,11 +97,7 @@ void lwlibav_video_free_decode_handler
     av_frame_free( &vdhp->frame_buffer );
     av_frame_free( &vdhp->first_valid_frame );
     av_frame_free( &vdhp->movable_frame_buffer );
-    if( vdhp->ctx )
-    {
-        avcodec_close( vdhp->ctx );
-        vdhp->ctx = NULL;
-    }
+    avcodec_free_context( &vdhp->ctx );
     if( vdhp->format )
         lavf_close_file( &vdhp->format );
     lw_free( vdhp );
