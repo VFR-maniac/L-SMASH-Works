@@ -148,15 +148,6 @@ void libavsmash_audio_set_preferred_decoder_names
     adhp->config.preferred_decoder_names = preferred_decoder_names;
 }
 
-void libavsmash_audio_set_codec_context
-(
-    libavsmash_audio_decode_handler_t *adhp,
-    AVCodecContext                    *ctx
-)
-{
-    adhp->config.ctx = ctx;
-}
-
 /*****************************************************************************
  * Getters
  *****************************************************************************/
@@ -364,26 +355,17 @@ int libavsmash_audio_initialize_decoder_configuration
     /* libavformat */
     uint32_t type = AVMEDIA_TYPE_AUDIO;
     uint32_t i;
-    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != type; i++ );
+    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codecpar->codec_type != type; i++ );
     if( i == format_ctx->nb_streams )
     {
         strcpy( error_string, "Failed to find stream by libavformat.\n" );
         goto fail;
     }
     /* libavcodec */
-    AVCodecContext *ctx = format_ctx->streams[i]->codec;
-    const AVCodec  *codec;
-    libavsmash_audio_set_codec_context( adhp, ctx );
-    codec = libavsmash_audio_find_decoder( adhp );
-    if( !codec )
+    AVCodecParameters *codecpar = format_ctx->streams[i]->codecpar;
+    if( libavsmash_find_and_open_decoder( &adhp->config, codecpar, threads, 0 ) < 0 )
     {
-        sprintf( error_string, "Failed to find %s decoder.\n", codec->name );
-        goto fail;
-    }
-    ctx->thread_count = threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        strcpy( error_string, "Failed to avcodec_open2.\n" );
+        strcpy( error_string, "Failed to find and open the audio decoder.\n" );
         goto fail;
     }
     return initialize_decoder_configuration( adhp->root, adhp->track_id, &adhp->config );
@@ -399,14 +381,6 @@ int libavsmash_audio_get_summaries
 )
 {
     return get_summaries( adhp->root, adhp->track_id, &adhp->config );
-}
-
-const AVCodec *libavsmash_audio_find_decoder
-(
-    libavsmash_audio_decode_handler_t *adhp
-)
-{
-    return libavsmash_find_decoder( &adhp->config );
 }
 
 void libavsmash_audio_force_seek

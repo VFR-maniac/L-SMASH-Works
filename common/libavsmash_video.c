@@ -176,15 +176,6 @@ void libavsmash_video_set_log_handler
     vdhp->config.lh = *lh;
 }
 
-void libavsmash_video_set_codec_context
-(
-    libavsmash_video_decode_handler_t *vdhp,
-    AVCodecContext                    *ctx
-)
-{
-    vdhp->config.ctx = ctx;
-}
-
 void libavsmash_video_set_get_buffer_func
 (
     libavsmash_video_decode_handler_t *vdhp
@@ -396,26 +387,17 @@ int libavsmash_video_initialize_decoder_configuration
     /* libavformat */
     uint32_t type = AVMEDIA_TYPE_VIDEO;
     uint32_t i;
-    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codec->codec_type != type; i++ );
+    for( i = 0; i < format_ctx->nb_streams && format_ctx->streams[i]->codecpar->codec_type != type; i++ );
     if( i == format_ctx->nb_streams )
     {
         strcpy( error_string, "Failed to find stream by libavformat.\n" );
         goto fail;
     }
     /* libavcodec */
-    AVCodecContext *ctx = format_ctx->streams[i]->codec;
-    const AVCodec  *codec;
-    libavsmash_video_set_codec_context( vdhp, ctx );
-    codec = libavsmash_video_find_decoder( vdhp );
-    if( !codec )
+    AVCodecParameters *codecpar = format_ctx->streams[i]->codecpar;
+    if( libavsmash_find_and_open_decoder( &vdhp->config, codecpar, threads, 1 ) < 0 )
     {
-        sprintf( error_string, "Failed to find %s decoder.\n", codec->name );
-        goto fail;
-    }
-    ctx->thread_count = threads;
-    if( avcodec_open2( ctx, codec, NULL ) < 0 )
-    {
-        strcpy( error_string, "Failed to avcodec_open2.\n" );
+        strcpy( error_string, "Failed to find and open the video decoder.\n" );
         goto fail;
     }
     return initialize_decoder_configuration( vdhp->root, vdhp->track_id, &vdhp->config );
@@ -431,14 +413,6 @@ int libavsmash_video_get_summaries
 )
 {
     return get_summaries( vdhp->root, vdhp->track_id, &vdhp->config );
-}
-
-const AVCodec *libavsmash_video_find_decoder
-(
-    libavsmash_video_decode_handler_t *vdhp
-)
-{
-    return libavsmash_find_decoder( &vdhp->config );
 }
 
 void libavsmash_video_force_seek
@@ -1029,7 +1003,6 @@ int libavsmash_video_find_first_valid_frame
 )
 {
     codec_configuration_t *config = &vdhp->config;
-    config->ctx->refcounted_frames = 1;
     for( uint32_t i = 1; i <= vdhp->sample_count + get_decoder_delay( config->ctx ); i++ )
     {
         AVPacket pkt = { 0 };

@@ -100,12 +100,6 @@ void libavsmash_video_set_log_handler
     lw_log_handler_t                  *lh
 );
 
-void libavsmash_video_set_codec_context
-(
-    libavsmash_video_decode_handler_t *vdhp,
-    AVCodecContext                    *ctx
-);
-
 void libavsmash_video_set_get_buffer_func
 (
     libavsmash_video_decode_handler_t *vdhp
@@ -207,11 +201,6 @@ int libavsmash_video_initialize_decoder_configuration
 );
 
 int libavsmash_video_get_summaries
-(
-    libavsmash_video_decode_handler_t *vdhp
-);
-
-const AVCodec *libavsmash_video_find_decoder
 (
     libavsmash_video_decode_handler_t *vdhp
 );

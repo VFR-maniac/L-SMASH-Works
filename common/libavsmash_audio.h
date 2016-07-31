@@ -81,12 +81,6 @@ void libavsmash_audio_set_preferred_decoder_names
     const char                       **preferred_decoder_names
 );
 
-void libavsmash_audio_set_codec_context
-(
-    libavsmash_audio_decode_handler_t *adhp,
-    AVCodecContext                    *ctx
-);
-
 /*****************************************************************************
  * Getters
  *****************************************************************************/
@@ -178,11 +172,6 @@ int libavsmash_audio_initialize_decoder_configuration
 );
 
 int libavsmash_audio_get_summaries
-(
-    libavsmash_audio_decode_handler_t *adhp
-);
-
-const AVCodec *libavsmash_audio_find_decoder
 (
     libavsmash_audio_decode_handler_t *adhp
 );

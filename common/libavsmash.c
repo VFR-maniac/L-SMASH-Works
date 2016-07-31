@@ -448,21 +448,31 @@ static enum AVCodecID get_codec_id_from_description
 #undef ELSE_IF_GET_CODEC_ID_FROM_CODEC_TYPE
 }
 
-const AVCodec *libavsmash_find_decoder
+static const AVCodec *libavsmash_find_decoder
 (
-    codec_configuration_t *config
+    codec_configuration_t *config,
+    enum AVCodecID         codec_id
 )
 {
-    assert( config->ctx );
-    enum AVCodecID codec_id = config->ctx->codec_id;
     if( codec_id == AV_CODEC_ID_NONE )
-    {
         /* Try to get any valid codec_id from summaries. */
         for( uint32_t i = 0; i < config->count && codec_id == AV_CODEC_ID_NONE; i++ )
             codec_id = get_codec_id_from_description( config->entries[i].summary );
-        config->ctx->codec_id = codec_id;
-    }
     return find_decoder( codec_id, config->preferred_decoder_names );
+}
+
+int libavsmash_find_and_open_decoder
+(
+    codec_configuration_t   *config,
+    const AVCodecParameters *codecpar,
+    const int                thread_count,
+    const int                refcounted_frames
+)
+{
+    const AVCodec *codec = libavsmash_find_decoder( config, codecpar->codec_id );
+    if( !codec )
+        return -1;
+    return open_decoder( &config->ctx, codecpar, codec, thread_count, refcounted_frames );
 }
 
 static lsmash_codec_specific_data_type get_codec_specific_data_type
