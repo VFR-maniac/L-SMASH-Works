@@ -114,25 +114,24 @@ static libavsmash_handler_t *alloc_handler
 
 static int get_first_track_of_type( lsmash_handler_t *h, uint32_t type )
 {
+    int ret;
     lw_log_handler_t *lhp;
     if( type == ISOM_MEDIA_HANDLER_TYPE_VIDEO_TRACK )
     {
         libavsmash_handler_t *hp = (libavsmash_handler_t *)h->video_private;
         lhp = libavsmash_video_get_log_handler( hp->vdhp );
         libavsmash_video_set_root( hp->vdhp, hp->root );
-        if( libavsmash_video_get_track( hp->vdhp, 0 ) < 0 )
-            return -1;
+        ret = libavsmash_video_get_track( hp->vdhp, 0 );
     }
     else
     {
         libavsmash_handler_t *hp = (libavsmash_handler_t *)h->audio_private;
         lhp = libavsmash_audio_get_log_handler( hp->adhp );
         libavsmash_audio_set_root( hp->adhp, hp->root );
-        if( libavsmash_audio_get_track( hp->adhp, 0 ) < 0 )
-            return -1;
+        ret = libavsmash_audio_get_track( hp->adhp, 0 );
     }
-    lhp->show_log = au_message_box_desktop;
-    return 0;
+    lhp->level = LW_LOG_WARNING;
+    return ret;
 }
 
 static int get_ctd_shift
@@ -348,7 +347,6 @@ static void *open_file( char *file_name, reader_option_t *opt )
     hp->av_sync          = opt->av_sync;
     libavsmash_video_set_preferred_decoder_names( hp->vdhp, opt->preferred_decoder_names );
     libavsmash_audio_set_preferred_decoder_names( hp->adhp, opt->preferred_decoder_names );
-    vlhp->level = LW_LOG_WARNING;
     *alhp = *vlhp;
     return hp;
 }
