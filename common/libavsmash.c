@@ -918,6 +918,7 @@ void update_configuration
         strcpy( error_string, "Failed to open decoder.\n" );
         goto fail;
     }
+    avcodec_parameters_free( &codecpar );
     config->ctx               = ctx;
     config->index             = new_index;
     config->update_pending    = 0;
@@ -1019,6 +1020,7 @@ void update_configuration
     }
     return;
 fail:
+    avcodec_parameters_free( &codecpar );
     config->update_pending    = 0;
     config->delay_count       = 0;
     config->queue.delay_count = 0;
