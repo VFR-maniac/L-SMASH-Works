@@ -69,11 +69,10 @@ int do_qsv_decoder_workaround
         const AVBitStreamFilter *bsf     = av_bsf_get_by_name( "h264_mp4toannexb" );
         if( !bsf || (ret = av_bsf_alloc( bsf, &bsf_ctx )) < 0 )
             goto fail;
-        AVCodecParameters *codecpar = avcodec_parameters_alloc();
-        if( !codecpar || (ret = avcodec_parameters_from_context( codecpar, ctx )) < 0 )
+        AVCodecParameters *codecpar = bsf_ctx->par_in;
+        if( (ret = avcodec_parameters_from_context( codecpar, ctx )) < 0 )
             goto fail;
         codecpar->extradata[4] |= 0x03; /* Force 4 byte length size fields. */
-        bsf_ctx->par_in = codecpar;
         if( (ret = av_bsf_init( bsf_ctx )) < 0 )
             goto fail;
         /* Convert into AnnexB Byte Stream Format. */
@@ -95,8 +94,7 @@ int do_qsv_decoder_workaround
                 break;
         }
 fail:
-        /* Tear down the bistream filter.
-         * Associated AVCodecParameters shall be freed by av_bsf_free(). */
+        /* Tear down the bistream filter. */
         av_bsf_free( &bsf_ctx );
         if( ret < 0 )
             return ret;
