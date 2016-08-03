@@ -68,13 +68,13 @@ int do_qsv_decoder_workaround
         AVBSFContext            *bsf_ctx = NULL;
         const AVBitStreamFilter *bsf     = av_bsf_get_by_name( "h264_mp4toannexb" );
         if( !bsf || (ret = av_bsf_alloc( bsf, &bsf_ctx )) < 0 )
-            goto fail;
+            goto bsf_fail;
         AVCodecParameters *codecpar = bsf_ctx->par_in;
         if( (ret = avcodec_parameters_from_context( codecpar, ctx )) < 0 )
-            goto fail;
+            goto bsf_fail;
         codecpar->extradata[4] |= 0x03; /* Force 4 byte length size fields. */
         if( (ret = av_bsf_init( bsf_ctx )) < 0 )
-            goto fail;
+            goto bsf_fail;
         /* Convert into AnnexB Byte Stream Format. */
         uint8_t data[sizeof(fake_idr)];
         memcpy( data, fake_idr, sizeof(fake_idr) );
@@ -84,26 +84,24 @@ int do_qsv_decoder_workaround
         while( 1 )
         {
             if( (ret = av_bsf_send_packet( bsf_ctx, in_pkt )) < 0 )
-                goto fail;
+                goto bsf_fail;
             ret = av_bsf_receive_packet( bsf_ctx, &initializer );
             if( ret == AVERROR( EAGAIN ) || (in_pkt && ret == AVERROR_EOF) )
                 in_pkt = NULL;  /* Send a null packet. */
             else if( ret < 0 )
-                goto fail;
+                goto bsf_fail;
             else if( ret == 0 )
                 break;
         }
-fail:
+bsf_fail:
         /* Tear down the bistream filter. */
         av_bsf_free( &bsf_ctx );
         if( ret < 0 )
-            return ret;
+            goto fail;
     }
     else
     {
-        initializer.size = ctx->extradata_size + sizeof(fake_idr);
-        initializer.data = (uint8_t *)av_mallocz( initializer.size + FF_INPUT_BUFFER_PADDING_SIZE );
-        if( !initializer.data )
+        if( (ret = av_new_packet( &initializer, ctx->extradata_size + sizeof(fake_idr) )) < 0 )
             return ret;
         memcpy( initializer.data, ctx->extradata, ctx->extradata_size );
         memcpy( initializer.data + ctx->extradata_size, fake_idr, sizeof(fake_idr) );
@@ -116,5 +114,7 @@ fail:
         ret = avcodec_decode_video2( ctx, picture, &got_picture, &initializer );
         av_frame_free( &picture );
     }
+fail:
+    av_packet_unref( &initializer );
     return ret;
 }
