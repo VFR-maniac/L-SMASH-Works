@@ -1457,7 +1457,7 @@ static int append_extradata_if_new
                     av_init_packet( &null_pkt );
                     null_pkt.data = NULL;
                     null_pkt.size = 0;
-                    helper->decode( ctx, helper->picture, &decode_complete, &alt_pkt );
+                    helper->decode( ctx, helper->picture, &decode_complete, &null_pkt );
                 }
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
@@ -1601,7 +1601,7 @@ static int get_picture_type
             av_init_packet( &null_pkt );
             null_pkt.data = NULL;
             null_pkt.size = 0;
-            helper->decode( ctx, helper->picture, &decode_complete, pkt );
+            helper->decode( ctx, helper->picture, &decode_complete, &null_pkt );
         }
         if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
             pkt->flags &= ~AV_PKT_FLAG_KEY;
