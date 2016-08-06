@@ -1446,7 +1446,7 @@ static int apply_bsf
     {
         av_free( ctx->extradata );
         ctx->extradata_size = 0;
-        ctx->extradata      = av_mallocz( helper->bsf_ctx->par_out->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE );
+        ctx->extradata      = (uint8_t *)av_mallocz( helper->bsf_ctx->par_out->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE );
         if( !ctx->extradata )
             return -1;
         memcpy( ctx->extradata, helper->bsf_ctx->par_out->extradata, helper->bsf_ctx->par_out->extradata_size );
