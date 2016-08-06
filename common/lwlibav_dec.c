@@ -180,24 +180,3 @@ int lwlibav_get_av_frame
     pkt->size = 0;
     return 1;
 }
-
-int lw_copy_av_packet
-(
-    AVPacket *dst,
-    AVPacket *src
-)
-{
-#if LIBAVUTIL_VERSION_MICRO >= 100
-    return av_copy_packet( dst, src );
-#else
-    int ret;
-    if( (ret = av_new_packet( dst, src->size )) != 0
-     || (ret = av_packet_copy_props( dst, src )) != 0 )
-    {
-        av_packet_unref( dst );
-        return ret;
-    }
-    memcpy( dst->data, src->data, src->size );
-    return 0;
-#endif
-}

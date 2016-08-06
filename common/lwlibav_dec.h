@@ -148,12 +148,6 @@ int lwlibav_get_av_frame
     AVPacket        *pkt
 );
 
-int lw_copy_av_packet
-(
-    AVPacket *dst,
-    AVPacket *src
-);
-
 void lwlibav_update_configuration
 (
     lwlibav_decode_handler_t *dhp,
