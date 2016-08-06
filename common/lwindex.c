@@ -51,8 +51,10 @@ typedef struct
     lwlibav_extradata_handler_t exh;
     AVCodecContext             *codec_ctx;
     AVCodecParserContext       *parser_ctx;
-    AVBitStreamFilterContext   *bsf;
+    const AVBitStreamFilter    *bsf;
+    AVBSFContext               *bsf_ctx;
     AVFrame                    *picture;
+    AVPacket                    pkt;
     uint32_t                    delay_count;
     lw_field_info_t             last_field_info;
     int                         mpeg12_video;   /* 0: neither MPEG-1 Video nor MPEG-2 Video
@@ -60,9 +62,6 @@ typedef struct
     int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
                                                  * 1: either VC-1 or WMV3
                                                  * 2: either VC-1 or WMV3 encapsulated in ASF */
-    int                         is_allocated_buffer;
-    int                         buffer_size;
-    uint8_t                    *buffer;
 #if LIBAVCODEC_VERSION_MICRO < 100
     int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
 #else
@@ -1217,25 +1216,30 @@ static lwlibav_extradata_t *alloc_extradata_entries
     return temp;
 }
 
-static uint8_t *make_vc1_ebdu
+/* The libavcodec VC-1 parser does not support VC-1 and WMV3 packets without start code. This function makes them
+ * parsable by adding start code, and convert RBDU into EBDU if needed. */
+static int make_vc1_ebdu
 (
     lwindex_helper_t *helper,
-    AVPacket         *pkt,
-    int              *size,
+    AVPacket         *in_pkt,
+    AVPacket         *out_pkt,
     uint8_t           bdu_type,
     int               is_vc1
 )
 {
-    uint8_t *data = helper->buffer;
-    int buffer_size = (1 + !is_vc1) * (pkt->size + 4);
-    if( helper->buffer_size < buffer_size + FF_INPUT_BUFFER_PADDING_SIZE )
+    int enough_packet_size = (1 + !is_vc1) * (in_pkt->size + 4);
+    if( enough_packet_size > helper->pkt.size )
     {
-        data = (uint8_t *)av_realloc( helper->buffer, buffer_size + FF_INPUT_BUFFER_PADDING_SIZE );
-        if( !data )
-            return NULL;
-        helper->buffer      = data;
-        helper->buffer_size = buffer_size + FF_INPUT_BUFFER_PADDING_SIZE;
+        int ret = av_grow_packet( &helper->pkt, enough_packet_size - helper->pkt.size );
+        if( ret < 0 )
+            return ret;
     }
+    av_packet_free_side_data( &helper->pkt );
+    int ret = av_packet_copy_props( &helper->pkt, in_pkt );
+    if( ret < 0 )
+        return ret;
+    int     *size = &helper->pkt.size;
+    uint8_t *data =  helper->pkt.data;
     /* start code */
     data[0] = 0x00;
     data[1] = 0x00;
@@ -1243,14 +1247,14 @@ static uint8_t *make_vc1_ebdu
     data[3] = bdu_type;
     if( is_vc1 )
     {
-        *size = pkt->size + 4;
-        memcpy( data + 4, pkt->data, pkt->size );
+        *size = in_pkt->size + 4;
+        memcpy( data + 4, in_pkt->data, in_pkt->size );
     }
     else
     {
         /* RBDU to EBDU */
-        uint8_t *pos = pkt->data;
-        uint8_t *end = pkt->data + pkt->size;
+        uint8_t *pos = in_pkt->data;
+        uint8_t *end = in_pkt->data + in_pkt->size;
         *size = 4;
         if( pos < end )
             data[ (*size)++ ] = *(pos++);
@@ -1264,7 +1268,18 @@ static uint8_t *make_vc1_ebdu
         }
     }
     memset( data + *size, 0, FF_INPUT_BUFFER_PADDING_SIZE );
-    return data;
+    return av_packet_ref( out_pkt, &helper->pkt );
+}
+
+/* An alias of av_init_packet().
+ * av_packet_copy_props() does not set side_data_elems of dst to 0 at the beginning, it causes an undefined behaviour and
+ * side data may be incorrectly copied. This av_init_packet() is a solution to that. */
+static inline void av_init_packet_for_safe
+(
+    AVPacket *pkt
+)
+{
+    av_init_packet( pkt );
 }
 
 static lwindex_helper_t *get_index_helper
@@ -1321,15 +1336,15 @@ static lwindex_helper_t *get_index_helper
             {
                 /* Since a SPS shall have no start code and no its emulation,
                  * therefore, this stream is not encapsulated as byte stream format. */
-                helper->bsf = av_bitstream_filter_init( "h264_mp4toannexb" );
+                helper->bsf = av_bsf_get_by_name( "h264_mp4toannexb" );
                 if( !helper->bsf )
                     return NULL;
             }
             else if( codecpar->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0 )
-                helper->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
+                helper->bsf = av_bsf_get_by_name( "aac_adtstoasc" );
             else if( codecpar->codec_id == AV_CODEC_ID_MPEG4 )
                 /* This is needed to make mpeg124_video_vc1_genarate_pts() work properly for packed bitstream. */
-                helper->bsf = av_bitstream_filter_init( "mpeg4_unpack_bframes" );
+                helper->bsf = av_bsf_get_by_name( "mpeg4_unpack_bframes" );
         }
         /* For audio, prepare the decoder and the parser to get frame length.
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
@@ -1343,32 +1358,111 @@ static lwindex_helper_t *get_index_helper
         if( helper->parser_ctx && helper->vc1_wmv3 == 2 )
         {
             /* Initialize the VC-1/WMV3 parser by extradata. */
-            uint8_t *data;
-            int      size;
+            int ret;
+            AVPacket parsable_pkt;
+            av_init_packet_for_safe( &parsable_pkt );
             if( codecpar->codec_id == AV_CODEC_ID_WMV3 || codecpar->codec_id == AV_CODEC_ID_WMV3IMAGE )
             {
                 /* Make a sequence header EBDU (0x0000010F). */
-                AVPacket packet = { 0 };
-                packet.data = codecpar->extradata;
-                packet.size = codecpar->extradata_size;
-                data = make_vc1_ebdu( helper, &packet, &size, 0x0F, 0 );
-                if( !data )
-                    return NULL;
+                AVPacket pkt;
+                av_init_packet( &pkt );
+                pkt.data = codecpar->extradata;
+                pkt.size = codecpar->extradata_size;
+                ret = make_vc1_ebdu( helper, &pkt, &parsable_pkt, 0x0F, 0 );
             }
             else
             {
                 /* For WVC1, the first byte is its size. */
-                data = codecpar->extradata      + 1;
-                size = codecpar->extradata_size - 1;
+                AVPacket pkt;
+                av_init_packet( &pkt );
+                pkt.data = codecpar->extradata      + 1;
+                pkt.size = codecpar->extradata_size - 1;
+                ret = av_packet_ref( &parsable_pkt, &pkt );
             }
+            if( ret < 0 )
+                return NULL;
             uint8_t *dummy;
             int      dummy_size;
             av_parser_parse2( helper->parser_ctx, helper->codec_ctx,
-                              &dummy, &dummy_size, data, size,
+                              &dummy, &dummy_size, parsable_pkt.data, parsable_pkt.size,
                               AV_NOPTS_VALUE, AV_NOPTS_VALUE, -1 );
+            av_packet_unref( &parsable_pkt );
         }
     }
     return helper;
+}
+
+/* Apply bistream filter input packet. Allocate or reallocate AVBSFContext if needed.
+ *
+ * Return 0 and set out_pkt to the filtered packet on success.
+ * Otherwise return a negative value. */
+static int apply_bsf
+(
+    lwindex_helper_t *helper,
+    AVCodecContext   *ctx,
+    AVPacket         *out_pkt,
+    AVPacket         *in_pkt,
+    const char       *bsf_name
+)
+{
+    int ret = -1;
+    assert( helper->bsf );
+    if( !helper->bsf_ctx || helper->bsf_ctx->par_in->codec_id != ctx->codec_id )
+    {
+        /* Allocate AVBSFContext or reallocate it for CODEC change. */
+        av_bsf_free( &helper->bsf_ctx );
+        if( (helper->bsf = av_bsf_get_by_name( bsf_name ? bsf_name : helper->bsf->name )) == NULL
+         || (ret = av_bsf_alloc( helper->bsf, &helper->bsf_ctx )) < 0
+         || (ret = avcodec_parameters_from_context( helper->bsf_ctx->par_in, ctx )) < 0 )
+            return ret;
+        helper->bsf_ctx->time_base_in = ctx->time_base;
+        if( (ret = av_bsf_init( helper->bsf_ctx )) < 0 )
+            return ret;
+    }
+    /* Clone input packet since av_bsf_send_packet() moves sent packet to the internal packet buffer. */
+    AVPacket *pkt = av_packet_clone( in_pkt );
+    if( !pkt )
+        return -1;
+    /* Apply the filter actually here. */
+    while( 1 )
+    {
+        if( (ret = av_bsf_send_packet( helper->bsf_ctx, pkt )) < 0 )
+            goto fail;
+        ret = av_bsf_receive_packet( helper->bsf_ctx, pkt );
+        if( ret == AVERROR( EAGAIN ) || (pkt && ret == AVERROR_EOF) )
+        {
+            /* Send a null packet at the next. */
+            pkt->data = NULL;
+            pkt->size = 0;
+        }
+        else if( ret < 0 )
+            goto fail;
+        else if( ret == 0 )
+            break;
+    }
+    /* Update extradata of AVCodecContext if changed. */
+    if( ctx->extradata_size != helper->bsf_ctx->par_out->extradata_size
+     || memcmp( ctx->extradata, helper->bsf_ctx->par_out->extradata, helper->bsf_ctx->par_out->extradata_size ) )
+    {
+        av_free( ctx->extradata );
+        ctx->extradata_size = 0;
+        ctx->extradata      = av_mallocz( helper->bsf_ctx->par_out->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE );
+        if( !ctx->extradata )
+            return -1;
+        memcpy( ctx->extradata, helper->bsf_ctx->par_out->extradata, helper->bsf_ctx->par_out->extradata_size );
+        ctx->extradata_size = helper->bsf_ctx->par_out->extradata_size;
+    }
+    av_packet_move_ref( out_pkt, pkt );
+    /* Drain all the remaining packets. */
+    while( ret >= 0 )
+    {
+        ret = av_bsf_receive_packet( helper->bsf_ctx, pkt );
+        av_packet_unref( pkt );
+    }
+    ret = 0;
+fail:
+    av_packet_free( &pkt );
+    return ret;
 }
 
 static int append_extradata_if_new
@@ -1420,40 +1514,16 @@ static int append_extradata_if_new
             else if( helper->bsf && ctx->codec_id == AV_CODEC_ID_AAC )
             {
                 /* Try to generate AudioSpecificConfig for each ADTS AAC frame by reopening the bitstream filter. */
-                av_bitstream_filter_close( helper->bsf );
-                helper->bsf = av_bitstream_filter_init( "aac_adtstoasc" );
-                uint8_t *data = NULL;
-                int      size = 0;
-                int ret = av_bitstream_filter_filter( helper->bsf, ctx, NULL,
-                                                      &data, &size,
-                                                      pkt->data, pkt->size, 0 );
-                AVPacket alt_pkt = { NULL };
-                av_init_packet( &alt_pkt );
-                if( ret >= 0 )
-                {
-                    if( ret == 0 )
-                    {
-                        av_packet_copy_props( &alt_pkt, pkt );
-                        alt_pkt.data = data;
-                        alt_pkt.size = size;
-                        alt_pkt.buf  = NULL;
-                    }
-                    else if( ret > 0 )
-                    {
-                         if( av_packet_copy_props( &alt_pkt, pkt ) != 0
-                          || av_packet_from_data( &alt_pkt, data, size ) != 0 )
-                            av_free( data );
-                        lw_copy_av_packet( &alt_pkt, pkt );
-                    }
-                }
-                else
-                    lw_copy_av_packet( &alt_pkt, pkt );
-                /* Decode actually to get output channels and sampling rate of AAC frame. */
+                av_bsf_free( &helper->bsf_ctx );
+                AVPacket  filtered_pkt;
+                AVPacket *in_pkt = apply_bsf( helper, ctx, &filtered_pkt, pkt, "aac_adtstoasc" ) < 0 ? pkt : &filtered_pkt;
+                /* Decode actually to get output channels and sampling rate of AAC frame.
+                 * Note that this is a side effect of this function. */
                 int decode_complete;
-                helper->decode( ctx, helper->picture, &decode_complete, &alt_pkt );
+                helper->decode( ctx, helper->picture, &decode_complete, in_pkt );
                 if( !decode_complete )
                 {
-                    AVPacket null_pkt = { 0 };
+                    AVPacket null_pkt;
                     av_init_packet( &null_pkt );
                     null_pkt.data = NULL;
                     null_pkt.size = 0;
@@ -1461,7 +1531,8 @@ static int append_extradata_if_new
                 }
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
-                av_packet_unref( &alt_pkt );
+                if( in_pkt != pkt )
+                    av_packet_unref( in_pkt );
             }
         }
     }
@@ -1531,33 +1602,23 @@ static void investigate_pix_fmt_by_decoding
     avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
 }
 
-static inline uint8_t *make_parsable_format
+static int make_packet_parsable
 (
     lwindex_helper_t *helper,
     AVCodecContext   *ctx,
-    AVPacket         *pkt,
-    int              *size
+    AVPacket         *out_pkt,
+    AVPacket         *in_pkt
 )
 {
+    av_init_packet_for_safe( out_pkt );
+    if( helper->vc1_wmv3 == 2 )
+        /* Make a frame EBDU (0x0000010D). */
+        return make_vc1_ebdu( helper, in_pkt, out_pkt, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
     if( !helper->bsf )
-    {
-        *size = pkt->size;
-        return pkt->data;
-    }
-    /* Convert frame data into parsable bitstream format.
-     * Allocated memory block in the buffer which the index helper handles will be freed by free_read_packet(). */
-    int ret = av_bitstream_filter_filter( helper->bsf, ctx, NULL,
-                                          &helper->buffer, &helper->buffer_size,
-                                          pkt->data, pkt->size, 0 );
-    if( ret < 0 )
-    {
-        *size = 0;
-        return NULL;
-    }
-    else
-        helper->is_allocated_buffer = (ret > 0);
-    *size = helper->buffer_size;
-    return helper->buffer;
+        /* Just use input packet since no bitstream filters are defined for this packet. */
+        return av_packet_ref( out_pkt, in_pkt );
+    /* Convert frame data into parsable bitstream format. */
+    return apply_bsf( helper, ctx, out_pkt, in_pkt, NULL );
 }
 
 static int get_picture_type
@@ -1570,19 +1631,14 @@ static int get_picture_type
     if( !helper->parser_ctx )
         return 0;
     /* Get by the parser. */
-    int      size;
-    uint8_t *data;
-    if( helper->vc1_wmv3 == 2 )
-        /* Make a frame EBDU (0x0000010D). */
-        data = make_vc1_ebdu( helper, pkt, &size, 0x0D, ctx->codec_id == AV_CODEC_ID_VC1 || ctx->codec_id == AV_CODEC_ID_VC1IMAGE );
-    else
-        data = make_parsable_format( helper, ctx, pkt, &size );
-    if( !data )
-        return -1;
+    AVPacket filtered_pkt;
+    int ret = make_packet_parsable( helper, ctx, &filtered_pkt, pkt );
+    if( ret < 0 )
+        return ret;
     uint8_t *dummy;
     int      dummy_size;
     av_parser_parse2( helper->parser_ctx, ctx,
-                      &dummy, &dummy_size, data, size,
+                      &dummy, &dummy_size, filtered_pkt.data, filtered_pkt.size,
                       pkt->pts, pkt->dts, pkt->pos );
     /* One frame decoding.
      * Sometimes, the parser returns a picture type other than I-picture and BI-picture even if the frame is a keyframe.
@@ -1590,11 +1646,11 @@ static int get_picture_type
      * In addition, it seems the libavcodec VC-1 decoder returns an error when feeding BI-picture at the first.
      * So, we treat only I-picture as a keyframe. */
     if( (helper->mpeg12_video || helper->vc1_wmv3)
-     && (pkt->flags & AV_PKT_FLAG_KEY)
+     && (filtered_pkt.flags & AV_PKT_FLAG_KEY)
      && (enum AVPictureType)helper->parser_ctx->pict_type != AV_PICTURE_TYPE_I )
     {
         int decode_complete;
-        helper->decode( ctx, helper->picture, &decode_complete, pkt );
+        helper->decode( ctx, helper->picture, &decode_complete, &filtered_pkt );
         if( !decode_complete )
         {
             AVPacket null_pkt = { 0 };
@@ -1605,8 +1661,10 @@ static int get_picture_type
         }
         if( (enum AVPictureType)helper->picture->pict_type != AV_PICTURE_TYPE_I )
             pkt->flags &= ~AV_PKT_FLAG_KEY;
+        av_packet_unref( &filtered_pkt );
         return helper->picture->pict_type > 0 ? helper->picture->pict_type : 0;
     }
+    av_packet_unref( &filtered_pkt );
     return helper->parser_ctx->pict_type > 0 ? helper->parser_ctx->pict_type : 0;
 }
 
@@ -1790,9 +1848,9 @@ static void cleanup_index_helpers( lwindex_indexer_t *indexer, AVFormatContext *
             continue;
         avcodec_free_context( &helper->codec_ctx );
         av_parser_close( helper->parser_ctx );
-        av_bitstream_filter_close( helper->bsf );
+        av_bsf_free( &helper->bsf_ctx );
         av_frame_free( &helper->picture );
-        av_freep( &helper->buffer );
+        av_packet_unref( &helper->pkt );
         lwlibav_extradata_handler_t *list = &helper->exh;
         if( list->entries )
         {
@@ -1804,25 +1862,6 @@ static void cleanup_index_helpers( lwindex_indexer_t *indexer, AVFormatContext *
         lw_free( helper );
     }
     av_freep( &indexer->helpers );
-}
-
-static void free_read_packet
-(
-    AVPacket         *pkt,
-    lwindex_helper_t *helper
-)
-{
-    /* Free the buffer allocated by the bitstream filter if any. */
-    if( helper )
-    {
-        if( helper->is_allocated_buffer )
-        {
-            helper->is_allocated_buffer = 0;
-            av_freep( &helper->buffer );
-        }
-        helper->buffer_size = 0;
-    }
-    av_packet_unref( pkt );
 }
 
 static void create_index
@@ -1944,7 +1983,7 @@ static void create_index
         int extradata_index = append_extradata_if_new( helper, pkt_ctx, &pkt );
         if( extradata_index < 0 )
         {
-            free_read_packet( &pkt, helper );
+            av_packet_unref( &pkt );
             goto fail_index;
         }
         if( pkt_ctx->codec_type == AVMEDIA_TYPE_VIDEO )
@@ -1994,7 +2033,7 @@ static void create_index
             int pict_type = get_picture_type( helper, pkt_ctx, &pkt );
             if( pict_type < 0 )
             {
-                free_read_packet( &pkt, helper );
+                av_packet_unref( &pkt );
                 goto fail_index;
             }
             /* Get Picture Order Count. */
@@ -2091,7 +2130,7 @@ static void create_index
                     video_frame_info_t *temp = (video_frame_info_t *)realloc( video_info, video_info_count * sizeof(video_frame_info_t) );
                     if( !temp )
                     {
-                        free_read_packet( &pkt, helper );
+                        av_packet_unref( &pkt );
                         goto fail_index;
                     }
                     video_info = temp;
@@ -2178,7 +2217,7 @@ static void create_index
                         audio_frame_info_t *temp = (audio_frame_info_t *)realloc( audio_info, audio_info_count * sizeof(audio_frame_info_t) );
                         if( !temp )
                         {
-                            free_read_packet( &pkt, helper );
+                            av_packet_unref( &pkt );
                             goto fail_index;
                         }
                         audio_info = temp;
@@ -2245,12 +2284,12 @@ static void create_index
                              + 0.5);
             const char *message = index ? "Creating Index file" : "Parsing input file";
             int abort = indicator->update( php, message, percent );
-            free_read_packet( &pkt, helper );
+            av_packet_unref( &pkt );
             if( abort )
                 goto fail_index;
         }
         else
-            free_read_packet( &pkt, helper );
+            av_packet_unref( &pkt );
     }
     /* Handle delay derived from the audio decoder. */
     for( unsigned int stream_index = 0; stream_index < format_ctx->nb_streams; stream_index++ )
