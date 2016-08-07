@@ -132,6 +132,8 @@ int decode_video_packet
     return 0;
 }
 
+/* An incomplete simulator of the old libavcodec audio decoder API
+ * Unlike the old, this function always returns size of input packet on success since avcodec_send_packet() fully consumes it. */
 int decode_audio_packet
 (
     AVCodecContext *ctx,
@@ -140,5 +142,25 @@ int decode_audio_packet
     AVPacket       *pkt
 )
 {
-    return avcodec_decode_audio4( ctx, av_frame, got_frame, pkt );
+    int ret;
+    int consumed_bytes = 0;
+    *got_frame = 0;
+    if( pkt )
+    {
+        ret = avcodec_send_packet( ctx, pkt );
+        if( ret < 0
+         && ret != AVERROR_EOF          /* No more packets can be sent if true. */
+         && ret != AVERROR( EAGAIN ) )  /* Must receive output frames before sending new packets if true. */
+            return ret;
+        if( ret == 0 )
+            consumed_bytes = pkt->size;
+    }
+    ret = avcodec_receive_frame( ctx, av_frame );
+    if( ret < 0
+     && ret != AVERROR( EAGAIN )    /* Must send new packets before receiving frames if true. */
+     && ret != AVERROR_EOF )        /* No more frames can be drained if true. */
+        return ret;
+    if( ret >= 0 )
+        *got_frame = 1;
+    return consumed_bytes;
 }
