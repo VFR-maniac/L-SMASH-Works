@@ -956,7 +956,7 @@ void update_configuration
                 goto fail;
             }
             int dummy;
-            avcodec_decode_video2( ctx, picture, &dummy, &pkt );
+            decode_video_packet( ctx, picture, &dummy, &pkt );
         } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
     }
     else
@@ -981,7 +981,7 @@ void update_configuration
                 goto fail;
             }
             int dummy;
-            avcodec_decode_audio4( ctx, picture, &dummy, &pkt );
+            decode_audio_packet( ctx, picture, &dummy, &pkt );
             if( upsampling == 0 && picture->nb_samples > 0 )
             {
                 if( ctx->frame_size )

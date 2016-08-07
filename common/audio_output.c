@@ -35,6 +35,7 @@ extern "C"
 
 #include "audio_output.h"
 #include "resample.h"
+#include "decode.h"
 
 static int consume_decoded_audio_samples
 (
@@ -123,7 +124,7 @@ uint64_t output_pcm_samples_from_packet
     do
     {
         int decode_complete;
-        int consumed_data_length = avcodec_decode_audio4( ctx, frame_buffer, &decode_complete, pkt );
+        int consumed_data_length = decode_audio_packet( ctx, frame_buffer, &decode_complete, pkt );
         if( consumed_data_length < 0 )
         {
             /* Force to request the next sample. */

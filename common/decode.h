@@ -51,3 +51,19 @@ int find_and_open_decoder
     const int                thread_count,
     const int                refcounted_frames
 );
+
+int decode_video_packet
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame,
+    int            *got_frame,
+    AVPacket       *pkt
+);
+
+int decode_audio_packet
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame,
+    int            *got_frame,
+    AVPacket       *pkt
+);

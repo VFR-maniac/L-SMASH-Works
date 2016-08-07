@@ -620,7 +620,7 @@ static int decode_video_sample
         pkt.flags = 0;
     av_frame_unref( picture );
     uint64_t cts = pkt.pts;
-    ret = avcodec_decode_video2( config->ctx, picture, got_picture, &pkt );
+    ret = decode_video_packet( config->ctx, picture, got_picture, &pkt );
     picture->pts = cts;
     if( ret < 0 )
     {
@@ -796,7 +796,7 @@ static int get_picture
             pkt.data = NULL;
             pkt.size = 0;
             av_frame_unref( picture );
-            if( avcodec_decode_video2( config->ctx, picture, &got_picture, &pkt ) < 0 )
+            if( decode_video_packet( config->ctx, picture, &got_picture, &pkt ) < 0 )
             {
                 lw_log_show( &config->lh, LW_LOG_WARNING, "Failed to decode and flush a video frame." );
                 return -1;
@@ -1008,7 +1008,7 @@ int libavsmash_video_find_first_valid_frame
         get_sample( vdhp->root, vdhp->track_id, i, config, &pkt );
         av_frame_unref( vdhp->frame_buffer );
         int got_picture;
-        if( avcodec_decode_video2( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
+        if( decode_video_packet( config->ctx, vdhp->frame_buffer, &got_picture, &pkt ) >= 0 && got_picture )
         {
             vdhp->first_valid_frame_number = i - MIN( get_decoder_delay( config->ctx ), config->delay_count );
             if( vdhp->first_valid_frame_number > 1 || vdhp->sample_count == 1 )

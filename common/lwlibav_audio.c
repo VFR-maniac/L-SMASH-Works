@@ -38,6 +38,7 @@ extern "C"
 #include "utils.h"
 #include "audio_output.h"
 #include "resample.h"
+#include "decode.h"
 
 #include "lwlibav_dec.h"
 #include "lwlibav_audio.h"
@@ -406,7 +407,7 @@ static void no_output_audio_decoding
     do
     {
         int dummy;
-        int consumed_bytes = avcodec_decode_audio4( ctx, picture, &dummy, pkt );
+        int consumed_bytes = decode_audio_packet( ctx, picture, &dummy, pkt );
         if( consumed_bytes < 0 )
             return;
         if( pkt->data )

@@ -101,3 +101,25 @@ int find_and_open_decoder
         return -1;
     return open_decoder( ctx, codecpar, codec, thread_count, refcounted_frames );
 }
+
+int decode_video_packet
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame,
+    int            *got_frame,
+    AVPacket       *pkt
+)
+{
+    return avcodec_decode_video2( ctx, av_frame, got_frame, pkt );
+}
+
+int decode_audio_packet
+(
+    AVCodecContext *ctx,
+    AVFrame        *av_frame,
+    int            *got_frame,
+    AVPacket       *pkt
+)
+{
+    return avcodec_decode_audio4( ctx, av_frame, got_frame, pkt );
+}

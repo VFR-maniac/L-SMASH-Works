@@ -34,6 +34,8 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "decode.h"
+
 int is_qsv_decoder
 (
     const AVCodec *codec
@@ -111,7 +113,7 @@ bsf_fail:
     if( picture )
     {
         int got_picture;    /* unused */
-        ret = avcodec_decode_video2( ctx, picture, &got_picture, &initializer );
+        ret = decode_video_packet( ctx, picture, &got_picture, &initializer );
         av_frame_free( &picture );
     }
 fail:

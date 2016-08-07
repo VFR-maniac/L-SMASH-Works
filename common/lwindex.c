@@ -45,6 +45,7 @@ extern "C"
 #include "lwlibav_audio_internal.h"
 #include "progress.h"
 #include "lwindex.h"
+#include "decode.h"
 
 typedef struct
 {
@@ -62,11 +63,7 @@ typedef struct
     int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
                                                  * 1: either VC-1 or WMV3
                                                  * 2: either VC-1 or WMV3 encapsulated in ASF */
-#if LIBAVCODEC_VERSION_MICRO < 100
     int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
-#else
-    int (*decode)(AVCodecContext *, AVFrame *, int *, const AVPacket * );
-#endif
 } lwindex_helper_t;
 
 typedef struct
@@ -1350,7 +1347,7 @@ static lwindex_helper_t *get_index_helper
          * For MPEG-1/2 Video and VC-1/WMV3, prepare the decoder to get picture type properly. */
         if( codecpar->codec_type == AVMEDIA_TYPE_AUDIO || helper->mpeg12_video || helper->vc1_wmv3 )
         {
-            helper->decode  = codecpar->codec_type == AVMEDIA_TYPE_AUDIO ? avcodec_decode_audio4 : avcodec_decode_video2;
+            helper->decode  = codecpar->codec_type == AVMEDIA_TYPE_AUDIO ? decode_audio_packet : decode_video_packet;
             helper->picture = av_frame_alloc();
             if( !helper->picture )
                 return NULL;
@@ -1599,7 +1596,7 @@ static void investigate_pix_fmt_by_decoding
 )
 {
     int got_picture;
-    avcodec_decode_video2( video_ctx, picture, &got_picture, pkt );
+    decode_video_packet( video_ctx, picture, &got_picture, pkt );
 }
 
 static int make_packet_parsable

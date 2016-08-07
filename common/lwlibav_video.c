@@ -482,7 +482,7 @@ static int decode_video_picture
     AVFrame *mov_frame = vdhp->movable_frame_buffer;
     av_frame_unref( mov_frame );
     set_output_order_id( vdhp, pkt, picture_number );
-    ret = avcodec_decode_video2( vdhp->ctx, mov_frame, got_picture, pkt );
+    ret = decode_video_packet( vdhp->ctx, mov_frame, got_picture, pkt );
     vdhp->last_fed_picture_number = picture_number;
     /* We can't get the requested frame by feeding a picture if that picture is field coded.
      * This branch avoids putting empty data on the frame buffer. */
@@ -864,7 +864,7 @@ static int get_frame
             pkt.data = NULL;
             pkt.size = 0;
             av_frame_unref( frame );
-            if( avcodec_decode_video2( vdhp->ctx, frame, &got_picture, &pkt ) < 0 )
+            if( decode_video_packet( vdhp->ctx, frame, &got_picture, &pkt ) < 0 )
             {
                 lw_log_show( &vdhp->lh, LW_LOG_ERROR, "Failed to decode and flush a video frame." );
                 return -1;
@@ -1365,7 +1365,7 @@ int lwlibav_video_find_first_valid_frame
         av_frame_unref( vdhp->frame_buffer );
         set_output_order_id( vdhp, pkt, i );
         int got_picture;
-        int ret = avcodec_decode_video2( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt );
+        int ret = decode_video_packet( vdhp->ctx, vdhp->frame_buffer, &got_picture, pkt );
         /* Handle decoder delay derived from PAFF field coded pictures. */
         if( i <= vdhp->frame_count && i > decoder_delay
          && !got_picture && vdhp->frame_list[i].repeat_pict == 0 )
@@ -1477,7 +1477,7 @@ int try_decode_video_frame
         /* Try decode a frame. */
         av_frame_unref( picture );
         int dummy;
-        avcodec_decode_video2( ctx, picture, &dummy, &pkt );
+        decode_video_packet( ctx, picture, &dummy, &pkt );
         ++frame_number;
     } while( ctx->width == 0 || ctx->height == 0 || ctx->pix_fmt == AV_PIX_FMT_NONE );
     av_frame_free( &picture );
