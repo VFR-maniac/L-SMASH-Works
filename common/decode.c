@@ -102,6 +102,8 @@ int find_and_open_decoder
     return open_decoder( ctx, codecpar, codec, thread_count, refcounted_frames );
 }
 
+/* An incomplete simulator of the old libavcodec video decoder API
+ * Unlike the old, this function does not return consumed bytes of input packet on success. */
 int decode_video_packet
 (
     AVCodecContext *ctx,
@@ -110,7 +112,24 @@ int decode_video_packet
     AVPacket       *pkt
 )
 {
-    return avcodec_decode_video2( ctx, av_frame, got_frame, pkt );
+    int ret;
+    *got_frame = 0;
+    if( pkt )
+    {
+        ret = avcodec_send_packet( ctx, pkt );
+        if( ret < 0
+         && ret != AVERROR_EOF          /* No more packets can be sent if true. */
+         && ret != AVERROR( EAGAIN ) )  /* Must receive output frames before sending new packets if true. */
+            return ret;
+    }
+    ret = avcodec_receive_frame( ctx, av_frame );
+    if( ret < 0
+     && ret != AVERROR( EAGAIN )    /* Must send new packets before receiving frames if true. */
+     && ret != AVERROR_EOF )        /* No more frames can be drained if true. */
+        return ret;
+    if( ret >= 0 )
+        *got_frame = 1;
+    return 0;
 }
 
 int decode_audio_packet
