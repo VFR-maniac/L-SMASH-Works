@@ -1665,6 +1665,24 @@ static int get_picture_type
     return helper->parser_ctx->pict_type > 0 ? helper->parser_ctx->pict_type : 0;
 }
 
+/* Return ticks_per_frame.
+ *
+ * This function is a workaround mainly for lagged ticks_per_frame determination of the libavcodec MPEG-1/2 decoder. Apparently,
+ * the libavcodec VC-1 decoder handles both 1 and 2 ticks_per_frame patterns and it can be determined after encountering the
+ * sequence header, but it is set up by extradata, which you get from AVCodecParameters, at the decoder initialization, so it
+ * should be available safely. */
+static int get_ticks_per_frame
+(
+    AVCodecContext *ctx
+)
+{
+    if( ctx->codec_id == AV_CODEC_ID_MPEG2VIDEO || ctx->codec_id == AV_CODEC_ID_H264 )
+        return 2;
+    else if( ctx->codec_id == AV_CODEC_ID_MPEG1VIDEO )
+        return 1;
+    return ctx->ticks_per_frame;
+}
+
 static int get_audio_frame_length
 (
     lwindex_helper_t *helper,
@@ -2070,7 +2088,7 @@ static void create_index
                         field_info = LW_FIELD_INFO_BOTTOM;
                     else
                         field_info = helper->last_field_info;
-                    if( pkt_ctx->ticks_per_frame == 2 && helper->parser_ctx->repeat_pict != 0 )
+                    if( get_ticks_per_frame( pkt_ctx ) == 2 && helper->parser_ctx->repeat_pict != 0 )
                         repeat_pict = helper->parser_ctx->repeat_pict;
                     else
                         repeat_pict = 2 * helper->parser_ctx->repeat_pict + 1;
