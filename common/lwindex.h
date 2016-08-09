@@ -20,7 +20,14 @@
 
 /* This file is available under an ISC license. */
 
-#define INDEX_FILE_VERSION 13
+/* lwindex version
+ * Major.Minor.Micro.Build */
+#define LWINDEX_VERSION ((0 << 24) | (0 << 16) | (1 << 8) | 0)
+
+/* index file version
+ * This version is bumped when its structure changed so that the lwindex invokes
+ * reindexing opened file immediately. */
+#define LWINDEX_INDEX_FILE_VERSION 13
 
 typedef struct
 {

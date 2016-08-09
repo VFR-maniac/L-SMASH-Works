@@ -1925,7 +1925,16 @@ static void create_index
     if( index )
     {
         /* Write Index file header. */
-        fprintf( index, "<LibavReaderIndexFile=%d>\n", INDEX_FILE_VERSION );
+        uint8_t lwindex_version[4] =
+        {
+            (LWINDEX_VERSION >> 24) & 0xff,
+            (LWINDEX_VERSION >> 16) & 0xff,
+            (LWINDEX_VERSION >>  8) & 0xff,
+             LWINDEX_VERSION        & 0xff
+        };
+        fprintf( index, "<LSMASHWorksIndexVersion=%" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8 ">\n",
+                 lwindex_version[0], lwindex_version[1], lwindex_version[2], lwindex_version[3] );
+        fprintf( index, "<LibavReaderIndexFile=%d>\n", LWINDEX_INDEX_FILE_VERSION );
         fprintf( index, "<InputFilePath>%s</InputFilePath>\n", lwhp->file_path );
         fprintf( index, "<LibavReaderIndex=0x%08x,%d,%s>\n", lwhp->format_flags, lwhp->raw_demuxer, lwhp->format_name );
         video_index_pos = ftell( index );
@@ -3101,10 +3110,13 @@ int lwlibav_construct_index
     free( index_file_path );
     if( index )
     {
-        int version = 0;
-        int ret = fscanf( index, "<LibavReaderIndexFile=%d>\n", &version );
-        if( ret == 1
-         && version == INDEX_FILE_VERSION
+        uint8_t lwindex_version[4] = { 0 };
+        int index_file_version = 0;
+        if( 4 == fscanf( index, "<LSMASHWorksIndexVersion=%" SCNu8 ".%" SCNu8 ".%" SCNu8 ".%" SCNu8 ">\n",
+                         &lwindex_version[0], &lwindex_version[1], &lwindex_version[2], &lwindex_version[3] )
+         && ((lwindex_version[0] << 24) | (lwindex_version[1] << 16) | (lwindex_version[2] << 8) | lwindex_version[3]) == LWINDEX_VERSION
+         && 1 == fscanf( index, "<LibavReaderIndexFile=%d>\n", &index_file_version )
+         && index_file_version == LWINDEX_INDEX_FILE_VERSION
          && parse_index( lwhp, vdhp, vohp, adhp, aohp, opt, index ) == 0 )
         {
             /* Opening and parsing the index file succeeded. */
