@@ -1416,22 +1416,22 @@ static int apply_bsf
         if( (ret = av_bsf_init( helper->bsf_ctx )) < 0 )
             return ret;
     }
-    /* Clone input packet since av_bsf_send_packet() moves sent packet to the internal packet buffer. */
+    /* Clone input packet since av_bsf_send_packet() moves sent packet to the internal packet buffer.
+     * The allocated packet will be reused for draining the remaining packets. */
     AVPacket *pkt = av_packet_clone( in_pkt );
     if( !pkt )
         return -1;
-    /* Apply the filter actually here. */
+    in_pkt = pkt;   /* Don't send the original input packet to the bitstream filter. */
+    /* Apply the filter actually here.
+     * Note that ffmpeg's av_bsf_send_packet() does not set EOF by sending NULL payload packet while libav's does.
+     * Therefore, not using the same AVPacket pointer for both sending and receiving here. */
     while( 1 )
     {
-        if( (ret = av_bsf_send_packet( helper->bsf_ctx, pkt )) < 0 )
+        if( (ret = av_bsf_send_packet( helper->bsf_ctx, in_pkt )) < 0 )
             goto fail;
-        ret = av_bsf_receive_packet( helper->bsf_ctx, pkt );
-        if( ret == AVERROR( EAGAIN ) || (pkt && ret == AVERROR_EOF) )
-        {
-            /* Send a null packet at the next. */
-            pkt->data = NULL;
-            pkt->size = 0;
-        }
+        ret = av_bsf_receive_packet( helper->bsf_ctx, out_pkt );
+        if( ret == AVERROR( EAGAIN ) || (in_pkt && ret == AVERROR_EOF) )
+            in_pkt = NULL;  /* Send a null packet at the next. */
         else if( ret < 0 )
             goto fail;
         else if( ret == 0 )
@@ -1449,7 +1449,6 @@ static int apply_bsf
         memcpy( ctx->extradata, helper->bsf_ctx->par_out->extradata, helper->bsf_ctx->par_out->extradata_size );
         ctx->extradata_size = helper->bsf_ctx->par_out->extradata_size;
     }
-    av_packet_move_ref( out_pkt, pkt );
     /* Drain all the remaining packets. */
     while( ret >= 0 )
     {
