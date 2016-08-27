@@ -639,6 +639,7 @@ audio_out:
 void set_audio_basic_settings
 (
     lwlibav_decode_handler_t *dhp,
+    const AVCodec            *codec,
     uint32_t                  frame_number
 )
 {

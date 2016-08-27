@@ -101,9 +101,9 @@ void lwlibav_update_configuration
     }
     /* Set up decoder basic settings. */
     if( codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
-        set_video_basic_settings( dhp, frame_number );
+        set_video_basic_settings( dhp, codec, frame_number );
     else
-        set_audio_basic_settings( dhp, frame_number );
+        set_audio_basic_settings( dhp, codec, frame_number );
     /* Update extradata. */
     av_freep( &codecpar->extradata );
     codecpar->extradata_size = 0;

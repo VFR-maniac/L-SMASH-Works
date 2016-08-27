@@ -1420,11 +1420,11 @@ enum lw_field_info lwlibav_video_get_field_info
 void set_video_basic_settings
 (
     lwlibav_decode_handler_t *dhp,
+    const AVCodec            *codec,
     uint32_t                  frame_number
 )
 {
     lwlibav_video_decode_handler_t *vdhp = (lwlibav_video_decode_handler_t *)dhp;
-    const AVCodec       *codec    = vdhp->ctx->codec;
     AVCodecParameters   *codecpar = vdhp->format->streams[ vdhp->stream_index ]->codecpar;
     lwlibav_extradata_t *entry    = &vdhp->exh.entries[ vdhp->frame_list[frame_number].extradata_index ];
     codecpar->width                 = entry->width;

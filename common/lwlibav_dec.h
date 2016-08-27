@@ -159,12 +159,14 @@ void lwlibav_update_configuration
 void set_video_basic_settings
 (
     lwlibav_decode_handler_t *dhp,
+    const AVCodec            *codec,
     uint32_t                  frame_number
 );
 
 void set_audio_basic_settings
 (
     lwlibav_decode_handler_t *dhp,
+    const AVCodec            *codec,
     uint32_t                  frame_number
 );
 
