@@ -1343,6 +1343,7 @@ int lwlibav_video_find_first_valid_frame
     const AVCodec       *codec    = vdhp->ctx->codec;
     AVCodecParameters   *codecpar = vdhp->format->streams[ vdhp->stream_index ]->codecpar;
     handle_decoder_pix_fmt( codecpar, codec, (enum AVPixelFormat)codecpar->format );
+    vdhp->ctx->pix_fmt = (enum AVPixelFormat)codecpar->format;  /* Correct decoder pixel format. */
     vdhp->last_ts_frame_number = vdhp->frame_count;
     vdhp->av_seek_flags = (vdhp->lw_seek_flags & SEEK_POS_BASED) ? AVSEEK_FLAG_BYTE
                         : vdhp->lw_seek_flags == 0               ? AVSEEK_FLAG_FRAME
