@@ -1461,6 +1461,70 @@ fail:
     return ret;
 }
 
+#define IF_START_CODE( ptr ) if( (ptr)[0] == 0x00 && (ptr)[1] == 0x00 && (ptr)[2] == 0x01 )
+static int get_offset_to_h264_parameter_sets
+(
+    AVPacket *pkt
+)
+{
+    int offset = 0;
+    while( offset < pkt->size - 4 )
+    {
+        uint8_t *data = pkt->data + (uintptr_t)offset;
+        IF_START_CODE( data )
+        {
+            /* nal_unit_type == 7 : Sequence Parameter Set
+             * nal_unit_type == 8 : Picture Parameter Set
+             * Parameter sets shall follow long 4 byte start codes but there may be illegal ones, so do workaround here. */
+            uint8_t nal_unit_type = data[3] & 0x1f;
+            if( nal_unit_type == 7 || nal_unit_type == 8 )
+                return offset - (offset > 0 && data[-1] == 0 ? 1 : 0);
+            offset += 4;    /* Skip start code and NAL Unit header. */
+        }
+        else
+            offset++;
+    }
+    return 0;
+}
+
+static int get_offset_to_hevc_parameter_sets
+(
+    AVPacket *pkt
+)
+{
+    int offset = 0;
+    while( offset < pkt->size - 5 )
+    {
+        uint8_t *data = pkt->data + (uintptr_t)offset;
+        IF_START_CODE( data )
+        {
+            /* nal_unit_type == 32 : Video Parameter Set
+             * nal_unit_type == 33 : Sequence Parameter Set
+             * nal_unit_type == 34 : Picture Parameter Set
+             * Parameter sets shall follow long 4 byte start codes but there may be illegal ones, so do workaround here. */
+            uint8_t nal_unit_type = (data[3] >> 1) & 0x3f;
+            if( nal_unit_type == 32 || nal_unit_type == 33 || nal_unit_type == 34 )
+                return offset - (offset > 0 && data[-1] == 0 ? 1 : 0);
+            offset += 5;    /* Skip start code and NAL Unit header. */
+        }
+        else
+            offset++;
+    }
+    return 0;
+}
+#undef IF_START_CODE
+
+static int get_offset_to_significant_extradata
+(
+    AVCodecContext   *ctx,
+    AVPacket         *pkt
+)
+{
+    return ctx->codec_id == AV_CODEC_ID_H264 ? get_offset_to_h264_parameter_sets( pkt )
+         : ctx->codec_id == AV_CODEC_ID_HEVC ? get_offset_to_hevc_parameter_sets( pkt )
+         :                                     0;
+}
+
 static int append_extradata_if_new
 (
     lwindex_helper_t *helper,
@@ -1492,12 +1556,15 @@ static int append_extradata_if_new
             if( parser_ctx->parser->split )
             {
                 /* For H.264 stream without start codes, don't split extradata from pkt->data.
-                 * Its extradata is stored as global header. so, pkt->data shall contain no extradata. */
+                 * Its extradata is stored as global header. so, pkt->data shall contain no extradata.
+                 * Libavcodec may not remove meaningless data which precedes data actually needed for decoding,
+                 * so get the offset to such significant data here to deduplicate extradata as much as possible. */
                 int extradata_size = helper->bsf ? 0 : parser_ctx->parser->split( ctx, pkt->data, pkt->size );
                 if( extradata_size > 0 )
                 {
-                    current.extradata      = pkt->data;
-                    current.extradata_size = extradata_size;
+                    int offset = get_offset_to_significant_extradata( ctx, pkt );
+                    current.extradata      = pkt->data + (uintptr_t)offset;
+                    current.extradata_size = extradata_size - offset;
                 }
                 else if( list->entry_count > 0 )
                     /* Probably, this frame is a keyframe in CODEC level
