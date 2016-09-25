@@ -1578,7 +1578,7 @@ static int append_extradata_if_new
             {
                 /* Try to generate AudioSpecificConfig for each ADTS AAC frame by reopening the bitstream filter. */
                 av_bsf_free( &helper->bsf_ctx );
-                AVPacket  filtered_pkt;
+                AVPacket  filtered_pkt = { 0 };
                 AVPacket *in_pkt = apply_bsf( helper, ctx, &filtered_pkt, pkt, "aac_adtstoasc" ) < 0 ? pkt : &filtered_pkt;
                 /* Decode actually to get output channels and sampling rate of AAC frame.
                  * Note that this is a side effect of this function. */
@@ -1694,7 +1694,7 @@ static int get_picture_type
     if( !helper->parser_ctx )
         return 0;
     /* Get by the parser. */
-    AVPacket filtered_pkt;
+    AVPacket filtered_pkt = { 0 };
     int ret = make_packet_parsable( helper, ctx, &filtered_pkt, pkt );
     if( ret < 0 )
         return ret;
