@@ -217,7 +217,7 @@ static int prepare_video_decoding( lsmash_handler_t *h, video_option_t *opt )
     /* Set up video rendering. */
     int input_width = hp->vi->width;
     enum AVPixelFormat input_pixel_format = as_to_av_input_pixel_format( hp->vi->pixel_type, opt->avs.bit_depth, &input_width );
-    return au_setup_video_rendering( &hp->voh, opt, &h->video_format, hp->vi->width, hp->vi->height, input_pixel_format );
+    return au_setup_video_rendering( &hp->voh, opt, &h->video_format, input_width, hp->vi->height, input_pixel_format );
 }
 
 static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
