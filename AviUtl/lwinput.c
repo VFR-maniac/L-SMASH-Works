@@ -365,22 +365,33 @@ INPUT_HANDLE func_open( LPSTR file )
     extern lsmash_reader_t vpy_reader;
     extern lsmash_reader_t libav_reader;
     extern lsmash_reader_t dummy_reader;
-    static lsmash_reader_t *lsmash_reader_table[] =
+    enum
     {
-        &libavsmash_reader,
-        &avs_reader,
-        &vpy_reader,
-        &libav_reader,
-        &dummy_reader,
-        NULL
+        AU_VIDEO_READER  = 1,
+        AU_SCRIPT_READER = 2,
+        AU_DUMMY_READER  = 3
     };
-    for( int i = 0; lsmash_reader_table[i]; i++ )
+    static const struct
     {
-        if( reader_disabled[lsmash_reader_table[i]->type - 1] )
+        lsmash_reader_t *reader;
+        int              attribute;
+    } lsmash_reader_table[] =
+        {
+            { &libavsmash_reader, AU_VIDEO_READER  },
+            { &avs_reader       , AU_SCRIPT_READER },
+            { &vpy_reader       , AU_SCRIPT_READER },
+            { &libav_reader     , AU_VIDEO_READER  },
+            { &dummy_reader     , AU_DUMMY_READER  },
+            { NULL              , 0                }
+        };
+    for( int i = 0; lsmash_reader_table[i].reader; i++ )
+    {
+        if( reader_disabled[lsmash_reader_table[i].reader->type - 1] )
             continue;
         int video_none = 1;
         int audio_none = 1;
-        lsmash_reader_t reader = *lsmash_reader_table[i];
+        lsmash_reader_t reader      = *lsmash_reader_table[i].reader;
+        int             reader_attr =  lsmash_reader_table[i].attribute;
         void *private_stuff = reader.open_file( file, &reader_opt );
         if( private_stuff )
         {
@@ -428,6 +439,14 @@ INPUT_HANDLE func_open( LPSTR file )
         /* Found both video and audio reader. */
         if( hp->video_reader != READER_NONE && hp->audio_reader != READER_NONE )
             break;
+        if( reader_attr == AU_SCRIPT_READER )
+        {
+            if( hp->video_reader == reader.type )
+                break;
+            if( hp->audio_reader == reader.type )
+                while( lsmash_reader_table[i + 1].attribute != AU_DUMMY_READER )
+                    i++;
+        }
     }
     if( hp->video_reader == hp->audio_reader )
     {
