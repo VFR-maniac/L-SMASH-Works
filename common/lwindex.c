@@ -35,6 +35,7 @@ extern "C"
 }
 #endif  /* __cplusplus */
 
+#include "osdep.h"
 #include "utils.h"
 #include "video_output.h"
 #include "audio_output.h"
@@ -1991,7 +1992,7 @@ static void create_index
      */
     char index_path[512] = { 0 };
     sprintf( index_path, "%s.lwi", lwhp->file_path );
-    FILE *index = !opt->no_create_index ? fopen( index_path, "wb" ) : NULL;
+    FILE *index = !opt->no_create_index ? lw_fopen( index_path, "wb" ) : NULL;
     if( !index && !opt->no_create_index )
     {
         free( video_info );
@@ -2679,7 +2680,7 @@ static int parse_index
     char file_path[512] = { 0 };
     if( fscanf( index, "<InputFilePath>%[^\n<]</InputFilePath>\n", file_path ) != 1 )
         return -1;
-    FILE *target = fopen( file_path, "rb" );
+    FILE *target = lw_fopen( file_path, "rb" );
     if( !target )
         return -1;
     fclose( target );
@@ -3190,7 +3191,7 @@ int lwlibav_construct_index
         memcpy( index_file_path + file_path_length, ".lwi", strlen( ".lwi" ) );
         index_file_path[file_path_length + 4] = '\0';
     }
-    FILE *index = fopen( index_file_path, (opt->force_video || opt->force_audio) ? "r+b" : "rb" );
+    FILE *index = lw_fopen( index_file_path, (opt->force_video || opt->force_audio) ? "r+b" : "rb" );
     free( index_file_path );
     if( index )
     {
