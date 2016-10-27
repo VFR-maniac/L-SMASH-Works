@@ -281,8 +281,6 @@ void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data
         vsapi->setError( out, "lsmas: failed to allocate the VapourSynth video output handler." );
         return;
     }
-    vohp->private_handler      = vs_vohp;
-    vohp->free_private_handler = lw_free;
     /* Set up VapourSynth error handler. */
     vs_basic_handler_t vsbh = { 0 };
     vsbh.out       = out;
