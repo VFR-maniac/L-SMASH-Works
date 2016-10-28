@@ -22,6 +22,8 @@
  * However, when distributing its binary file, it will be under LGPL or GPL.
  * Don't distribute it if its license is GPL. */
 
+#define _USE_MATH_DEFINES
+
 #include <math.h>
 
 #include <libavcodec/avcodec.h>
