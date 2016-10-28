@@ -387,7 +387,7 @@ static inline int64_t get_output_order_id
     AVFrame *decoded_frame_buffer
 )
 {
-    return decoded_frame_buffer->pkt_pts;
+    return decoded_frame_buffer->pts;
 }
 
 static uint32_t correct_current_frame_number
