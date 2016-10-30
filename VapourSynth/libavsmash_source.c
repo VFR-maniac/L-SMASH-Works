@@ -306,13 +306,7 @@ static uint32_t open_file
 
 void VS_CC vs_libavsmashsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi )
 {
-    /* Get file name. */
     const char *file_name = vsapi->propGetData( in, "source", 0, NULL );
-    if( !file_name )
-    {
-        vsapi->setError( out, "lsmas: failed to get source file name." );
-        return;
-    }
     /* Allocate the handler of this plugin. */
     lsmas_handler_t *hp = alloc_handler();
     if( !hp )

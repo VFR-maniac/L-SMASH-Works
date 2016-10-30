@@ -257,13 +257,7 @@ static void VS_CC vs_filter_free( void *instance_data, VSCore *core, const VSAPI
 
 void VS_CC vs_lwlibavsource_create( const VSMap *in, VSMap *out, void *user_data, VSCore *core, const VSAPI *vsapi )
 {
-    /* Get file path. */
     const char *file_path = vsapi->propGetData( in, "source", 0, NULL );
-    if( !file_path )
-    {
-        vsapi->setError( out, "lsmas: failed to get source file name." );
-        return;
-    }
     /* Allocate the handler of this filter function. */
     lwlibav_handler_t *hp = alloc_handler();
     if( !hp )
