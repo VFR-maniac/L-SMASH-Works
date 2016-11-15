@@ -285,8 +285,18 @@ static int read_video( lsmash_handler_t *h, int sample_number, void *buf )
         return 0;
     if( avs_is_interleaved( hp->vi ) )
     {
-        hp->av_frame->data    [0] = (uint8_t *)avs_get_read_ptr( as_frame );
-        hp->av_frame->linesize[0] = avs_get_pitch( as_frame );
+        uint8_t *read_ptr = (uint8_t *)avs_get_read_ptr( as_frame );
+        int      pitch    = avs_get_pitch( as_frame );
+        if( avs_is_rgb( hp->vi ) )
+        {
+            hp->av_frame->data    [0] = read_ptr + pitch * (hp->vi->height - 1);
+            hp->av_frame->linesize[0] = -pitch;
+        }
+        else
+        {
+            hp->av_frame->data    [0] = read_ptr;
+            hp->av_frame->linesize[0] = pitch;
+        }
     }
     else
         for( int i = 0; i < 3; i++ )
