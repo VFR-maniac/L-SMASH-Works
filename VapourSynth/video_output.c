@@ -807,14 +807,20 @@ void vs_set_frame_properties
     /* Sample duration */
     vsapi->propSetInt( props, "_DurationNum", duration_num, paReplace );
     vsapi->propSetInt( props, "_DurationDen", duration_den, paReplace );
-    /* Color format */
-    if( av_frame->color_range != AVCOL_RANGE_UNSPECIFIED )
-        vsapi->propSetInt( props, "_ColorRange", av_frame->color_range == AVCOL_RANGE_MPEG, paReplace );
-    vsapi->propSetInt( props, "_Primaries", av_frame->color_primaries, paReplace );
-    vsapi->propSetInt( props, "_Transfer",  av_frame->color_trc,       paReplace );
-    vsapi->propSetInt( props, "_Matrix",    av_frame->colorspace,      paReplace );
-    if( av_frame->chroma_location > 0 )
-        vsapi->propSetInt( props, "_ChromaLocation", av_frame->chroma_location - 1, paReplace );
+    /* Color format
+     * The decoded color format may not match with the output. Set proper properties when
+     * no YUV->RGB conversion is there. */
+    const VSFormat *vs_format = vsapi->getFrameFormat( vs_frame );
+    if( vs_format->colorFamily != cmRGB )
+    {
+        if( av_frame->color_range != AVCOL_RANGE_UNSPECIFIED )
+            vsapi->propSetInt( props, "_ColorRange", av_frame->color_range == AVCOL_RANGE_MPEG, paReplace );
+        vsapi->propSetInt( props, "_Primaries", av_frame->color_primaries, paReplace );
+        vsapi->propSetInt( props, "_Transfer",  av_frame->color_trc,       paReplace );
+        vsapi->propSetInt( props, "_Matrix",    av_frame->colorspace,      paReplace );
+        if( av_frame->chroma_location > 0 )
+            vsapi->propSetInt( props, "_ChromaLocation", av_frame->chroma_location - 1, paReplace );
+    }
     /* Picture type */
     char pict_type = av_get_picture_type_char( av_frame->pict_type );
     vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
