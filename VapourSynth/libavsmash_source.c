@@ -121,26 +121,26 @@ no_composition_duration:;
     return sample_duration <= INT_MAX ? sample_duration : 0;
 }
 
-static void set_sample_duration
+static void get_sample_duration
 (
     libavsmash_video_decode_handler_t *vdhp,
     VSVideoInfo                       *vi,
-    VSMap                             *props,
     uint32_t                           sample_number,
-    const VSAPI                       *vsapi
+    int64_t                           *duration_num,
+    int64_t                           *duration_den
 )
 {
     int sample_duration = get_composition_duration( vdhp, sample_number, vi->numFrames );
     if( sample_duration == 0 )
     {
-        vsapi->propSetInt( props, "_DurationNum", vi->fpsDen,      paReplace );
-        vsapi->propSetInt( props, "_DurationDen", vi->fpsNum,      paReplace );
+        *duration_num = vi->fpsDen;
+        *duration_den = vi->fpsNum;
     }
     else
     {
         uint32_t media_timescale = libavsmash_video_get_media_timescale( vdhp );
-        vsapi->propSetInt( props, "_DurationNum", sample_duration, paReplace );
-        vsapi->propSetInt( props, "_DurationDen", media_timescale, paReplace );
+        *duration_num = sample_duration;
+        *duration_den = media_timescale;
     }
 }
 
@@ -154,32 +154,10 @@ static void set_frame_properties
     const VSAPI                       *vsapi
 )
 {
-    AVCodecContext *ctx   = libavsmash_video_get_codec_context( vdhp );
-    VSMap          *props = vsapi->getFramePropsRW( vs_frame );
-    /* Sample duration */
-    set_sample_duration( vdhp, vi, props, sample_number, vsapi );
-    /* Sample aspect ratio */
-    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
-    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
-    /* Color format */
-    if( ctx )
-    {
-        if( ctx->color_range != AVCOL_RANGE_UNSPECIFIED )
-            vsapi->propSetInt( props, "_ColorRange", ctx->color_range == AVCOL_RANGE_MPEG, paReplace );
-        vsapi->propSetInt( props, "_Primaries", ctx->color_primaries, paReplace );
-        vsapi->propSetInt( props, "_Transfer",  ctx->color_trc,       paReplace );
-        vsapi->propSetInt( props, "_Matrix",    ctx->colorspace,      paReplace );
-        if( ctx->chroma_sample_location > 0 )
-            vsapi->propSetInt( props, "_ChromaLocation", ctx->chroma_sample_location - 1, paReplace );
-    }
-    /* Picture type */
-    char pict_type = av_get_picture_type_char( av_frame->pict_type );
-    vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
-    /* BFF or TFF */
-    int field_based = 0;
-    if( av_frame->interlaced_frame )
-        field_based = av_frame->top_field_first ? 2 : 1;
-    vsapi->propSetInt( props, "_FieldBased", field_based, paReplace );
+    int64_t duration_num;
+    int64_t duration_den;
+    get_sample_duration( vdhp, vi, sample_number, &duration_num, &duration_den );
+    vs_set_frame_properties( av_frame, duration_num, duration_den, vs_frame, vsapi );
 }
 
 static int prepare_video_decoding

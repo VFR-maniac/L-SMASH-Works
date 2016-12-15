@@ -790,3 +790,37 @@ vs_video_output_handler_t *vs_allocate_video_output_handler
     vohp->free_private_handler = vs_free_video_output_handler;
     return vs_vohp;
 }
+
+void vs_set_frame_properties
+(
+    AVFrame        *av_frame,
+    int64_t         duration_num,
+    int64_t         duration_den,
+    VSFrameRef     *vs_frame,
+    const VSAPI    *vsapi
+)
+{
+    VSMap *props = vsapi->getFramePropsRW( vs_frame );
+    /* Sample aspect ratio */
+    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
+    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
+    /* Sample duration */
+    vsapi->propSetInt( props, "_DurationNum", duration_num, paReplace );
+    vsapi->propSetInt( props, "_DurationDen", duration_den, paReplace );
+    /* Color format */
+    if( av_frame->color_range != AVCOL_RANGE_UNSPECIFIED )
+        vsapi->propSetInt( props, "_ColorRange", av_frame->color_range == AVCOL_RANGE_MPEG, paReplace );
+    vsapi->propSetInt( props, "_Primaries", av_frame->color_primaries, paReplace );
+    vsapi->propSetInt( props, "_Transfer",  av_frame->color_trc,       paReplace );
+    vsapi->propSetInt( props, "_Matrix",    av_frame->colorspace,      paReplace );
+    if( av_frame->chroma_location > 0 )
+        vsapi->propSetInt( props, "_ChromaLocation", av_frame->chroma_location - 1, paReplace );
+    /* Picture type */
+    char pict_type = av_get_picture_type_char( av_frame->pict_type );
+    vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
+    /* BFF or TFF */
+    int field_based = 0;
+    if( av_frame->interlaced_frame )
+        field_based = av_frame->top_field_first ? 2 : 1;
+    vsapi->propSetInt( props, "_FieldBased", field_based, paReplace );
+}

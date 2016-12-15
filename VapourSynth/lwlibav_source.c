@@ -132,41 +132,16 @@ static void VS_CC vs_filter_init( VSMap *in, VSMap *out, void **instance_data, V
 
 static void set_frame_properties
 (
-    lwlibav_video_decode_handler_t *vdhp,
-    VSVideoInfo                    *vi,
-    AVFrame                        *av_frame,
-    VSFrameRef                     *vs_frame,
-    const VSAPI                    *vsapi
+    VSVideoInfo *vi,
+    AVFrame     *av_frame,
+    VSFrameRef  *vs_frame,
+    const VSAPI *vsapi
 )
 {
-    AVCodecContext *ctx   = lwlibav_video_get_codec_context( vdhp );
-    VSMap          *props = vsapi->getFramePropsRW( vs_frame );
-    /* Sample aspect ratio */
-    vsapi->propSetInt( props, "_SARNum", av_frame->sample_aspect_ratio.num, paReplace );
-    vsapi->propSetInt( props, "_SARDen", av_frame->sample_aspect_ratio.den, paReplace );
-    /* Sample duration
-     * Variable Frame Rate is not supported yet. */
-    vsapi->propSetInt( props, "_DurationNum", vi->fpsDen, paReplace );
-    vsapi->propSetInt( props, "_DurationDen", vi->fpsNum, paReplace );
-    /* Color format */
-    if( ctx )
-    {
-        if( ctx->color_range != AVCOL_RANGE_UNSPECIFIED )
-            vsapi->propSetInt( props, "_ColorRange", ctx->color_range == AVCOL_RANGE_MPEG, paReplace );
-        vsapi->propSetInt( props, "_Primaries", ctx->color_primaries, paReplace );
-        vsapi->propSetInt( props, "_Transfer",  ctx->color_trc,       paReplace );
-        vsapi->propSetInt( props, "_Matrix",    ctx->colorspace,      paReplace );
-        if( ctx->chroma_sample_location > 0 )
-            vsapi->propSetInt( props, "_ChromaLocation", ctx->chroma_sample_location - 1, paReplace );
-    }
-    /* Picture type */
-    char pict_type = av_get_picture_type_char( av_frame->pict_type );
-    vsapi->propSetData( props, "_PictType", &pict_type, 1, paReplace );
-    /* BFF or TFF */
-    int field_based = 0;
-    if( av_frame->interlaced_frame )
-        field_based = av_frame->top_field_first ? 2 : 1;
-    vsapi->propSetInt( props, "_FieldBased", field_based, paReplace );
+    /* Variable Frame Rate is not supported yet. */
+    int64_t duration_num = vi->fpsDen;
+    int64_t duration_den = vi->fpsNum;
+    vs_set_frame_properties( av_frame, duration_num, duration_den, vs_frame, vsapi );
 }
 
 static int prepare_video_decoding
@@ -246,7 +221,7 @@ static const VSFrameRef *VS_CC vs_filter_get_frame( int n, int activation_reason
         vsapi->setFilterError( "lsmas: failed to output a video frame.", frame_ctx );
         return NULL;
     }
-    set_frame_properties( vdhp, vi, av_frame, vs_frame, vsapi );
+    set_frame_properties( vi, av_frame, vs_frame, vsapi );
     return vs_frame;
 }
 

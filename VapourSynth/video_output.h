@@ -76,3 +76,12 @@ vs_video_output_handler_t *vs_allocate_video_output_handler
 (
     lw_video_output_handler_t *vohp
 );
+
+void vs_set_frame_properties
+(
+    AVFrame        *av_frame,
+    int64_t         duration_num,
+    int64_t         duration_den,
+    VSFrameRef     *vs_frame,
+    const VSAPI    *vsapi
+);
