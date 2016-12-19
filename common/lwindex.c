@@ -64,6 +64,7 @@ typedef struct
     int                         vc1_wmv3;       /* 0: neither VC-1 nor WMV3
                                                  * 1: either VC-1 or WMV3
                                                  * 2: either VC-1 or WMV3 encapsulated in ASF */
+    int                         already_decoded;
     int (*decode)(AVCodecContext *, AVFrame *, int *, AVPacket * );
 } lwindex_helper_t;
 
@@ -1387,6 +1388,8 @@ static lwindex_helper_t *get_index_helper
             av_packet_unref( &parsable_pkt );
         }
     }
+    else
+        helper->already_decoded = 0;
     return helper;
 }
 
@@ -1584,15 +1587,18 @@ static int append_extradata_if_new
                 /* Decode actually to get output channels and sampling rate of AAC frame.
                  * Note that this is a side effect of this function. */
                 int decode_complete;
-                helper->decode( ctx, helper->picture, &decode_complete, in_pkt );
-                if( !decode_complete )
+                int ret = helper->decode( ctx, helper->picture, &decode_complete, in_pkt );
+                if( ret > 0 && !decode_complete )
                 {
                     AVPacket null_pkt;
                     av_init_packet( &null_pkt );
                     null_pkt.data = NULL;
                     null_pkt.size = 0;
-                    helper->decode( ctx, helper->picture, &decode_complete, &null_pkt );
+                    ret = helper->decode( ctx, helper->picture, &decode_complete, &null_pkt );
+                    /* Reset the draining state. */
+                    avcodec_flush_buffers( ctx );
                 }
+                helper->already_decoded = 1;
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
                 if( in_pkt != pkt )
@@ -1774,28 +1780,39 @@ static int get_audio_frame_length
         frame_length = ctx->frame_size;
     if( frame_length == 0 )
     {
-        /* Try to get by actual decoding. */
-        AVPacket temp = *pkt;
-        int output_audio = 0;
-        while( temp.size > 0 )
+        if( helper->already_decoded )
+            frame_length += helper->picture->nb_samples;
+        else
         {
-            int decode_complete;
-            int consumed_bytes = helper->decode( ctx, helper->picture, &decode_complete, &temp );
-            if( consumed_bytes < 0 )
+            /* Try to get by actual decoding. */
+            AVPacket temp = *pkt;
+            int ret          = 0;
+            int output_audio = 0;
+            int draining     = 0;
+            do
             {
-                ctx->channels    = av_get_channel_layout_nb_channels( helper->picture->channel_layout );
-                ctx->sample_rate = helper->picture->sample_rate;
-                break;
-            }
-            temp.size -= consumed_bytes;
-            temp.data += consumed_bytes;
-            if( decode_complete )
-            {
-                frame_length += helper->picture->nb_samples;
-                output_audio = 1;
-            }
+                if( temp.size == 0 )
+                    draining = 1;
+                ret = helper->decode( ctx, helper->picture, &output_audio, &temp );
+                if( ret < 0 )
+                {
+                    ctx->channels    = av_get_channel_layout_nb_channels( helper->picture->channel_layout );
+                    ctx->sample_rate = helper->picture->sample_rate;
+                }
+                if( output_audio )
+                    frame_length += helper->picture->nb_samples;
+                if( !draining )
+                {
+                    /* Send the null packet at the next decoding. */
+                    temp.data = NULL;
+                    temp.size = 0;
+                }
+            } while( ret > 0 || output_audio );
+            if( draining )
+                /* Reset the draining state. */
+                avcodec_flush_buffers( ctx );
         }
-        if( !output_audio )
+        if( frame_length == 0 )
         {
             frame_length = -1;
             ++ helper->delay_count;
