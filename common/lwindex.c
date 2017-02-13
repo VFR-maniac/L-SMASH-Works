@@ -1340,6 +1340,7 @@ static lwindex_helper_t *get_index_helper
                     return NULL;
             }
             else if( codecpar->codec_id == AV_CODEC_ID_AAC && stream->nb_frames == 0 )
+                /* To generate and export AudioSpecificConfig as an extradata from ADTS header. */
                 helper->bsf = av_bsf_get_by_name( "aac_adtstoasc" );
             else if( codecpar->codec_id == AV_CODEC_ID_MPEG4 )
                 /* This is needed to make mpeg124_video_vc1_genarate_pts() work properly for packed bitstream. */
@@ -1580,14 +1581,20 @@ static int append_extradata_if_new
             }
             else if( helper->bsf && ctx->codec_id == AV_CODEC_ID_AAC )
             {
-                /* Try to generate AudioSpecificConfig for each ADTS AAC frame by reopening the bitstream filter. */
+                /* Try to generate AudioSpecificConfig for each ADTS AAC frame by reopening the bitstream filter.
+                 * AVCodecContext.sample_rate is initialized by already upsampled AVCodecParameters.sample_rate and no SBR
+                 * signalling, so if you initialize the AAC decoder without actual decoding, then the AAC decoder will
+                 * initialize the internal sample_rate by already upsampled sample_rate and double its sample_rate when
+                 * finding SBR. As the result, AVCodecContext.sample_rate is doubled.
+                 * Note that in order to avoid AVCodecContext.sample_rate doubling when decoding ADTS HE-AAC, this bitstream
+                 * filtering is for exporting the extradata only and the filtered packet is not sent to the decoder. */
                 av_bsf_free( &helper->bsf_ctx );
                 AVPacket  filtered_pkt = { 0 };
-                AVPacket *in_pkt = apply_bsf( helper, ctx, &filtered_pkt, pkt, "aac_adtstoasc" ) < 0 ? pkt : &filtered_pkt;
+                (void)apply_bsf( helper, ctx, &filtered_pkt, pkt, "aac_adtstoasc" );
                 /* Decode actually to get output channels and sampling rate of AAC frame.
                  * Note that this is a side effect of this function. */
                 int decode_complete;
-                int ret = helper->decode( ctx, helper->picture, &decode_complete, in_pkt );
+                int ret = helper->decode( ctx, helper->picture, &decode_complete, pkt );
                 if( ret > 0 && !decode_complete )
                 {
                     AVPacket null_pkt;
@@ -1601,8 +1608,7 @@ static int append_extradata_if_new
                 helper->already_decoded = 1;
                 current.extradata      = ctx->extradata;
                 current.extradata_size = ctx->extradata_size;
-                if( in_pkt != pkt )
-                    av_packet_unref( in_pkt );
+                av_packet_unref( &filtered_pkt );
             }
         }
     }
