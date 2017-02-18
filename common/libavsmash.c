@@ -962,7 +962,6 @@ void update_configuration
     }
     else
     {
-        int upsampling = 0;
         uint32_t i = current_sample_number;
         do
         {
@@ -983,26 +982,11 @@ void update_configuration
             }
             int dummy;
             decode_audio_packet( ctx, picture, &dummy, &pkt );
-            if( upsampling == 0 && picture->nb_samples > 0 )
-            {
-                if( ctx->frame_size )
-                    /* Libavcodec returns upsampled length. */
-                    upsampling = 1;
-                else
-                {
-                    uint32_t frame_length;
-                    if( lsmash_get_sample_delta_from_media_timeline( root, track_ID, i - 1, &frame_length ) )
-                        continue;
-                    if( frame_length )
-                        upsampling = picture->nb_samples / frame_length;
-                }
-            }
         } while( ctx->sample_rate == 0 || (ctx->channel_layout == 0 && ctx->channels == 0) || ctx->sample_fmt == AV_SAMPLE_FMT_NONE );
         extended->channel_layout = ctx->channel_layout ? ctx->channel_layout : av_get_default_channel_layout( ctx->channels );
         extended->sample_rate    = ctx->sample_rate;
         extended->sample_format  = ctx->sample_fmt;
         extended->frame_length   = ctx->frame_size;
-        extended->upsampling     = upsampling > 0 ? upsampling : 1;
     }
     av_frame_free( &picture );
     /* Reopen/flush with the requested number of threads. */

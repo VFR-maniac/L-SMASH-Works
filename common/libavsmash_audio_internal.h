@@ -32,7 +32,7 @@ struct libavsmash_audio_decode_handler_tag
     uint32_t              last_frame_number;
     uint32_t              frame_count;
     int                   implicit_preroll;
-    uint32_t              media_timescale;  /* unused */
+    uint32_t              media_timescale;
     uint64_t              media_duration;   /* unused */
     uint64_t              min_cts;
 };

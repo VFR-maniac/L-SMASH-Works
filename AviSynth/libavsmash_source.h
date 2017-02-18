@@ -99,7 +99,6 @@ private:
     (
         const char         *source,
         uint32_t            track_number,
-        bool                skip_priming,
         IScriptEnvironment *env
     );
 public:

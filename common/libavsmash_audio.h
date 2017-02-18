@@ -206,7 +206,7 @@ uint64_t libavsmash_audio_count_overall_pcm_samples
 (
     libavsmash_audio_decode_handler_t *adhp,
     int                                output_sample_rate,
-    uint64_t                          *skip_decoded_samples
+    uint64_t                           start_time
 );
 
 uint64_t libavsmash_audio_get_pcm_samples

@@ -282,6 +282,7 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
     /* Setup the reader specific info.
      * Note that this settings affects with the number of output PCM samples, therefore do before its counting and A/V sync settings. */
     uint32_t media_timescale = libavsmash_audio_get_media_timescale( adhp );
+    uint64_t start_time      = 0;
     if( hp->av_sync )
     {
         uint64_t min_cts = libavsmash_audio_get_min_cts( adhp );
@@ -297,11 +298,12 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
         uint32_t movie_timescale = hp->movie_param.timescale;
         hp->aih.start_pts = min_cts + ctd_shift
                           + get_empty_duration( hp->root, track_id, movie_timescale, media_timescale );
-        hp->aohp->skip_decoded_samples = ctd_shift + get_start_time( hp->root, track_id );
+        start_time = ctd_shift + get_start_time( hp->root, track_id );
     }
     hp->aih.media_timescale = media_timescale;
-    /* Count the number of PCM audio samples. */
-    h->audio_pcm_sample_count = libavsmash_audio_count_overall_pcm_samples( adhp, aohp->output_sample_rate, &aohp->skip_decoded_samples );
+    /* Count the number of PCM audio samples.
+     * TODO: Give start time before calling libavsmash_audio_count_overall_pcm_samples() and remove the 3rd argument. */
+    h->audio_pcm_sample_count = libavsmash_audio_count_overall_pcm_samples( adhp, aohp->output_sample_rate, start_time );
     if( h->audio_pcm_sample_count == 0 )
     {
         DEBUG_AUDIO_MESSAGE_BOX_DESKTOP( MB_ICONERROR | MB_OK, "No valid audio frame." );
@@ -315,6 +317,8 @@ static int prepare_audio_decoding( lsmash_handler_t *h, audio_option_t *opt )
                    - av_rescale_q( hp->vih.start_pts - hp->vih.skip_duration,
                                    (AVRational){ 1, hp->vih.media_timescale }, audio_sample_base );
         h->audio_pcm_sample_count += hp->av_gap;
+        uint32_t media_timescale = libavsmash_audio_get_media_timescale( adhp );
+        hp->aohp->skip_decoded_samples = av_rescale( start_time, aohp->output_sample_rate, media_timescale );
         libavsmash_audio_apply_delay( adhp, hp->av_gap );
     }
     /* Force seeking at the first reading. */
