@@ -2707,7 +2707,7 @@ static int parse_index
     if( !target )
         return -1;
     fclose( target );
-    int file_path_length = strlen( file_path );
+    size_t file_path_length = strlen( file_path );
     lwhp->file_path = (char *)lw_malloc_zero( file_path_length + 1 );
     if( !lwhp->file_path )
         return -1;
@@ -3200,7 +3200,7 @@ int lwlibav_construct_index
 )
 {
     /* Try to open the index file. */
-    int file_path_length = strlen( opt->file_path );
+    size_t file_path_length = strlen( opt->file_path );
     char *index_file_path = (char *)lw_malloc_zero(file_path_length + 5);
     if( !index_file_path )
         return -1;

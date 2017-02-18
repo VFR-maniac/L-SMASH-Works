@@ -266,7 +266,7 @@ void LSMASHAudioSource::get_audio_track( const char *source, uint32_t track_numb
             char *value = nullptr;
             if( metadata.type == ITUNES_METADATA_TYPE_STRING )
             {
-                int length = strlen( metadata.value.string );
+                size_t length = strlen( metadata.value.string );
                 if( length >= 116 )
                     value = duplicate_as_string( metadata.value.string, length );
             }
