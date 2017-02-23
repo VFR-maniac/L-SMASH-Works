@@ -464,7 +464,7 @@ static int get_frame_length
         uint32_t frame_length_32;
         if( lsmash_get_sample_delta_from_media_timeline( adhp->root, adhp->track_id, frame_number, &frame_length_32 ) < 0 )
             return -1;
-        int64_t temp_frame_length = av_rescale( *frame_length, es->sample_rate, adhp->media_timescale );
+        int64_t temp_frame_length = av_rescale( frame_length_32, es->sample_rate, adhp->media_timescale );
         if( temp_frame_length < 0 )
             return -1;
         *frame_length = (uint64_t)temp_frame_length;
