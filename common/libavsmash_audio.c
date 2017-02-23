@@ -687,13 +687,14 @@ uint64_t libavsmash_audio_get_pcm_samples
         AVPacket *pkt = &adhp->packet;
         if( frame_number > adhp->frame_count )
         {
-            if( config->delay_count )
+            if( config->delay_count || !(output_flags & AUDIO_OUTPUT_ENOUGH) )
             {
                 /* Null packet */
                 av_init_packet( pkt );
                 pkt->data = NULL;
                 pkt->size = 0;
-                -- config->delay_count;
+                if( config->delay_count )
+                    config->delay_count -= 1;
             }
             else
                 goto audio_out;
