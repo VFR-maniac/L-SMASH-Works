@@ -629,7 +629,7 @@ retry_seek:
         }
         if( output_flags & AUDIO_OUTPUT_ENOUGH )
             goto audio_out;
-        if( output_flags & AUDIO_DECODER_RECEIVED_PACKET )
+        if( output_flags & (AUDIO_DECODER_ERROR | AUDIO_DECODER_RECEIVED_PACKET) )
             ++frame_number;
     } while( 1 );
 audio_out:
