@@ -45,11 +45,12 @@ typedef struct
 
 enum audio_output_flag
 {
-    AUDIO_OUTPUT_NO_FLAGS  = 0,
-    AUDIO_OUTPUT_ENOUGH    = 1 << 0,
-    AUDIO_DECODER_DELAY    = 1 << 1,
-    AUDIO_DECODER_ERROR    = 1 << 2,
-    AUDIO_RECONFIG_FAILURE = 1 << 3,
+    AUDIO_OUTPUT_NO_FLAGS         = 0,
+    AUDIO_OUTPUT_ENOUGH           = 1 << 0,
+    AUDIO_DECODER_DELAY           = 1 << 1,
+    AUDIO_DECODER_ERROR           = 1 << 2,
+    AUDIO_RECONFIG_FAILURE        = 1 << 3,
+    AUDIO_DECODER_RECEIVED_PACKET = 1 << 4,
 };
 CPP_DEFINE_OR_SUBSTITUTE_OPERATOR( enum audio_output_flag )
 

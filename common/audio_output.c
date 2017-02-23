@@ -134,8 +134,12 @@ uint64_t output_pcm_samples_from_packet
         }
         if( pkt->data )
         {
-            pkt->size -= consumed_data_length;
-            pkt->data += consumed_data_length;
+            if( consumed_data_length > 0 )
+            {
+                pkt->size -= consumed_data_length;
+                pkt->data += consumed_data_length;
+                *output_flags |= AUDIO_DECODER_RECEIVED_PACKET;
+            }
         }
         else if( !decode_complete )
         {
